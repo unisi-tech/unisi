@@ -5,15 +5,15 @@ UNified System Interface and GUI
 UNISI technology provides a unified system interface and advanced program functionality, eliminating the need for front-end and most back-end programming. It automates common tasks, as well as unique ones, significantly reducing the necessity for manual programming and effort.
 
 ### Provided functionality without programming ###
--Automatic WEB interface
--Unified interaction protocol support
--Automatic configuring
--Multi-user support
--Hot reloading and updating
--Integral autotesting
--Protocol schema auto validation
--Voice interaction (not released yet)
--Developing data pipelines (not released yet)
+ - Automatic WEB interface
+ - Unified interaction protocol support
+ - Automatic configuring
+ - Multi-user support
+ - Hot reloading and updating
+ - Integral autotesting
+ - Protocol schema auto validation
+ - Voice interaction (not released yet)
+ - Developing data pipelines (not released yet)
 
 ### Installing ###
 ```
@@ -401,5 +401,5 @@ More info about User class methods you can find in user.py in the souce dir.
 
 Examples are in tests folder.
 
-Demo project and UNISI part https://github.com/Claus1/cvtools
+Demo project and UNISI part https://github.com/unisi-tech/vision
 
