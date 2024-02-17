@@ -70,7 +70,7 @@ unisi.start('Test app')
 Unisi builds the interactive app for the code above.
 Connect a browser to localhast:8000 which are by default and will see:
 
-![image](https://github.com/Claus1/unisi/assets/1247062/d73a5f2b-eaae-46d3-907b-14fb7d60475b)
+![image](https://github.com/unisi-tech/unisi/assets/1247062/be828e3a-00f8-41ad-9e97-82c01fd566e6)
 
 ### Handling events ###
 All handlers are functions which have a signature
@@ -165,7 +165,7 @@ If the blocks are simply listed Unisi draws them from left to right or from top 
 blocks = [ [b1,b2], [b3, [b4, b5]]]
 #[b1,b2] - the first vertical area, [b3, [b4, b5]] - the second one.
 
-![image](https://github.com/Claus1/unisi/assets/1247062/75d0f64c-d457-43c6-a909-0c97f4b4ab0f)
+![image](https://github.com/unisi-tech/unisi/assets/1247062/aa0c3623-ef57-45ce-a179-7ba53df119c3)
 
 ### Basic gui elements ###
 Normally they have type property which says unisi what data it contains and optionally how to draw the element. 
