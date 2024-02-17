@@ -1,0 +1,26 @@
+[project]
+name = "unisi"
+version = "0.1.0"
+description = "UNified System Interface, GUI and proxy"
+authors = [
+    {name = "UNISI Tech", email = "g.dernovoy@gmail.com"},
+]
+dependencies = [
+    "aiohttp",
+    "jsoncomparison",
+    "jsonpickle",
+    "pandas",
+    "requests",
+    "watchdog",
+    "websockets"
+]
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+
+[project.urls]
+Homepage = "https://github.com/unisi-tech/unisi"
+[build-system]
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
