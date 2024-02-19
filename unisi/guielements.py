@@ -46,7 +46,7 @@ class Edit(Gui):
                 if type_value == int or type_value == float:
                     self.type = 'number'
                     return
-            self.type =  'autoedit' if 'complete' in kwargs else 'edit'
+            self.type =  'string'
         if not has_value:
             self.value = '' if self.type != 'number' else 0
 
@@ -54,7 +54,8 @@ class Text(Gui):
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         self.value = self.name
-        self.type = 'text'        
+        self.type = 'string'
+        self.edit = False       
 
 class Range(Gui):
     def __init__(self, name, *args, **kwargs):
@@ -155,6 +156,6 @@ class Tree(Gui):
 class TextArea(Gui):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
-        self.type = 'textarea' 
+        self.type = 'text' 
                      
         

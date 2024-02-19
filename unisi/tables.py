@@ -6,8 +6,8 @@ def accept_cell_value(table, val):
         try:
             value = float(value)        
         except ValueError:
-            pass
-        table.rows[position[0]][position[1]] = value    
+            return
+    table.rows[position[0]][position[1]] = value    
 
 def delete_table_row(table, value):
     if table.rows:        

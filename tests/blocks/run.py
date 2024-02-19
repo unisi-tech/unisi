@@ -1,11 +1,7 @@
-import sys
-import os
 from aiohttp import web
 
-#optional:  add 2 path if unisi is installed near (for deep testing or developing)
-wd = os.getcwd()
-sys.path.insert(0,wd[:wd.find('/unisi')] + '/unisi')
-print(wd[:wd.find('/unisi')] + '/unisi')
+#optional
+import dev
 
 import unisi
 
