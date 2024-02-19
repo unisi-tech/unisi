@@ -44,15 +44,13 @@ class Recorder:
     def __init__(self):
         self.start(None)
         
-    def accept(self, msg, response):        
-        if self.ignored_1message:            
+    def accept(self, msg, response):  
+        if not self.ignored_1message: 
+           self.ignored_1message = True   
+        else:           
             self.record_buffer.append(f"{jsonString(msg)},\
-                \n{'null' if response is None else jsonString(response)}\n")
-        else: #start for setting screen
-            self.record_buffer.append(jsonString(ArgObject(block = 'root', 
-                element = None, value = User.last_user.screen_module.name)))
-            self.ignored_1message = True    
-
+              \n{'null' if response is None else jsonString(response)}\n")
+        
     def stop_recording(self, _, x):    
         button.spinner = None
         button.changed = button_clicked
@@ -69,9 +67,14 @@ class Recorder:
             Warning('Nothing to save!',button)
 
     def start(self,fname):
-        self.record_file = fname
-        self.ignored_1message = False
+        self.record_file = fname        
         self.record_buffer = []
+        if fname:
+            self.ignored_1message = True
+            module = User.last_user.screen_module
+            self.accept(ArgObject(block = 'root', element = None,
+                value = module.name), module.screen)
+            self.ignored_1message = False
 
 recorder = Recorder()
 
@@ -82,23 +85,44 @@ def test(filename, user):
     filepath = f'{testdir}{divpath}{filename}'
     file = open(filepath, "r") 
     data = json.loads(file.read())
+    tb = 'toolbar'
     error = False
     for message in data:
         if message is not None and message.get('block'):
             result = user.result4message(ReceivedMessage(message))
-            response = user.prepare_result(result)
+            responce = user.prepare_result(result)
             user_message = message
         else:
-            diff = comparator(message, obj2pyjson(response))
+            if message and tb in message:
+                del message[tb]
+            jresponce = obj2pyjson(responce)
+            if jresponce and tb in jresponce:
+                del jresponce[tb]
+
+            diff = comparator(message, jresponce)
             if diff != NO_DIFF:
                 print(f"\nTest {filename} is failed on message {user_message}:")
                 err = diff.get('_message')
                 if err:
                     print(f"  {err}")
                 else:
-                    for value in diff.values():
-                        err = value['_message']                        
-                        print(f"  {err}")
+                    for key, value in diff.items():
+                        if key != 'toolbar':
+                            print(f"  {key}")
+                            while True:
+                                err = value.get('_message')
+                                if err:
+                                    print(f"  {err}")
+                                    break
+                                else: 
+                                    content = value.get('_content')
+                                    if content:
+                                        value = content[1]
+                                    else:
+                                        key = list(value.keys())[0]
+                                        value = value[key]
+                                        print(f"  {key}")
+
                 error = True
     return not error
 
@@ -106,7 +130,7 @@ test_name = Edit('Name test file', '', focus = True)
 rewrite = Switch('Overwrite existing', False, type = 'check')
 
 def button_clicked(_,__):
-    test_name.value = ''
+    test_name.value = User.last_user.screen.name
     test_name.complete = smart_complete(os.listdir(testdir))
     return Dialog('Create autotest..', ask_create_test, test_name, rewrite)
 
@@ -152,19 +176,19 @@ def check_block(self):
             child_names.add(child.name)                
     return errors
 
-def check_screen(module):
-    self = module.screen
+def check_module(module):
+    screen = module.screen
     errors =  []        
     block_names = set()        
-    if not hasattr(self, 'name') or not self.name:            
+    if not hasattr(screen, 'name') or not screen.name:            
         errors.append(f"Screen file {module.__file__} does not contain name!")
-        self.name = 'Unknown'
-    elif not isinstance(self.name, str):
-        errors.append(f"The name in screen file {module.__file__} {self.name} is not a string!")
-    if not isinstance(self.blocks, list):
+        screen.name = 'Unknown'
+    elif not isinstance(screen.name, str):
+        errors.append(f"The name in screen file {module.__file__} {screen.name} is not a string!")
+    if not isinstance(screen.blocks, list):
         errors.append(f"Screen file {module.__file__} does not contain 'blocks' list!")
     else:
-        for bl in flatten(self.blocks):            
+        for bl in flatten(screen.blocks):            
             if not isinstance(bl, Block):
                 errors.append(f'The screen contains invalid element {bl} instead of Block object!')                                                    
             elif bl.name in block_names:
@@ -173,7 +197,7 @@ def check_screen(module):
                 block_names.add(bl.name)
             errors += check_block(bl)
     if errors:
-        errors.insert(0, f"\nErrors in screen {self.name}, file name {module.__file__}:")
+        errors.insert(0, f"\nErrors in screen {screen.name}, file name {module.__file__}:")
     return errors
     
 def run_tests():
@@ -184,7 +208,7 @@ def run_tests():
     user.session = 'autotest'
     errors = []
     for module in user.screens:
-        errors += check_screen(module)
+        errors += check_module(module)
     if errors:
         errors.insert(0, f'\n!!----Unisi detected errors in screens:')
         print('\n'.join(errors), '\n')

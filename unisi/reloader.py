@@ -17,7 +17,7 @@ if config.hot_reload:
     from watchdog.events import PatternMatchingEventHandler
     from .users import User
     from .utils import divpath, Redesign, app_dir
-    from .autotest import check_screen
+    from .autotest import check_module
     import re, collections
 
     #for removing message duplicates        
@@ -48,7 +48,7 @@ if config.hot_reload:
 
             try:
                 module = user.load_screen(sname)
-                errors = check_screen(module)                                
+                errors = check_module(module)                                
                 if errors:
                     print('\n'.join(errors))
                     busy = False

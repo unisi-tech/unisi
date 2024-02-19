@@ -1,0 +1,22 @@
+[
+{"block": "root", "element": null, "value": "Parameters"},              
+{"name": "Parameters", "type": "screen", "icon": null, "prepare": null, "blocks": [{"name": "System parameters", "type": "block", "value": [{"name": "Show server params", "type": "command", "changed": null}, [{"name": "Per device eval batch size", "value": 16, "type": "number"}, {"name": "Num train epochs", "value": 10, "type": "number"}, {"name": "Warmup ratio", "value": 0.1, "type": "number"}], [{"name": "Logging steps", "value": 10, "type": "number"}, {"name": "Device", "value": "cpu", "options": ["cpu", "gpu"], "type": "select"}, {"name": "Load best", "value": true, "type": "switch"}]], "name2elem": {"per_device_eval_batch_size": {"name": "Per device eval batch size", "value": 16, "type": "number"}, "num_train_epochs": {"name": "Num train epochs", "value": 10, "type": "number"}, "warmup_ratio": {"name": "Warmup ratio", "value": 0.1, "type": "number"}, "logging_steps": {"name": "Logging steps", "value": 10, "type": "number"}, "device": {"name": "Device", "value": "cpu", "options": ["cpu", "gpu"], "type": "select"}, "load_best": {"name": "Load best", "value": true, "type": "switch"}}}], "header": "Test app", "toolbar": [{"name": "_Add test", "right": true, "icon": "format_list_bulleted_add", "tooltip": "Stop test recording", "type": "command", "spinner": true}], "order": 2, "reload": false, "menu": [["Main", null], ["Zoo", null], ["Parameters", null]]}
+,
+{"screen": null, "block": "System parameters", "element": "Per device eval batch size", "event": "changed", "value": 17},              
+null
+,
+{"screen": null, "block": "System parameters", "element": "Per device eval batch size", "event": "changed", "value": 18},              
+null
+,
+{"screen": null, "block": "System parameters", "element": "Logging steps", "event": "changed", "value": 9},              
+null
+,
+{"screen": null, "block": "System parameters", "element": "Logging steps", "event": "changed", "value": 8},              
+null
+,
+{"screen": null, "block": "System parameters", "element": "Load best", "event": "changed", "value": false},              
+null
+,
+{"screen": null, "block": "System parameters", "element": "Show server params", "event": "changed", "value": null},              
+{"type": "info", "value": "{'per_device_eval_batch_size': 18, 'num_train_epochs': 10, 'warmup_ratio': 0.1, 'logging_steps': 8, 'device': 'cpu', 'load_best': False}"}
+]
