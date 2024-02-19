@@ -161,12 +161,9 @@ class User:
                 return ['toolbar', e.name]
 
     def prepare_result(self, raw):
-        if raw == UpdateScreen:
+        if raw is True or raw == Redesign:
             raw = self.screen      
-            raw.reload = False                  
-        elif raw == Redesign:
-            raw = self.screen      
-            raw.reload = True                  
+            raw.reload = raw == Redesign                              
         else:
             if isinstance(raw, Message):
                 raw.fill_paths4(self)                

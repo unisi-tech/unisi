@@ -24,7 +24,7 @@ pip install unisi
  The server sends protocol data to the front-end UNISI which has built-in tools (autodesigner) and automatically builds a standart Google Material Design GUI for the user data. No markup, drawing instructions and the other dull job are required. From the constructed Unisi screen the server receives a JSON message flow which fully describes what the user did. The message format is {screen, block, element, event, value}, "value" is the JSON value of the action/event that has happened. The server can either accept the change or roll it back by sending an info window about an inconsistency. The server can open a dialog box, send popup Warning, Error,.. or an entirely new screen. Unisi instantly and automatically displays actual server state. 
 
 ### Programming ###
-This repo explains how to work with Unisi using Python and the tiny but optimal framework for that. Unisi web version is included in this library.  Supports Python 3.10 and up.
+This repo explains how to work with Unisi using Python and the tiny but optimal framework for that. Unisi web version is included in this library.  Supports Python 3.8 and up.
 
 
 ### High level - Screen ###

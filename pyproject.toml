@@ -1,6 +1,6 @@
 [project]
 name = "unisi"
-version = "0.1.0"
+version = "0.1.1"
 description = "UNified System Interface, GUI and proxy"
 authors = [
     {name = "UNISI Tech", email = "g.dernovoy@gmail.com"},
@@ -14,7 +14,7 @@ dependencies = [
     "watchdog",
     "websockets"
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.8"
 readme = "README.md"
 license = {text = "Apache-2.0"}
 
