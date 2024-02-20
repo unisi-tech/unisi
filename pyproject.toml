@@ -1,13 +1,12 @@
 [project]
 name = "unisi"
-version = "0.1.1"
+version = "0.1.2"
 description = "UNified System Interface, GUI and proxy"
 authors = [
     {name = "UNISI Tech", email = "g.dernovoy@gmail.com"},
 ]
 dependencies = [
     "aiohttp",
-    "jsoncomparison",
     "jsonpickle",
     "pandas",
     "requests",

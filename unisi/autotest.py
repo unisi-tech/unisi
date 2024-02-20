@@ -4,7 +4,7 @@ from .guielements import *
 from .containers import Block, Dialog
 from .users import User
 from .common import *
-from jsoncomparison import Compare, NO_DIFF
+from .jsoncomparison import Compare, NO_DIFF
 
 #setting config variables
 testdir = 'autotest'
@@ -34,7 +34,7 @@ logfile = config.logfile
 handlers = [logging.FileHandler(logfile), logging.StreamHandler()] if logfile else []
 logging.basicConfig(level = logging.WARNING, format = format, handlers = handlers)
 
-comparator = Compare().check
+comparator = Compare(rules = {'toolbar': '*'}).check
 
 def jsonString(obj):
     pretty = config.pretty_print
@@ -73,57 +73,56 @@ class Recorder:
             self.ignored_1message = True
             module = User.last_user.screen_module
             self.accept(ArgObject(block = 'root', element = None,
-                value = module.name), module.screen)
+                event = 'changed', value = module.name), module.screen)
             self.ignored_1message = False
 
 recorder = Recorder()
 
-def obj2pyjson(obj):
+def obj2json(obj):
     return json.loads(jsonpickle.encode(obj,unpicklable=False))
 
 def test(filename, user):
     filepath = f'{testdir}{divpath}{filename}'
     file = open(filepath, "r") 
-    data = json.loads(file.read())
-    tb = 'toolbar'
+    data = json.loads(file.read())    
     error = False
-    for message in data:
-        if message is not None and message.get('block'):
-            result = user.result4message(ReceivedMessage(message))
-            responce = user.prepare_result(result)
-            user_message = message
-        else:
-            if message and tb in message:
-                del message[tb]
-            jresponce = obj2pyjson(responce)
-            if jresponce and tb in jresponce:
-                del jresponce[tb]
-
-            diff = comparator(message, jresponce)
-            if diff != NO_DIFF:
-                print(f"\nTest {filename} is failed on message {user_message}:")
-                err = diff.get('_message')
-                if err:
-                    print(f"  {err}")
-                else:
-                    for key, value in diff.items():
-                        if key != 'toolbar':
-                            print(f"  {key}")
-                            while True:
-                                err = value.get('_message')
+    for i in range(0, len(data), 2):
+        message = data[i]
+        expected = data[i + 1]
+            
+        result = user.result4message(ReceivedMessage(message))
+        responce = user.prepare_result(result)
+        jresponce = obj2json(responce)
+        
+        diff = comparator(expected, jresponce)
+        if diff != NO_DIFF:
+            print(f"\nTest {filename} is failed on message {message}:")
+            err = diff.get('_message')
+            if err:
+                print(f"  {err}")
+            else:
+                for key, obj in diff.items():                                             
+                    if key != '#name':
+                        while True:
+                                err = obj.get('_message')
                                 if err:
-                                    print(f"  {err}")
+                                    print(f"  {err} \n")
                                     break
                                 else: 
-                                    content = value.get('_content')
-                                    if content:
-                                        value = content[1]
+                                    content = obj.get('_content')
+                                    if content and len(obj) == 1:
+                                        obj = content
                                     else:
-                                        key = list(value.keys())[0]
-                                        value = value[key]
-                                        print(f"  {key}")
-
-                error = True
+                                        for key, subobj in obj.items():
+                                            if key != '_content': 
+                                                if isinstance(key, str):  
+                                                    name = obj.get('#name', '')                                                                             
+                                                    if name:
+                                                        key = f'  {name}: {key}'
+                                                    print(f"  {key}")
+                                                obj = subobj
+                                                break                                                                
+            error = True
     return not error
 
 test_name = Edit('Name test file', '', focus = True)
@@ -210,7 +209,7 @@ def run_tests():
     for module in user.screens:
         errors += check_module(module)
     if errors:
-        errors.insert(0, f'\n!!----Unisi detected errors in screens:')
+        errors.insert(0, f'\n!!----Detected errors in screens:')
         print('\n'.join(errors), '\n')
     elif user.screens:
         print(f'\n----The screen definitions are correct.-----\n')
