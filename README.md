@@ -12,8 +12,9 @@ UNISI technology provides a unified system interface and advanced program functi
  - Hot reloading and updating
  - Integral autotesting
  - Protocol schema auto validation
+ - Shared sessions
  - Voice interaction (not released yet)
- - Remote interaction and data pipelines (not released yet)
+ - Remote GUI interaction and pipelining (not released yet)
 
 ### Installing ###
 ```
@@ -70,7 +71,7 @@ unisi.start('Test app')
 Unisi builds the interactive app for the code above.
 Connect a browser to localhast:8000 which are by default and will see:
 
-![image](https://github.com/unisi-tech/unisi/assets/1247062/be828e3a-00f8-41ad-9e97-82c01fd566e6)
+![image](https://github.com/unisi-tech/unisi/assets/1247062/dafebd1f-ae48-4790-9282-dea83d986749)
 
 ### Handling events ###
 All handlers are functions which have a signature
@@ -95,7 +96,7 @@ clean_button = Button('Clean the table’, clean_table)
 | Gui object |  Object to update |
 | Gui object array or tuple |  Objects to update |
 | None | Nothing to update, Ok |
-| Error(...), Warning(...), Info(...) | Show to user info about a problem. |
+| Error(...), Warning(...), Info(...) | Show to user info about a state. |
 | UpdateScreen, True | Redraw whole screen |
 | Dialog(..) | Open a dialog with parameters |
 | user.set_screen(screen_name) | switch to another screen |
@@ -108,12 +109,11 @@ If a Gui object doesn't have 'changed' handler the object accepts incoming value
 If 'value' is not acceptable instead of returning an object possible to return Error or Warning or Info. That functions can update a object list passed after the message argument.
 
 ```
-def changed_range(_, value):
-   if value < 0.5 and value > 1.0:
-       #or Error(message, _) if we want to return the previous visible value to the field, return gui object _ also.
-       return Error(f‘The value of {_.name} has to be > 0.5 and < 1.0!', _) 
+def changed_range(guirange, value):
+   if value < 0.5 and value > 1.0:       
+       return Error(f‘The value of {guirange.name} has to be > 0.5 and < 1.0!', guirange) 
     #accept value othewise
-    _.value = value
+    guirange.value = value
 
 edit = Edit('Range of involving', 0.6, changed_range, type = 'number')
 ```
