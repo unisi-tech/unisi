@@ -117,19 +117,21 @@ class Compare:
         return self._config.get(path)
 
     def _dict_diff(self, e, a):
-        
-        d = {}        
-        for k in e:
-            if k not in a:
-                d[k] = KeyNotExist(k, None).explain()
-            else:
-                d[k] = self._diff(e[k], a[k])
-
-        for k in a:
-            if k not in e:
-                d[k] = UnexpectedKey(None, k).explain()
-            else:
-                d[k] = self._diff(e[k], a[k])
+        if not isinstance(a, dict):
+            d = {'type' : {'_message': 'Incompatible types'}}
+        else:
+            d = {}        
+            for k in e:
+                if k not in a:
+                    d[k] = KeyNotExist(k, None).explain()
+                else:
+                    d[k] = self._diff(e[k], a[k])
+            
+            for k in a:
+                if k not in e:
+                    d[k] = UnexpectedKey(None, k).explain()
+                else:
+                    d[k] = self._diff(e[k], a[k])
 
         diffs = self._without_empties(d)
         if diffs:
@@ -139,11 +141,14 @@ class Compare:
         return diffs
 
     def _list_diff(self, e, a):
-        d = {}
-        if self._need_compare_length():
-            d['_length'] = self._list_len_diff(e, a)
-        d['_content'] = self._list_content_diff(e, a)
-        return self._without_empties(d)
+        if not isinstance(a, list):
+            d = {'type' : {'_message': 'Incompatible types'}}
+        else:
+            d = {}
+            if self._need_compare_length():
+                d['_length'] = self._list_len_diff(e, a)
+            d['_content'] = self._list_content_diff(e, a)
+            return self._without_empties(d)
 
     def _need_compare_length(self):
         path = 'types.list.check_length'
