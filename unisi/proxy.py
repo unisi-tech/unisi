@@ -40,7 +40,7 @@ class Proxy:
 
     def close(self):
         self.conn.close()
-
+    
     @property
     def screen_menu(self):
         return [name_icon[0] for name_icon in self.screen['menu']] if self.screen else []
@@ -66,7 +66,7 @@ class Proxy:
                 if el == element:
                     return block
     
-    def message(self, element, value, event = 'changed'):
+    def message(self, element, value = None, event = 'changed'):
         if event != 'changed' and event not in element:
             return None
         return ArgObject(block = self.block_of(element), element = element['name'], 

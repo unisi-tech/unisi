@@ -1,11 +1,18 @@
-import os, sys
+#Interact with tests/blocks
 
 #optional
 import dev
 
-from unisi import *
+from unisi import Proxy
 
-for i in range(1000):
-    proxy = Proxy('localhost:8000')
-    ok = proxy.set_screen('Zoo')
-    proxy.close()
+proxy = Proxy('localhost:8000')
+
+proxy.elements()
+
+commands = proxy.commands
+
+
+
+ok = proxy.set_screen('Zoo')
+
+proxy.close()
