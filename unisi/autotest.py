@@ -153,32 +153,38 @@ def ask_create_test(_, bname):
 button = Button('_Add test', button_clicked, right = True,
     icon='format_list_bulleted_add', tooltip='Create autotest')
 
-def check_block(self):
+def check_block(block, hash_elements):
     errors = []
     child_names = set()   
     
-    if not hasattr(self, 'name') or not self.name:            
-        errors.append(f"The block with {[str(type(gui)).split('.')[-1] for gui in flatten(self.value)]} does not contain name!")
-        self.name = 'Unknown'          
-    if not isinstance(self.name, str):
-        errors.append(f"The block with name {self.name} is not a string!")
-    for child in flatten(self.value):           
-        if not isinstance(child, Gui) or not child:
-            errors.append(f'The block {self.name} contains invalid element {child} instead of Gui+ object!') 
-        elif isinstance(child, Block):
-            errors.append(f'The block {self.name} contains block {child.name}. Blocks cannot contain blocks!')                                                                                                       
-        elif child.name in child_names and child.type != 'line':                        
-            errors.append(f'The block {self.name} contains a duplicated element name "{child.name}"!')
-        elif child.type == 'chart' and not hasattr(child, 'view'):
-            errors.append(f'The block {self.name} contains a chart type "{child.name}", but not "view" option!')
-        else:
-            child_names.add(child.name)                
+    if not hasattr(block, 'name') or not block.name:            
+        errors.append(f"The block with {[str(type(gui)).split('.')[-1] for gui in flatten(block.value)]} does not contain name!")
+        block.name = 'Unknown'          
+    if not isinstance(block.name, str):
+        errors.append(f"The block with name {block.name} is not a string!")
+    for child in flatten(block.value):  
+        hash_element = hash(child)
+        if hash_element in hash_elements:
+            errors.append(f'The block {block.name} contains already used "{child.name}" in block "{hash_elements[hash_element]}"!')
+        else: 
+            hash_elements[hash_element] = block.name         
+            if not isinstance(child, Gui) or not child:
+                errors.append(f'The block {block.name} contains invalid element {child.name} instead of Gui+ object!') 
+            elif isinstance(child, Block):
+                errors.append(f'The block {block.name} contains block {child.name}. Blocks cannot contain blocks!')                                                                                                       
+            elif child.name in child_names and child.type != 'line':                        
+                errors.append(f'The block {block.name} contains a duplicated element name "{child.name}"!')
+            elif child.type == 'chart' and not hasattr(child, 'view'):
+                errors.append(f'The block {block.name} contains a chart type "{child.name}", but not "view" option!')
+            else:
+                child_names.add(child.name)                
     return errors
 
 def check_module(module):
     screen = module.screen
     errors =  []        
-    block_names = set()        
+    block_names = set()      
+    hash_elements = {}  
     if not hasattr(screen, 'name') or not screen.name:            
         errors.append(f"Screen file {module.__file__} does not contain name!")
         screen.name = 'Unknown'
@@ -187,6 +193,10 @@ def check_module(module):
     if not isinstance(screen.blocks, list):
         errors.append(f"Screen file {module.__file__} does not contain 'blocks' list!")
     else:
+        toolbar = 'toolbar'
+        block_names.add(toolbar)
+        if screen.toolbar:
+            errors += check_block(Block(toolbar, *screen.toolbar), hash_elements)
         for bl in flatten(screen.blocks):            
             if not isinstance(bl, Block):
                 errors.append(f'The screen contains invalid element {bl} instead of Block object!')                                                    
@@ -194,7 +204,7 @@ def check_module(module):
                 errors.append(f'The screen contains a duplicated block name {bl.name}!')    
             else:            
                 block_names.add(bl.name)
-            errors += check_block(bl)
+            errors += check_block(bl, hash_elements)
     if errors:
         errors.insert(0, f"\nErrors in screen {screen.name}, file name {module.__file__}:")
     return errors
