@@ -1,6 +1,6 @@
 from websocket import create_connection
 from enum import Enum
-
+import json
 from .common import *
 
 class Event(Enum):

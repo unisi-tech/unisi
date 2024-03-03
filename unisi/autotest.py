@@ -1,4 +1,4 @@
-import config, os, logging
+import config, os, logging, json
 from .utils import *
 from .guielements import * 
 from .containers import Block, Dialog
@@ -6,14 +6,15 @@ from .users import User
 from .common import *
 from .jsoncomparison import Compare, NO_DIFF
 
+def obj2json(obj):
+    return json.loads(toJson(obj))
+
 #setting config variables
 testdir = 'autotest'
 if not hasattr(config, testdir):
     config.autotest = False
 if not hasattr(config, 'port'):
     config.port = 8000
-if not hasattr(config, 'pretty_print'):
-    config.pretty_print = False
 if not hasattr(config, 'upload_dir'):
     config.upload_dir = 'web'
 if not hasattr(config, 'logfile'):
@@ -36,10 +37,6 @@ logging.basicConfig(level = logging.WARNING, format = format, handlers = handler
 
 comparator = Compare(rules = {'toolbar': '*'}).check
 
-def jsonString(obj):
-    pretty = config.pretty_print
-    return toJson(obj, 2 if pretty else 0, pretty)
-
 class Recorder:
     def __init__(self):
         self.start(None)
@@ -48,8 +45,8 @@ class Recorder:
         if not self.ignored_1message: 
            self.ignored_1message = True   
         else:           
-            self.record_buffer.append(f"{jsonString(msg)},\
-              \n{'null' if response is None else jsonString(response)}\n")
+            self.record_buffer.append(f"{toJson(msg)},\
+              \n{'null' if response is None else toJson(response)}\n")
         
     def stop_recording(self, _, x):    
         button.spinner = None
@@ -78,9 +75,6 @@ class Recorder:
 
 recorder = Recorder()
 
-def obj2json(obj):
-    return json.loads(jsonpickle.encode(obj,unpicklable=False))
-
 def test(filename, user):
     filepath = f'{testdir}{divpath}{filename}'
     file = open(filepath, "r") 
@@ -96,32 +90,28 @@ def test(filename, user):
         
         diff = comparator(expected, jresponce)
         if diff != NO_DIFF:
-            print(f"\nTest {filename} is failed on message {message}:")
-            err = diff.get('_message')
-            if err:
-                print(f"  {err}")
-            else:
-                for key, obj in diff.items():                                             
-                    if key != '#name':
-                        while True:
-                                err = obj.get('_message')
-                                if err:
-                                    print(f"  {err} \n")
-                                    break
-                                else: 
-                                    content = obj.get('_content')
-                                    if content and len(obj) == 1:
-                                        obj = content
-                                    else:
-                                        for key, subobj in obj.items():
-                                            if key != '_content': 
-                                                if isinstance(key, str):  
-                                                    name = obj.get('#name', '')                                                                             
-                                                    if name:
-                                                        key = f'  {name}: {key}'
-                                                    print(f"  {key}")
-                                                obj = subobj
-                                                break                                                                
+            print(f"\nTest {filename} is failed on message {message}:")            
+            for key, obj in diff.items():                                             
+                if key != '#name':
+                    while True:
+                        err = obj.get('_message')
+                        if err:
+                            print(f"  {err} \n")
+                            break
+                        else: 
+                            content = obj.get('_content')
+                            if content and len(obj) == 1:
+                                obj = content
+                            else:
+                                for key, subobj in obj.items():
+                                    if key != '_content': 
+                                        if isinstance(key, str):  
+                                            name = obj.get('#name', '')                                                                             
+                                            if name:
+                                                key = f'  {name}: {key}'
+                                            print(f"  {key}")
+                                        obj = subobj
+                                        break                                                                
             error = True
     return not error
 

@@ -25,7 +25,7 @@ class Block(Gui):
         self.type = 'block'
         self.value = list(elems)        
         self.add(options)  
-        if hasattr(self,'scaler'):
+        if getattr(self,'scaler', False):
             scaler = ContentScaler(elements = lambda: self.scroll_list)
             self.scaler = scaler
             if not self.value:

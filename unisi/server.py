@@ -2,10 +2,10 @@ from aiohttp import web, WSMsgType
 from .users import *
 from pathlib import Path
 from .reloader import empty_app 
-from .autotest import recorder, jsonString, run_tests
+from .autotest import recorder, run_tests
 from .common import  *
 from config import port, upload_dir
-import traceback
+import traceback, json
 
 async def post_handler(request):
     reader = await request.multipart()
@@ -56,7 +56,7 @@ async def websocket_handler(request):
 
     async def send(res):
         if type(res) != str:
-            res = jsonString(user.prepare_result(res))        
+            res = toJson(user.prepare_result(res))        
         await ws.send_str(res)        
 
     user.send = send     
@@ -88,7 +88,7 @@ async def websocket_handler(request):
                                 broadcast(result, user)                            
                             msg_object = user.find_element(message)                         
                             if not isinstance(result, Message) or not result.contains(msg_object):                                                        
-                                broadcast(jsonString(user.prepare_result(msg_object)), user)
+                                broadcast(toJson(user.prepare_result(msg_object)), user)
             elif msg.type == WSMsgType.ERROR:
                 user.log('ws connection closed with exception %s' % ws.exception())
     except:        

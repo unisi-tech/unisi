@@ -1,4 +1,4 @@
-import json, jsonpickle
+import jsonpickle
 
 def flatten(*arr):
     for a in arr:
@@ -20,9 +20,9 @@ class ReceivedMessage:
         self.event = data.get('event')
         self.value = data.get('value')  
 
-def toJson(obj, indent = 0, pretty = False):
-    js = jsonpickle.encode(obj,unpicklable=False)
-    return json.dumps(json.loads(js), indent=indent, sort_keys=pretty) if pretty else js
+def toJson(obj):
+    return jsonpickle.encode(obj,unpicklable = False)
+
 
 
 

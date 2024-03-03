@@ -1,5 +1,4 @@
-import copy
-import json
+import copy, json
 from typing import Optional
 
 from .config import Config
