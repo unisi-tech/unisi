@@ -159,7 +159,7 @@ def check_block(block, hash_elements):
         else: 
             hash_elements[hash_element] = block.name         
             if not isinstance(child, Gui) or not child:
-                errors.append(f'The block {block.name} contains invalid element {child.name} instead of Gui+ object!') 
+                errors.append(f'The block {block.name} contains invalid element {child} instead of Gui+ object!') 
             elif isinstance(child, Block):
                 errors.append(f'The block {block.name} contains block {child.name}. Blocks cannot contain blocks!')                                                                                                       
             elif child.name in child_names and child.type != 'line':                        

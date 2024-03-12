@@ -69,13 +69,14 @@ async def websocket_handler(request):
                     await ws.close()
                 else:
                     raw_message = json.loads(msg.data)
+                    message = None
                     if isinstance(raw_message, list):
-                        for raw_submessage in raw_message:
-                            message = ReceivedMessage(raw_submessage)                    
-                            result = user.result4message(message)
-                        else:                        
-                            message = None
-                            result = Error('Empty command batch!')
+                        if raw_message:
+                            for raw_submessage in raw_message:
+                                message = ReceivedMessage(raw_submessage)                    
+                                result = user.result4message(message)
+                        else:                                
+                            result = Warning('Empty command batch!')
                     else:                    
                         message = ReceivedMessage(raw_message)            
                         result = user.result4message(message)                    

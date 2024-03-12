@@ -20,7 +20,7 @@ upload_dir = 'web'
 hot_reload   = True
 logfile  = 'log'
 autotest = '*'
-appname = 'unisi'
+appname = 'Unisi app'
 """)
     f.close()
     import config
