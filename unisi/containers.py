@@ -65,11 +65,16 @@ class ParamBlock(Block):
                 el = Edit(pretty_name, val)
             elif t == bool:
                 el = Switch(pretty_name, val)
-            elif t == list or t == tuple:
-                if len(val) == 4 and all(map(lambda e: isinstance(e, Number), val)):
-                    el = Range(pretty_name, val[0], options = val[1:])
+            elif t == tuple or t == list:
+                if len(val) != 2:
+                    raise ValueError('Composite value has to contain the current value and options value!')
+                options = val[1]
+                if not isinstance(options, list | tuple):
+                    raise ValueError('Options value (the second parameter) has to be a list or tuple!')
+                if len(options) == 3 and all(map(lambda e: isinstance(e, Number), val)):
+                    el = Range(pretty_name, val[0], options = options)
                 else:
-                    el = Select(pretty_name, val[0], options = val, type = 'select')
+                    el = Select(pretty_name, val[0], options = options, type = 'select')
             else:
                 el = Edit(pretty_name, val, type = 'number')
             self.name2elem[param] = el

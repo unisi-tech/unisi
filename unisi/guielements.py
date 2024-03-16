@@ -117,7 +117,7 @@ class Graph(Gui):
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         self.type='graph'
-        if not hasattr(self,'value'):
+        if not hasattr(self,'value') or not self.value:
             self.value = graph_default_value
         if not hasattr(self,'minwidth'):
             self.minwidth = 600.0                      

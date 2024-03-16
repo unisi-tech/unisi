@@ -83,7 +83,7 @@ async def websocket_handler(request):
                     await send(result)
                     if message:
                         if recorder.record_file:
-                            recorder.accept(message, result)
+                            recorder.accept(message, user.prepare_result (result))
                         if config.mirror and not is_screen_switch(message):                        
                             if result:
                                 broadcast(result, user)                            
