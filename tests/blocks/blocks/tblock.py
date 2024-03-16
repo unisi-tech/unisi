@@ -31,18 +31,19 @@ def table_update(_, value):
     value, pos = value        
     return Info(f'{_.name} {pos} is updated to value {value}!')
 
-def dialog_callback(_,value):
-    perstr = lambda per : 'Process executing {}%'.format(per)
+ticks = Edit('How many ticks', 50)
+
+def dialog_callback(_,value):    
     if value == 'Ok':
-        user.progress(perstr(0))
-        for i in range(100):
+        user.progress('Process executing')
+        for i in range(ticks.value):
             txt.value = i
-            user.progress(perstr(i), txt)
+            user.progress(f'{i} tick', txt)
             time.sleep(0.04)
         return user.progress(None)
 
 def call_dialog(*_):
-    return Dialog('Start a long process?', dialog_callback)
+    return Dialog('Start a long process?', dialog_callback, ticks)
 
 table = Table('Audios', 0, changed, type = 'chart', headers = ['Audio', 'Duration,sec', 'Stars'], multimode = True,
     rows =  [[f'sync{i}.mp3', round(random.random() * 15000) / 100, random.randint(1,50)] for i in range(100)],
