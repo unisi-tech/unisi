@@ -1,4 +1,6 @@
 from .guielements import Gui, Range, Edit, Switch, Select
+from numbers import Number
+
 
 class ContentScaler(Range):
     def __init__(self, *args, **kwargs):
@@ -64,7 +66,10 @@ class ParamBlock(Block):
             elif t == bool:
                 el = Switch(pretty_name, val)
             elif t == list or t == tuple:
-                el = Select(pretty_name, val[0], options = val, type = 'select')
+                if len(val) == 4 and all(map(lambda e: isinstance(e, Number), val)):
+                    el = Range(pretty_name, val[0], options = val[1:])
+                else:
+                    el = Select(pretty_name, val[0], options = val, type = 'select')
             else:
                 el = Edit(pretty_name, val, type = 'number')
             self.name2elem[param] = el

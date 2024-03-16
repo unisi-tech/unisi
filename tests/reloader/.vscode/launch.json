@@ -10,7 +10,6 @@
             "request": "launch",
             "program": "${file}",
             "console": "integratedTerminal",
-            "justMyCode": false,
             "env": {
                 "PYTHONPATH" : "/home/george/Projects/unisi"
             }        
