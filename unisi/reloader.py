@@ -71,7 +71,8 @@ if config.hot_reload:
                 if len(user.screens) == 1:
                     user.set_screen(module.name)                    
 
-            user.update_menu()
+            user.screens.sort(key=lambda s: s.screen.order)           
+            module.screen.menu = [[getattr(s, 'name', ''),getattr(s,'icon', None)] for s in user.screens]               
             user.set_clean() 
             user.sync_send(Redesign)
 
