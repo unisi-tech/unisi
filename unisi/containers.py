@@ -71,7 +71,7 @@ class ParamBlock(Block):
                 options = val[1]
                 if not isinstance(options, list | tuple):
                     raise ValueError('Options value (the second parameter) has to be a list or tuple!')
-                if len(options) == 3 and all(map(lambda e: isinstance(e, Number), val)):
+                if len(options) == 3 and all(map(lambda e: isinstance(e, Number), options)):
                     el = Range(pretty_name, val[0], options = options)
                 else:
                     el = Select(pretty_name, val[0], options = options, type = 'select')
