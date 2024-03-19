@@ -395,7 +395,8 @@ In screens and blocks sources we can access the user by 'user' variable
 print(isinstance(user, Hello_user))
 ```
 
-More info about User class methods you can find in user.py in the souce dir.
+'Become a serious web programmer in 1 hour.' is a crash course how to use UNISI
+   https://www.unisi.tech/learn
 
 Examples are in tests folder.
 
