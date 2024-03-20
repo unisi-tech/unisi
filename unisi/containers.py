@@ -1,4 +1,4 @@
-from .guielements import Gui, Range, Edit, Switch, Select
+from .guielements import Gui, Range, Edit, Switch, Select, Tree
 from numbers import Number
 
 
@@ -61,7 +61,7 @@ class ParamBlock(Block):
             pretty_name = param.replace('_',' ')
             pretty_name = pretty_name[0].upper() + pretty_name[1:]
             t = type(val)
-            if t == str:
+            if t == str or t == int or t == float:
                 el = Edit(pretty_name, val)
             elif t == bool:
                 el = Switch(pretty_name, val)
@@ -69,14 +69,17 @@ class ParamBlock(Block):
                 if len(val) != 2:
                     raise ValueError('Composite value has to contain the current value and options value!')
                 options = val[1]
-                if not isinstance(options, list | tuple):
+                if not isinstance(options, list | tuple | dict):
                     raise ValueError('Options value (the second parameter) has to be a list or tuple!')
                 if len(options) == 3 and all(map(lambda e: isinstance(e, Number), options)):
                     el = Range(pretty_name, val[0], options = options)
-                else:
+                elif isinstance(options, list | tuple):
                     el = Select(pretty_name, val[0], options = options, type = 'select')
+                else: 
+                    el = Tree(pretty_name, val[0], options = options)
             else:
-                el = Edit(pretty_name, val, type = 'number')
+                raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')
+            
             self.name2elem[param] = el
             
             if cnt % row == 0:

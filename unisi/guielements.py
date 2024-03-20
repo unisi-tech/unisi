@@ -80,7 +80,7 @@ def CameraButton(name, handler = None, **kwargs):
     return Button(name, handler, **kwargs)
         
 def UploadButton(name, handler = None,**kwargs):    
-    kwargs['type'] = 'image_uploader'
+    kwargs['type'] = 'uploader'
     if 'width' not in kwargs:
         kwargs['width'] = 250.0                  
     return Button(name, handler, **kwargs)

@@ -1,9 +1,9 @@
 from websocket import create_connection
-from enum import Enum
-import json
+from enum import IntFlag
+import json, requests, os
 from .common import *
 
-class Event(Enum):
+class Event(IntFlag):
     none = 0
     update = 1
     invalid = 2
@@ -26,17 +26,16 @@ message_types = ['error','warning','info']
 
 class Proxy:
     """UNISI proxy"""
-    def __init__(self, addr_port, timeout = 3, ssl = False):
-       if not addr_port.startswith(ws_header) and not addr_port.startswith(wss_header):
-           addr_port = f'{wss_header if ssl else ws_header}{addr_port}'
-           addr_port = f'{addr_port}{"" if addr_port.endswith("/") else "/"}{ws_path}'
-                      
-       self.conn = create_connection(addr_port, timeout = timeout)
-       self.screen = None       
-       self.screens = {}
-       self.dialog = None
-       self.event = None
-       self.request(None)
+    def __init__(self, host_port, timeout = 3, ssl = False):
+        addr_port = f'{wss_header if ssl else ws_header}{host_port}'
+        addr_port = f'{addr_port}{"" if addr_port.endswith("/") else "/"}{ws_path}'
+        self.host_port = f'{"https" if ssl else "http"}://{host_port}'
+        self.conn = create_connection(addr_port, timeout = timeout)
+        self.screen = None       
+        self.screens = {}
+        self.dialog = None
+        self.event = None
+        self.request(None)
 
     def close(self):
         self.conn.close()
@@ -46,10 +45,21 @@ class Proxy:
         return [name_icon[0] for name_icon in self.screen['menu']] if self.screen else []
     
     @property
-    def commands(self, names = False):
-        """return command objects or its names"""
-        celems = self.elements(types=['command'])        
-        return [el['name'] for el in celems] if names else celems        
+    def commands(self):
+        """return command objects"""
+        return self.elements(types=['command'])        
+            
+    def element(self, name):
+        """return the element only if 1 element has such name"""
+        result = None
+        for block in self.screen['name2block'].values(): 
+            for el in flatten(block['value']):
+                if el['name'] == name:
+                    if not result:
+                        result = el
+                    else:
+                        return None
+        return result
     
     def elements(self, block = None, types = None):
         """get elements with filtering types and blocks"""
@@ -60,16 +70,31 @@ class Proxy:
             answer.extend([el for el in flatten(block['value']) if not types or el['type'] in types])
         return answer
     
-    def block_of(self, element):
+    def block_name(self, element):
         for block in self.screen['name2block'].values():
             for el in flatten(block['value']):
                 if el == element:
-                    return block
+                    return block['name']
+                
+    def upload(self, fpath):
+        """upload file to the server and get its server path"""
+        file = open(fpath, "rb")        
+        response = requests.post(self.host_port, files = {os.path.basename(fpath): file})
+        return getattr(response, 'text', '')
+        
+    def command_upload(self, command, fpath):
+        """upload file to the server and call command"""
+        spath = self.upload(fpath)
+        if spath:
+            ms = self.make_message(command, spath)
+            if ms:
+                return self.interact(ms)
+        return Event.invalid
     
-    def message(self, element, value = None, event = 'changed'):
+    def make_message(self, element, value = None, event = 'changed'):
         if event != 'changed' and event not in element:
             return None
-        return ArgObject(block = self.block_of(element), element = element['name'], 
+        return ArgObject(block = self.block_name(element), element = element['name'], 
             event = event, value = value)
     
     def interact(self, message, progress_callback = None):
@@ -87,6 +112,11 @@ class Proxy:
         responce = self.conn.recv()
         message = json.loads(responce) 
         return self.process(message) 
+    
+    def set_value(self, element, new_value):
+        element['value'] = new_value
+        ms = self.make_message(element, new_value)
+        return self.interact(ms) if ms else Event.invalid
     
     def set_screen(self, name):
         screen = self.screens.get(name)
@@ -147,6 +177,7 @@ class Proxy:
         
     def update(self, message):
         """update screen from the message"""
+        result = Event.update
         updates = message.updates
         for update in updates:
             path = update['path']
@@ -155,5 +186,12 @@ class Proxy:
                 name2block[block] = update['data']
             else:
                 block, element = path
-                name2block[block][element] = update['data']
+                for el in flatten(name2block[block]['value']):
+                    if el['name'] == element:
+                       el.__dict__ =  update['data'].__dict__ 
+                       break
+                else:
+                    result = Event.unknown_update
+        return result
+
     
