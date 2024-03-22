@@ -6,7 +6,7 @@ UNISI technology provides a unified system interface and advanced program functi
 
 ### Provided functionality without programming ###
  - Automatic WEB GUI
- - Unified interaction protocol support
+ - Unified Remote API
  - Automatic configuring
  - Auto logging
  - Multi-user support
