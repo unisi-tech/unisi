@@ -88,8 +88,8 @@ class Proxy:
         return self.interact(self.make_message(command, value))        
         
     def command_upload(self, command, fpath):
-        """upload file to the server and call command"""        
-        spath = self.upload(fpath)
+        """upload file to the server and call command"""    
+        spath = os.path.abspath(fpath) if 'localhost' in self.host_port else self.upload(fpath)
         return self.command(command, spath) if spath else Event.invalid                    
     
     def make_message(self, element, value = None, event = 'changed'):
