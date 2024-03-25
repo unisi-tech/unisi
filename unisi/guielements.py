@@ -102,13 +102,35 @@ class Video(Gui):
     '''has to contain src parameter'''
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
-        self.type = 'video'
-        if not hasattr(self,'width'):
-            self.width = 300.0              
+        self.type = 'video'        
         if not hasattr(self,'url'):
             self.url = self.name
         if not hasattr(self,'ratio'):
             self.ratio = None
+
+class Node:
+    def __init__(self, name = '', color = '', size = 0, id = ''):
+        if name:
+            self.name = name
+        if color:
+            self.color = color
+        if size:
+            self.size = size
+        if id:
+            self.id = id        
+
+class Edge:
+    def __init__(self, source, target, name = '', color = '', size = 0, id = ''):
+        self.source = source
+        self.target = target
+        if name:
+            self.name = name
+        if color:
+            self.color = color
+        if size:
+            self.size = size
+        if id:
+            self.id = id        
 
 graph_default_value = {'nodes' : [], 'edges' : []}
 
@@ -118,14 +140,12 @@ class Graph(Gui):
         super().__init__(name, *args, **kwargs)
         self.type='graph'
         if not hasattr(self,'value') or not self.value:
-            self.value = graph_default_value
-        if not hasattr(self,'minwidth'):
-            self.minwidth = 600.0                      
+            self.value = graph_default_value        
         if not hasattr(self, 'nodes'):
             self.nodes = []
         if not hasattr(self, 'edges'):
             self.edges = []
-
+        
 class Switch(Gui):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)        

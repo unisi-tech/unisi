@@ -43,34 +43,29 @@ import random
 def add_node(_, v):
     i = len(graph.nodes)
     name = f'node{i}'    
-    graph.edges.append({'source': random.randrange(i), 'target': i })
-    graph.nodes.append({'label' : name})
+    source = random.randrange(i)
+    if graph.nodes[source] is None:
+        source = 1
+    graph.edges.append(Edge(source, i ))
+    graph.nodes.append(Node(name))
     return graph
 
 def graph_selection(_, val):
     _.value = val    
     return Info(f'Nodes {val["nodes"]}, Edges {val["edges"]}') 
-    
+
+#graph can handle invalid edges and null nodes in the array    
 graph = Graph('test graph', None, graph_selection, 
-    width = 400, height = 400,  nodes = [
-     { 'label': "Node 1" },
-     { 'label': "Node 2" },
-     { 'label': "Node 3" },
-     { 'label': "Node 4" }
-  ], edges = [
-     { 'source': 0, 'target': 1, 'label' : 'extending' },
-     { 'source': 1, 'target': 2 , 'label' : 'extending'},
-     { 'source': 2, 'target': 3  },
-  ])
-remote_image ="https://bestfriends.org/sites/default/files/styles/hero_mobile/public/hero-dash/Asana3808_Dashboard_Standard.jpg?h=ebad9ecf&itok=cWevo33k"
+    nodes = [Node("Node 1"),Node("Node 2", size = 20),None, Node("Node 3", color = "#3CA072"), Node("Node 4")],
+    edges = [Edge(0,1, color = "#3CA072"), Edge(1,3,'extending', size = 6),Edge(3,4, size = 2), Edge(2,4)])
 
 def delblock(elem, value):
     screen.blocks = [block, config_area]
     return Redesign
 
-bottom_block = Block('Graph, press Shift for multi (de)select', [Button('Add node', add_node),  Button('Delete block', delblock)],  
-    [graph, Video(upload_path('sad cat.mp4'), width = 500, height = 350)], 
-)
+bottom_block = Block('Graph, press Shift for multi (de)select', 
+    [Button('Add node', add_node),  Button('Delete block', delblock)], 
+    graph)
 
 blocks= [[block,bottom_block],config_area]
 
