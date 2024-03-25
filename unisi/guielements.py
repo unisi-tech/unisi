@@ -86,12 +86,15 @@ def UploadButton(name, handler = None,**kwargs):
     return Button(name, handler, **kwargs)
 
 class Image(Gui):
-    '''has to contain file parameter as name'''
-    def __init__(self,name, *args, **kwargs):
-        super().__init__(name, *args, **kwargs)
-        self.type='image'
-        if not hasattr(self,'width'):
-            self.width = 500.0              
+    '''path is file name or url, label is optional text to draw on the image'''
+    def __init__(self, name, value = False, handler = None, label = '', width = 300, **kwargs):
+        super().__init__(name, [], **kwargs)
+        self.value = value
+        if handler:
+            self.changed = handler
+        self.label = label
+        self.type='image'        
+        self.width = width        
         if not hasattr(self,'url'):
             self.url = self.name
         #mask full win path from Chrome detector
