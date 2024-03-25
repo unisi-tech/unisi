@@ -8,9 +8,9 @@ class Event(IntFlag):
     update = 1
     invalid = 2
     message = 4
-    update_message = 6
-    progress = 12
-    update_progress = 13
+    update_message = 5
+    progress = 8
+    update_progress = 9
     unknown = 16
     unknown_update = 17
     dialog = 32
