@@ -86,7 +86,7 @@ def UploadButton(name, handler = None,**kwargs):
     return Button(name, handler, **kwargs)
 
 class Image(Gui):
-    '''path is file name or url, label is optional text to draw on the image'''
+    '''name is file name or url, label is optional text to draw on the image'''
     def __init__(self, name, value = False, handler = None, label = '', width = 300, **kwargs):
         super().__init__(name, [], **kwargs)
         self.value = value

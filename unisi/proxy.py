@@ -26,7 +26,7 @@ message_types = ['error','warning','info']
 
 class Proxy:
     """UNISI proxy"""
-    def __init__(self, host_port, timeout = 3, ssl = False):
+    def __init__(self, host_port, timeout = 7, ssl = False):
         addr_port = f'{wss_header if ssl else ws_header}{host_port}'
         addr_port = f'{addr_port}{"" if addr_port.endswith("/") else "/"}{ws_path}'
         self.host_port = f'{"https" if ssl else "http"}://{host_port}'
@@ -49,10 +49,11 @@ class Proxy:
         """return command objects"""
         return self.elements(types=['command'])        
             
-    def element(self, name):
+    def element(self, name, block_name = None):
         """return the element only if 1 element has such name"""
         result = None
-        for block in self.screen['name2block'].values(): 
+        name2block = self.screen['name2block']
+        for block in [name2block[block_name]] if block_name else name2block.values(): 
             for el in flatten(block['value']):
                 if el['name'] == name:
                     if not result:
@@ -71,9 +72,10 @@ class Proxy:
         return answer
     
     def block_name(self, element):
+        is_name = isinstance(element, str)
         for block in self.screen['name2block'].values():
             for el in flatten(block['value']):
-                if el == element:
+                if el['name'] == element if is_name else el == element:
                     return block['name']
                 
     def upload(self, fpath):
@@ -81,19 +83,20 @@ class Proxy:
         file = open(fpath, "rb")        
         response = requests.post(self.host_port, files = {os.path.basename(fpath): file})
         return getattr(response, 'text', '')
+    
+    def command(self, command, value = None):
+        return self.interact(self.make_message(command, value))        
         
     def command_upload(self, command, fpath):
-        """upload file to the server and call command"""
+        """upload file to the server and call command"""        
         spath = self.upload(fpath)
-        if spath:
-            ms = self.make_message(command, spath)
-            if ms:
-                return self.interact(ms)
-        return Event.invalid
+        return self.command(command, spath) if spath else Event.invalid                    
     
     def make_message(self, element, value = None, event = 'changed'):
+        if isinstance(element, str):
+            element = self.element(element)            
         if event != 'changed' and event not in element:
-            return None
+            return None        
         return ArgObject(block = self.block_name(element), element = element['name'], 
             event = event, value = value)
     
@@ -114,6 +117,8 @@ class Proxy:
         return self.process(message) 
     
     def set_value(self, element, new_value):
+        if isinstance(element, str):
+            element = self.element(element)            
         element['value'] = new_value
         ms = self.make_message(element, new_value)
         return self.interact(ms) if ms else Event.invalid
