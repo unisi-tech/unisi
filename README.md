@@ -21,7 +21,7 @@ pip install unisi
 ```
 
 ### Programming ###
-This repo explains how to work with Unisi using Python and the tiny but optimal framework for that. Unisi web version is included in this library.  Supports Python 3.8 and up.
+This repo explains how to work with Unisi using Python and the tiny but optimal framework for that. Unisi web version is included in this library.  Supports Python 3.10 and up.
 
 
 ### High level - Screen ###

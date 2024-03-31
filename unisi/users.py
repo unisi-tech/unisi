@@ -194,7 +194,7 @@ class User:
         if elem:                          
             return self.process_element(elem, message)  
         
-        error = f'Element {message.block}>>{message.element} does not exists!'
+        error = f'Element {message.block}>>{message.element} does not exist!'
         self.log(error)
         return Error(error)
         
