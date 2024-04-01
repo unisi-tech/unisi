@@ -318,12 +318,12 @@ Graph supports an interactive graph.
 ```
 graph = Graph('X graph', graph_value, graph_selection, 
     nodes = [
-     { 'id' : 'node1', 'label': "Node 1" },
-     { 'id' : 'node2', 'label': "Node 2" },
-     { 'id' : 'node3', 'label': "Node 3" }    
+     { 'id' : 'node1', 'name': "Node 1" },
+     { 'id' : 'node2', 'name': "Node 2" },
+     { 'id' : 'node3', 'name': "Node 3" }    
   ], edges = [
-     { 'id' : 'edge1', 'source': "node1", 'target': "node2", 'label' : 'extending' },
-     { 'id' :'edge2' , 'source': "node2", 'target': "node3" , 'label' : 'extending'}     
+     { 'id' : 'edge1', 'source': "node1", 'target': "node2", 'name' : 'extending' },
+     { 'id' :'edge2' , 'source': "node2", 'target': "node3" , 'name' : 'extending'}     
   ])
 ```
 where graph_value is a dictionary like {'nodes' : ["node1"], 'edges' : ['edge3']}, where enumerations are selected nodes and edges.
