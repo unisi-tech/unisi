@@ -1,6 +1,6 @@
 [project]
 name = "unisi"
-version = "0.1.7"
+version = "0.1.8"
 description = "UNified System Interface, GUI and proxy"
 authors = [
     {name = "UNISI Tech", email = "g.dernovoy@gmail.com"},
