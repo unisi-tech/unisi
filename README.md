@@ -440,6 +440,22 @@ if proxy.set_screen("Image analysis"):
 proxy.close()
 ```
 
+### REST ##
+
+The REST service facilitates the REST interface through the following approach: a programmer is required to define aiohttp routes, which consist of routes and handlers, such as web.get('/', hello), and then pass it to the Unisi start function. 
+
+```
+from aiohttp import web
+import unisi
+async def handle_get(request):
+print(request.query_string)
+
+
+http_handlers = [web.get('/get', handle_get)]
+unisi.start(http_handlers = http_handlers)
+```
+
+#### REST is redundant because UNISI automatically provides the Unified Remote API without programming. Can use Proxy for accessing and querying. ####
 
 
 ### 'Become a serious web programmer in 1 hour.' is a crash course how to use UNISI ###
