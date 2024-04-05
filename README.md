@@ -375,7 +375,7 @@ Update window message
 ```
 user.progress(" 1% is done..")
 ```
-Close window user.progress(None) or automatically when the handler returns something.
+Progree window is automatically closed when the handler is finished.
 
 ### Milti-user support. ###
 Unisi automatically creates and serves an environment for every user.
@@ -393,7 +393,56 @@ In screens and blocks sources we can access the user by 'user' variable
 print(isinstance(user, Hello_user))
 ```
 
-'Become a serious web programmer in 1 hour.' is a crash course how to use UNISI
+### Unified Remote API ###
+For using UNISI apps from remote programs Unified Remote API is an optimal choice.
+
+| Proxy methods, properties | Description |
+| :---: | :---: | 
+| close() | Close session. |
+| command_upload(element: str or dict, file_name: str) | upload file_name file  to  the server and execute element command (push the button). |
+| command(element: str or dict) | Executes the element command.The element type is Button. |
+| element(name:str) | returns an element with such name |
+| elements(block’ :str or dict,  types’ : list[str]) | returns screen elements in json format, filtered by optional block and list of types. |
+| interact(message: Object, pcallback`) | Sends a message, gets an answer and returns the type of response. pcallback is an optional  progress callback. |
+| screen_menu | Returns the screen names. |
+| set_screen(screen_name: str) | Set active  screen.  |
+| set_value(element: str or dict, value: any) | Set the value to the element  |
+
+ ‘  after a variable means it’s optional.
+The UNISI Proxy creates a user session and operates in the same manner as a browsing user.
+
+For example access to UNISI Vision  :
+```
+#Interact with https://github.com/unisi-tech/vision
+from unisi import Proxy, Event
+
+proxy = Proxy('localhost:8000')
+
+#image for analysis
+image_file = '/home/george/Projects/save/animals/badger/0cf04d0dab.jpg'
+
+#It has Screen "Image analysis"
+if proxy.set_screen("Image analysis"):    
+    #optional: turn off search images for perfomance, we only need to classify the image
+    #for that find Switch 'Search' and set it to False    
+    proxy.set_value('Search', False)
+    
+    #push with parameter UploadButton 'Load an image'  on the screen
+    if proxy.command_upload('Load an image', image_file) & Event.update:
+        #get result table  after responce
+        table = proxy.element('Image classification')        
+
+        #and take parameters from the result table.
+        print('  Answer:')
+        for row in table['rows']:
+            print(row)
+
+proxy.close()
+```
+
+
+
+### 'Become a serious web programmer in 1 hour.' is a crash course how to use UNISI ###
    https://www.unisi.tech/learn
 
 Examples are in tests folder.

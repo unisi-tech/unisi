@@ -40,7 +40,7 @@ def dialog_callback(_,value):
             txt.value = i
             user.progress(f'{i} tick', txt)
             time.sleep(0.04)
-        return user.progress(None)
+        
 
 def call_dialog(*_):
     return Dialog('Start a long process?', dialog_callback, ticks)
