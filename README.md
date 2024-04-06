@@ -67,7 +67,10 @@ unisi.start('Test app')
 Unisi builds the interactive app for the code above.
 Connect a browser to localhast:8000 which are by default and will see:
 
-![image](https://github.com/unisi-tech/unisi/assets/1247062/dafebd1f-ae48-4790-9282-dea83d986749)
+![image](https://github.com/unisi-tech/unisi/assets/1247062/dafebd1f-ae48-4790-9282-dea83d986749)  
+
+### 'Become a serious web programmer in 1 hour.' is a free crash course video how to use UNISI ###
+   https://www.unisi.tech/learn
 
 ### Handling events ###
 All handlers are functions which have a signature
@@ -163,6 +166,24 @@ blocks = [ [b1,b2], [b3, [b4, b5]]]
 
 ![image](https://github.com/unisi-tech/unisi/assets/1247062/aa0c3623-ef57-45ce-a179-7ba53df119c3)
 
+### ParamBlock ###
+ParamBlock(name, *gui_elements, row = 3, **parameters)
+
+ParamBlock creates blocks with Gui elements formed from parameters. Parameters can be string, bool, number and optional types. Example:
+```
+block = ParamBlock('Learning parameters', Button('Start learning', learn_nn)
+    per_device_eval_batch_size=16, num_train_epochs=10, warmup_ratio=0.1, 
+    logging_steps=10, device = (‘cpu’,['cpu', 'gpu']),load_best = True)
+```
+
+If a string parameter has several options as a device in the example, its value is expressed as an option list and the first value is the initial value.
+For optional types Select, Tree, Range the value has to contain the current value and its options. In the example
+```
+device = (‘cpu’,['cpu', 'gpu'])
+```
+means the current value of 'device' is 'cpu' and options are ['cpu', 'gpu'] .
+
+
 ### Basic gui elements ###
 Normally they have type property which says unisi what data it contains and optionally how to draw the element. 
 #### If the element name starts from _ , unisi will hide its name on the screen. ####
@@ -226,6 +247,16 @@ It can return None if OK or objects for updating as usual 'changed' handler.
 
 Optional selection property with parameters (start, end) is called when selection is happened.
 Optional autogrow property uses for serving multiline fileds.
+
+### Range ###
+Number field for limited in range values.
+
+Range('Name',  1,  changed_handler = None, options=[min,max, step])
+
+Example:  
+```
+Range('Scale content',  1, options=[0.25, 3, 0.25])
+```
 
 
 ### Radio button ###
@@ -456,10 +487,6 @@ unisi.start(http_handlers = http_handlers)
 ```
 
 #### REST is redundant because UNISI automatically provides the Unified Remote API without programming. Can use Proxy for accessing and querying. ####
-
-
-### 'Become a serious web programmer in 1 hour.' is a crash course how to use UNISI ###
-   https://www.unisi.tech/learn
 
 Examples are in tests folder.
 
