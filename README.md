@@ -115,7 +115,7 @@ def changed_range(guirange, value):
     #accept value othewise
     guirange.value = value
 
-edit = Edit('Range of involving', 0.6, changed_range, type = 'number')
+edit = Edit('Range of involving', 0.6, changed_range)
 ```
 
 #### Events interception of shared blocks ####
@@ -225,14 +225,14 @@ handler_when_loading_finish(button_, the_loaded_file_filename) where the_loaded_
 
 ### Edit and Text field. ###
 ```
-Edit(name,value = '') #for string value
-Edit(name, value: number) #changed handler will get a number
+Edit(name,value = '', changed_handler = None) #for string value
+Edit(name, value: numberm, changed_handler = None) #changed handler will get a number
 ```
 If set edit = false the element will be readonly.
 ```
 Edit('Some field', '', edit = false) 
-#text
-Text('Some text')
+#text, it is equal
+Text('Some field')
 ```
 complete handler is optional function which accepts the current edit value and returns a string list for autocomplete.
 
@@ -269,7 +269,7 @@ Optional type can be 'check' for a status button or 'switch' for a switcher .
 
 ### Select group. Contains options field. ###
 ```
-Select(name, value = None, changed_handler, options = ["choice1","choice2", "choice3"]) 
+Select(name, value = None, changed_handler = None, options = ["choice1","choice2", "choice3"]) 
 ```
 Optional type parameter can be 'radio','list','select'. Unisi automatically chooses between 'radio' and 'select', if type is omitted.
 If type = 'list' then Unisi build it as vertical select list.
@@ -339,6 +339,7 @@ def table_updated(table_, tabval):
     ...
     if error_found:
         return Error('Can not accept the value!')
+    #call a standart handler
     accept_rowvalue(table_, tabval)
 ```
 
@@ -377,8 +378,8 @@ Dialog(question, dialog_callback, commands = ['Ok', 'Cancel'], *content)
 where buttons is a list of the dialog button names,
 Dialog callback has the signature as other with a pushed button name value
 ```
-def dialog_callback(current_dialog, pushed_button_name):
-    if pushed_button_name == 'Yes':
+def dialog_callback(current_dialog, command_button_name):
+    if command_button_name == 'Yes':
         do_this()
     elif ..
 ```
@@ -477,8 +478,6 @@ from aiohttp import web
 import unisi
 async def handle_get(request):
 print(request.query_string)
-
-
 http_handlers = [web.get('/get', handle_get)]
 unisi.start(http_handlers = http_handlers)
 ```
