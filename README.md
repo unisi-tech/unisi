@@ -96,7 +96,8 @@ clean_button = Button('Clean the table’, clean_table)
 | Gui object array or tuple |  Objects to update |
 | None | Nothing to update, Ok |
 | Error(...), Warning(...), Info(...) | Show to user info about a state. |
-| UpdateScreen, True | Redraw whole screen |
+| True | Redraw whole screen |
+
 | Dialog(..) | Open a dialog with parameters |
 | user.set_screen(screen_name) | switch to another screen |
 
@@ -115,6 +116,18 @@ def changed_range(guirange, value):
     guirange.value = value
 
 edit = Edit('Range of involving', 0.6, changed_range, type = 'number')
+```
+
+#### Events interception of shared blocks ####
+Interception handlers have the same in/out format as usual handlers.
+#### They are called before the inner element handler call. They cancel the call of inner element handler but you can call it as shown below.
+For example above interception of select_mode changed event will be:
+```
+@handle(select_mode, 'changed')
+def do_not_select_mode_x(selector, value):
+    if value == 'Mode X':
+        return Error('Do not select Mode X in this context', selector) # send old value for update select_mode to the previous state
+    return _.accept(value) #otherwise accept the value
 ```
 
 ### Block details ###
@@ -143,18 +156,6 @@ Using a shared block in some screen:
 from blocks.tblock import concept_block
 ...
 blocks = [.., concept_block]
-```
-
-#### Events interception of shared elements ####
-Interception handlers have the same in/out format as usual handlers.
-#### They are called before the inner element handler call. They cancel the call of inner element handler but you can call it as shown below.
-For example above interception of select_mode changed event will be:
-```
-@handle(select_mode, 'changed')
-def do_not_select_mode_x(selector, value):
-    if value == 'Mode X':
-        return Error('Do not select Mode X in this context', selector) # send old value for update select_mode to the previous state
-    return _.accept(value) #otherwise accept the value
 ```
 
 #### Layout of blocks. #### 
@@ -204,30 +205,30 @@ causes  a call changed handler if it defined, otherwise just save value to self.
 ### Button ###
 Normal button.
 ```
-Button('Push me', changed = push_callback) 
+Button('Push me', changed = push_callback, icon = None) 
 ```
 Short form
 ```
-Button('Push me', push_callback) 
+Button('Push me', push_callback = None, icon = None) 
 ```
 Icon button 
 ```
-Button('_Check', push_callback, icon = 'check')
+Button('_Check', push_callback = None, icon = None)
 ```
 
 ### Load to server Button ###
 Special button provides file loading from user device or computer to the Unisi server.
 ```
-UploadButton('Load', handler_when_loading_finish, icon='photo_library')
+UploadButton('Load', handler_when_loading_finish = None, icon = 'photo_library')
 ```
 handler_when_loading_finish(button_, the_loaded_file_filename) where the_loaded_file_filename is a file name in upload server folder. This folder name is defined in config.py .
 
 ### Edit and Text field. ###
 ```
-Edit('Some field', '') #for string value
-Edit('Number field', 0.9, type = 'number') #changed handler will get a number
+Edit(name,value = '') #for string value
+Edit(name, value: number) #changed handler will get a number
 ```
-If set edit = false it will be readonly field.
+If set edit = false the element will be readonly.
 ```
 Edit('Some field', '', edit = false) 
 #text
@@ -251,7 +252,7 @@ Optional autogrow property uses for serving multiline fileds.
 ### Range ###
 Number field for limited in range values.
 
-Range('Name',  1,  changed_handler = None, options=[min,max, step])
+Range('Name',  value = 0,  changed_handler = None, options=[min,max, step])
 
 Example:  
 ```
@@ -261,17 +262,17 @@ Range('Scale content',  1, options=[0.25, 3, 0.25])
 
 ### Radio button ###
 ```
-Switch(name, value, changed, type = ...)
-value is boolean, changed is an optional handler.
+Switch(name, value = False, changed_handler = None, type = 'radio')
+value is boolean, changed_handler is an optional handler.
 Optional type can be 'check' for a status button or 'switch' for a switcher . 
 ```
 
 ### Select group. Contains options field. ###
 ```
-Select('Select something', "choice1", selection_is_changed, options = ["choice1","choice2", "choice3"]) 
+Select(name, value = None, changed_handler, options = ["choice1","choice2", "choice3"]) 
 ```
-Optional type parameter can be 'toggles','list','dropdown'. Unisi automatically chooses between toogles and dropdown, if type is omitted,
-if type = 'list' then Unisi build it as vertical select list.
+Optional type parameter can be 'radio','list','select'. Unisi automatically chooses between 'radio' and 'select', if type is omitted.
+If type = 'list' then Unisi build it as vertical select list.
 
 
 ### Image. ###
@@ -279,28 +280,30 @@ width,changed,height,header are optional, changed is called if the user select o
 When the user click the image, a check mark is appearing on the image, showning select status of the image.
 It is usefull for image list, gallery, e.t.c
 ```
-Image(image_name, selecting_changed, header = 'description',url = ...,  width = .., height = ..)
+Image(image_path, value = False, changed_handler, header = 'description', url = ...,  width = .., height = ..)
 ```
 
 ### Video. ###
 width and height are optional.
 ```
-Video(video_url, width = .., height = ..)
+Video(video_url, width = None, height = None)
 ```
 
 ### Tree. The element for tree-like data. ###
 ```
-Tree(name, selected_item_name, changed_handler, options = {name1: parent1, name2 : None, .})
+Tree(name, value = None, changed_handler = None, options = {name1: parent1, name2 : None, .})
 ```
 options is a tree structure, a dictionary {item_name:parent_name}. 
 parent_name is None for root items. changed_handler gets item key (name) as value. 
 
 ### Table. ###
 Tables is common structure for presenting 2D data and charts. 
-Optional append, delete, update handlers are called for adding, deleting and updating rows.
 
+Table(name, value = None, changed_handler = None, **options)
 
-Assigning a handler for such action causes Unii to draw and activate an appropriate action icon button in the table header automatically.
+Optional append, delete, update handlers are called for adding, deleting and updating handlers for a table.
+
+Auto assigning handlers for such action can be blocked by assigning edit  = False to the Table constructor.
 ```
 table = Table('Videos', [0], row_changed, headers = ['Video', 'Duration', 'Owner', 'Status'],  
   rows = [
@@ -329,7 +332,6 @@ value = [0] means 0 row is selected in multiselect mode (in array). multimode is
 ### Table handlers. ###
 complete, modify and update have the same format as the others handlers, but value is consisted from the cell value and its position in the table.
 
-
 ```
 def table_updated(table_, tabval):
     value, position = tabval
@@ -347,35 +349,30 @@ Chart is a table with additional Table constructor parameter 'view' which explai
 ### Graph ###
 Graph supports an interactive graph.
 ```
-graph = Graph('X graph', graph_value, graph_selection, 
-    nodes = [
-     { 'id' : 'node1', 'name': "Node 1" },
-     { 'id' : 'node2', 'name': "Node 2" },
-     { 'id' : 'node3', 'name': "Node 3" }    
-  ], edges = [
-     { 'id' : 'edge1', 'source': "node1", 'target': "node2", 'name' : 'extending' },
-     { 'id' :'edge2' , 'source': "node2", 'target': "node3" , 'name' : 'extending'}     
-  ])
+graph = Graph('X graph', value = None, changed_handler = None, 
+    nodes = [ Node("Node 1"),Node("Node 2", size = 20),None, Node("Node 3", color = "#3CA072")],
+    edges = [ Edge(0,1, color = "#3CA072"), Edge(1,3,'extending', size = 6),Edge(3,4, size = 2), Edge(2,4)]])
 ```
-where graph_value is a dictionary like {'nodes' : ["node1"], 'edges' : ['edge3']}, where enumerations are selected nodes and edges.
+where value is None or a dictionary like {'nodes' : [id1, ..], 'edges' : [id2, ..]}, where enumerations are selected nodes and edges.
 Constant graph_default_value == {'nodes' : [], 'edges' : []} i.e. nothing to select.
 
 'changed' method graph_selector called when user (de)selected nodes or edges:
 ```
-def graph_selection(_, val):
-    _.value = val
+def graph_selection(graph, val):
+    graph.value = val
     if 'nodes' in val:        
         return Info(f'Nodes {val["nodes"]}') 
     if 'edges' in val:
         return Info(f"Edges {val['edges']}") 
 ```
-With pressed 'Shift' multi select works for nodes and edges.
+With pressed 'Shift' multi (de)select works for nodes and edges.
 
 id nodes and edges are optinal, if node ids are ommited then edge 'source' and 'target' have to point node index in nodes array.
+Graph can handle invalid edges and null nodes in the nodes array.   
 
 ### Dialog ###
 ```
-Dialog(text, dialog_callback, commands = ['Ok', 'Cancel'], *content)
+Dialog(question, dialog_callback, commands = ['Ok', 'Cancel'], *content)
 ```
 where buttons is a list of the dialog button names,
 Dialog callback has the signature as other with a pushed button name value
@@ -385,7 +382,7 @@ def dialog_callback(current_dialog, pushed_button_name):
         do_this()
     elif ..
 ```
-content can be filled with Gui elements for additional dialog functionality.
+content can be filled with Gui elements for additional dialog functionality like a Block.
 
 
 ### Popup windows ###
