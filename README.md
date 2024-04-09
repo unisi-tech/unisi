@@ -69,7 +69,7 @@ Connect a browser to localhast:8000 which are by default and will see:
 
 ![image](https://github.com/unisi-tech/unisi/assets/1247062/dafebd1f-ae48-4790-9282-dea83d986749)  
 
-### 'Become a serious web programmer in 1 hour.' is a free crash course video how to use UNISI ###
+### 'The fastest way to create Web applications in Python.' is a free crash course video how to use UNISI ###
    https://www.unisi.tech/learn
 
 ### Handling events ###
@@ -101,21 +101,20 @@ clean_button = Button('Clean the table’, clean_table)
 | Dialog(..) | Open a dialog with parameters |
 | user.set_screen(screen_name) | switch to another screen |
 
-
-Unisi	synchronizes GUI state on frontend-end automatically after calling a handler.
+Unisi synchronizes GUI state on frontend-end automatically after calling a handler.
 
 If a Gui object doesn't have 'changed' handler the object accepts incoming value automatically to the 'value' variable of gui object.
 
 If 'value' is not acceptable instead of returning an object possible to return Error or Warning or Info. That functions can update a object list passed after the message argument.
 
 ```
-def changed_range(guirange, value):
-   if value < 0.5 and value > 1.0:       
-       return Error(f‘The value of {guirange.name} has to be > 0.5 and < 1.0!', guirange) 
+def changed(elem, value):
+   if value == 4:       
+       return Error(f‘The value can not be 4!', elem) 
     #accept value othewise
-    guirange.value = value
+    elem.value = value
 
-edit = Edit('Range of involving', 0.6, changed_range)
+edit = Edit('Involving', 0.6, changed)
 ```
 
 #### Events interception of shared blocks ####
@@ -211,7 +210,7 @@ Short form
 ```
 Button('Push me', push_callback = None, icon = None) 
 ```
-Icon button 
+Icon button, the name has to be started from _ for hiding 
 ```
 Button('_Check', push_callback = None, icon = None)
 ```
@@ -219,14 +218,14 @@ Button('_Check', push_callback = None, icon = None)
 ### Load to server Button ###
 Special button provides file loading from user device or computer to the Unisi server.
 ```
-UploadButton('Load', handler_when_loading_finish = None, icon = 'photo_library')
+UploadButton('Load', handler_when_loading_finish, icon = 'photo_library')
 ```
 handler_when_loading_finish(button_, the_loaded_file_filename) where the_loaded_file_filename is a file name in upload server folder. This folder name is defined in config.py .
 
 ### Edit and Text field. ###
 ```
 Edit(name,value = '', changed_handler = None) #for string value
-Edit(name, value: numberm, changed_handler = None) #changed handler will get a number
+Edit(name, value: number, changed_handler = None) #changed handler gets a number in the value parameter
 ```
 If set edit = false the element will be readonly.
 ```
@@ -245,9 +244,6 @@ Edit('Edit me', 'value', complete = get_complete_list) #value has to be string o
 
 Optional 'update' handler is called when the user press Enter in the field.
 It can return None if OK or objects for updating as usual 'changed' handler.
-
-Optional selection property with parameters (start, end) is called when selection is happened.
-Optional autogrow property uses for serving multiline fileds.
 
 ### Range ###
 Number field for limited in range values.
@@ -357,9 +353,9 @@ graph = Graph('X graph', value = None, changed_handler = None,
 where value is None or a dictionary like {'nodes' : [id1, ..], 'edges' : [id2, ..]}, where enumerations are selected nodes and edges.
 Constant graph_default_value == {'nodes' : [], 'edges' : []} i.e. nothing to select.
 
-'changed' method graph_selector called when user (de)selected nodes or edges:
+'changed_handler' is called when the user (de)selected nodes or edges:
 ```
-def graph_selection(graph, val):
+def changed_handler(graph, val):
     graph.value = val
     if 'nodes' in val:        
         return Info(f'Nodes {val["nodes"]}') 
@@ -481,7 +477,6 @@ print(request.query_string)
 http_handlers = [web.get('/get', handle_get)]
 unisi.start(http_handlers = http_handlers)
 ```
-
 #### REST is redundant because UNISI automatically provides the Unified Remote API without programming. Can use Proxy for accessing and querying. ####
 
 Examples are in tests folder.
