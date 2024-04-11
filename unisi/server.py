@@ -47,7 +47,7 @@ def broadcast(message, message_user):
     for user in message_user.reflections:
         if user is not message_user and screen is user.screen_module:
             user.sync_send(message)
-import gc
+
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -105,8 +105,7 @@ async def websocket_handler(request):
             if len(user.reflections) == 2: 
                 user.reflections.clear() #1 element in user.reflections has no sense
             else:
-                user.reflections.remove(user)
-        gc.collect()
+                user.reflections.remove(user)        
     return ws  #?<->     
 
 def start(appname = None, user_type = User, http_handlers = []):    
