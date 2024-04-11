@@ -26,11 +26,11 @@ message_types = ['error','warning','info']
 
 class Proxy:
     """UNISI proxy"""
-    def __init__(self, host_port, timeout = 7, ssl = False):
+    def __init__(self, host_port, timeout = 7, ssl = False, session = ''):
         addr_port = f'{wss_header if ssl else ws_header}{host_port}'
         addr_port = f'{addr_port}{"" if addr_port.endswith("/") else "/"}{ws_path}'
         self.host_port = f'{"https" if ssl else "http"}://{host_port}'
-        self.conn = create_connection(addr_port, timeout = timeout)
+        self.conn = create_connection(addr_port, timeout = timeout, header = {'session' : session})
         self.screen = None       
         self.screens = {}
         self.dialog = None

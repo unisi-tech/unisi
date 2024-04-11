@@ -44,60 +44,70 @@ async def static_serve(request):
      
 def broadcast(message, message_user):
     screen = message_user.screen_module
-    for user in User.reflections:
+    for user in message_user.reflections:
         if user is not message_user and screen is user.screen_module:
             user.sync_send(message)
-
+import gc
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
-    user, ok = make_user()
-    user.transport = ws._writer.transport  if divpath != '/' else None          
+    user, status = make_user(request)
+    if not user:
+        await ws.send_str(toJson(status))
+    else:
+        user.transport = ws._writer.transport  if divpath != '/' else None          
 
-    async def send(res):
-        if type(res) != str:
-            res = toJson(user.prepare_result(res))        
-        await ws.send_str(res)        
+        async def send(res):
+            if type(res) != str:
+                res = toJson(user.prepare_result(res))        
+            await ws.send_str(res)        
 
-    user.send = send     
-    user.session = request.remote    
-    await send(user.screen if ok else empty_app) 
-    try:
-        async for msg in ws:
-            if msg.type == WSMsgType.TEXT:
-                if msg.data == 'close':
-                    await ws.close()
-                else:
-                    raw_message = json.loads(msg.data)
-                    message = None
-                    if isinstance(raw_message, list):
-                        if raw_message:
-                            for raw_submessage in raw_message:
-                                message = ReceivedMessage(raw_submessage)                    
-                                result = user.result4message(message)
-                        else:                                
-                            result = Warning('Empty command batch!')
-                    else:                    
-                        message = ReceivedMessage(raw_message)            
-                        result = user.result4message(message)                    
-                    await send(result)
-                    if message:
-                        if recorder.record_file:
-                            recorder.accept(message, user.prepare_result (result))
-                        if config.mirror and not is_screen_switch(message):                        
-                            if result:
-                                broadcast(result, user)                            
-                            msg_object = user.find_element(message)                         
-                            if not isinstance(result, Message) or not result.contains(msg_object):                                                        
-                                broadcast(toJson(user.prepare_result(msg_object)), user)
-            elif msg.type == WSMsgType.ERROR:
-                user.log('ws connection closed with exception %s' % ws.exception())
-    except:        
-        user.log(traceback.format_exc())
+        user.send = send         
+        await send(user.screen if status else empty_app) 
+        try:
+            async for msg in ws:
+                if msg.type == WSMsgType.TEXT:
+                    if msg.data == 'close':
+                        await ws.close()
+                    else:
+                        raw_message = json.loads(msg.data)
+                        message = None
+                        if isinstance(raw_message, list):
+                            if raw_message:
+                                for raw_submessage in raw_message:
+                                    message = ReceivedMessage(raw_submessage)                    
+                                    result = user.result4message(message)
+                            else:                                
+                                result = Warning('Empty command batch!')
+                        else:                    
+                            message = ReceivedMessage(raw_message)            
+                            result = user.result4message(message)                    
+                        await send(result)
+                        if message:
+                            if recorder.record_file:
+                                recorder.accept(message, user.prepare_result (result))
+                            if user.reflections and not is_screen_switch(message):                        
+                                if result:
+                                    broadcast(result, user)                            
+                                msg_object = user.find_element(message)                         
+                                if not isinstance(result, Message) or not result.contains(msg_object):                                                        
+                                    broadcast(toJson(user.prepare_result(msg_object)), user)
+                elif msg.type == WSMsgType.ERROR:
+                    user.log('ws connection closed with exception %s' % ws.exception())
+        except:        
+            user.log(traceback.format_exc())
 
-    if User.reflections:
-        User.reflections.remove(user)
-    return ws       
+        uss = User.sessions
+        if uss and uss.get(user.session):
+            del uss[user.session]
+        
+        if user.reflections: #reflections is common array
+            if len(user.reflections) == 2: 
+                user.reflections.clear() #1 element in user.reflections has no sense
+            else:
+                user.reflections.remove(user)
+        gc.collect()
+    return ws  #?<->     
 
 def start(appname = None, user_type = User, http_handlers = []):    
     if appname is not None:

@@ -406,9 +406,9 @@ Progree window is automatically closed when the handler is finished.
 Unisi automatically creates and serves an environment for every user.
 The management class is User contains all required methods for processing and handling the user activity. A programmer can redefine methods in the inherited class, point it as system user class and that is all. Such methods suit for history navigation, undo/redo and initial operations. The screen folder contains screens which are recreated for every user. The same about blocks. The code and modules outside that folders are common for all users as usual. By default Unisi uses the system User class and you do not need to point it. 
 ```
-class Hello_user(unisi.User):
+class Hello_user(unisi.User, session, share = None):
     def __init__(self):
-        super().__init__()
+        super().__init__(session, share)
         print('New Hello user connected and created!')
 
 unisi.start('Hello app', user_type = Hello_user)

@@ -202,9 +202,8 @@ def check_module(module):
 def run_tests():
     if not os.path.exists(testdir):
         os.makedirs(testdir)
-    user = User.UserType()
-    user.load()
-    user.session = 'autotest'
+    user = User.UserType('autotest')
+    user.load()    
     errors = []
     for module in user.screens:
         errors += check_module(module)

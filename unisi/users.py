@@ -9,14 +9,27 @@ from threading import Thread
 import logging  
 
 class User:      
-    def __init__(self):          
-        self.screens = []        
-        self.active_dialog = None
-        self.screen_module = None 
-        self.session = None   
-        self.__handlers__ = {}      
-        self.last_message = None              
-        User.last_user = self   
+    def __init__(self, session: str, share = None):          
+        self.session = session        
+        self.active_dialog = None        
+        self.last_message = None                       
+        User.last_user = self
+
+        if share:            
+            self.screens = share.screens            
+            self.screen_module = share.screen_module if share.screens else []
+            self.__handlers__ =  share.__handlers__        
+            
+            if share.reflections:            
+                share.reflections.append(self)
+            else:
+                share.reflections = [share, self]                    
+            self.reflections = share.reflections
+        else:
+            self.screens = []        
+            self.reflections = []
+            self.screen_module = None         
+            self.__handlers__ = {}              
 
     async def send_windows(self, obj):  
         await self.send(obj)        
@@ -218,32 +231,34 @@ class User:
         else:
             self.log(f'{elem} does not contain method for {event} event type!')                     
             return Error(f'Invalid {event} event type for {message.block}>>{message.element} is received!')
-
-    def reflect(self):        
-        user = User.UserType()
-        user.screens = self.screens
-        if self.screens:
-            user.screen_module = self.screens[0]     
-        user.__handlers__ =  self.__handlers__        
-        return user
-
+    
     def log(self, str, type = 'error'):        
-        scr = self.screen.name if self.screens else 'omitted'
+        scr = self.screen.name if self.screens else 'void'
         str = f"session: {self.session}, screen: {scr}, message: {self.last_message} \n  {str}"
         if type == 'error':
             logging.error(str)
         else:
             logging.warning(str)    
 
-def make_user():
-    if config.mirror and User.last_user:
-        user = User.last_user.reflect()
+def make_user(request):
+    session = f'{request.remote}-{User.count}'
+    User.count += 1    
+    requested_connect = request.headers.get('session', '')
+    if requested_connect:
+        user = User.sessions.get(requested_connect, None)
+        if not user:
+            error = f'Session id "{requested_connect}" is unknown. Connection refused!'
+            logging.error(error)
+            return None, Error(error)
+        user = User.UserType(session, user)
+        ok = user.screens
+    elif config.mirror and User.last_user:
+        user = User.UserType(session, User.last_user)
         ok = user.screens
     else:
-        user = User.UserType()
-        ok = user.load()
-    if config.mirror:
-        User.reflections.append(user)         
+        user = User.UserType(session)
+        ok = user.load()       
+    User.sessions[session] = user 
     return user, ok
 
 #loop and thread is for progress window and sync interactions
@@ -265,4 +280,5 @@ User.extra_loop = loop
 User.UserType = User
 User.last_user = None
 User.toolbar = []
-User.reflections = []
+User.sessions = {}
+User.count = 0
