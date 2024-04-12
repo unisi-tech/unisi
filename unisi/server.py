@@ -42,11 +42,11 @@ async def static_serve(request):
             
     return web.FileResponse(file_path) if file_path else web.HTTPNotFound()
      
-def broadcast(message, message_user):
+async def broadcast(message, message_user):
     screen = message_user.screen_module
-    for user in message_user.reflections:
-        if user is not message_user and screen is user.screen_module:
-            user.sync_send(message)
+    await asyncio.gather(*[user.send(message)
+        for user in message_user.reflections
+            if user is not message_user and screen is user.screen_module])            
 
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
@@ -76,22 +76,22 @@ async def websocket_handler(request):
                             if raw_message:
                                 for raw_submessage in raw_message:
                                     message = ReceivedMessage(raw_submessage)                    
-                                    result = user.result4message(message)
+                                    result = await user.result4message(message)
                             else:                                
                                 result = Warning('Empty command batch!')
                         else:                    
                             message = ReceivedMessage(raw_message)            
-                            result = user.result4message(message)                    
+                            result = await user.result4message(message)                    
                         await send(result)
                         if message:
                             if recorder.record_file:
                                 recorder.accept(message, user.prepare_result (result))
                             if user.reflections and not is_screen_switch(message):                        
                                 if result:
-                                    broadcast(result, user)                            
+                                    await broadcast(result, user)                            
                                 msg_object = user.find_element(message)                         
                                 if not isinstance(result, Message) or not result.contains(msg_object):                                                        
-                                    broadcast(toJson(user.prepare_result(msg_object)), user)
+                                    await broadcast(toJson(user.prepare_result(msg_object)), user)
                 elif msg.type == WSMsgType.ERROR:
                     user.log('ws connection closed with exception %s' % ws.exception())
         except:        
@@ -112,7 +112,7 @@ def start(appname = None, user_type = User, http_handlers = []):
     if appname is not None:
         config.appname = appname
 
-    User.UserType = user_type    
+    User.type = user_type    
 
     if config.autotest:
         run_tests()

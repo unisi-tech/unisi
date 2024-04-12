@@ -1,4 +1,4 @@
-import config, os, logging, json
+import config, os, logging, json, asyncio
 from .utils import *
 from .guielements import * 
 from .containers import Block, Dialog
@@ -84,7 +84,7 @@ def test(filename, user):
         message = data[i]
         expected = data[i + 1]
             
-        result = user.result4message(ReceivedMessage(message))
+        result = asyncio.run(user.result4message(ReceivedMessage(message)))
         responce = user.prepare_result(result)
         jresponce = obj2json(responce)
         
@@ -202,7 +202,7 @@ def check_module(module):
 def run_tests():
     if not os.path.exists(testdir):
         os.makedirs(testdir)
-    user = User.UserType('autotest')
+    user = User.type('autotest')
     user.load()    
     errors = []
     for module in user.screens:

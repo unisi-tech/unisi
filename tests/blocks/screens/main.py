@@ -69,9 +69,9 @@ bottom_block = Block('Graph, press Shift for multi (de)select',
 
 blocks= [[block,bottom_block],config_area]
 
-def log(x,y):    
+async def log(x,y):    
     for i in range(3):
-        user.sync_send(Warning(str(i)))
+        await user.send(Warning(str(i)))
     
 toolbar = [Button('_Save', log, icon = 'save', tooltip = 'Save info'),
         Button('_Ignored', lambda _, x: Info('ignored!'), icon = 'delete_forever', tooltip = 'Ignore info!')]

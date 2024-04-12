@@ -1,12 +1,8 @@
-import importlib
 from .utils import *
 from .guielements import *
 from .common import *
 from .containers import Dialog, Screen
-import sys
-import asyncio
-from threading import Thread
-import logging  
+import sys, asyncio, logging, importlib
 
 class User:      
     def __init__(self, session: str, share = None):          
@@ -31,19 +27,13 @@ class User:
             self.screen_module = None         
             self.__handlers__ = {}              
 
-    async def send_windows(self, obj):  
-        await self.send(obj)        
-        self.transport._write_fut = None
-        self.transport._loop._ready.pop()
-
     def sync_send(self, obj):                    
-        asyncio.run_coroutine_threadsafe(self.send_windows(obj) 
-            if self.transport else self.send(obj), self.extra_loop)
+        asyncio.run(self.send(obj))
 
-    def progress(self, str, *updates):
+    async def progress(self, str, *updates):
         """open or update progress window if str != null else close it  """  
         if not self.testing:           
-            self.sync_send(TypeMessage('progress', str, *updates, user = self))
+            await self.send(TypeMessage('progress', str, *updates, user = self))
                    
     def load_screen(self, file):
         screen_vars = {
@@ -116,21 +106,23 @@ class User:
         return  self.screen_module.screen 
 
     def set_screen(self,name):
-        return self.process(ArgObject(block = 'root', element = None, value = name))
+        return  asyncio.run(self.process(ArgObject(block = 'root', element = None, value = name)))
 
-    def result4message(self, message):
+    async def result4message(self, message):
         result = None
         dialog = self.active_dialog
         if dialog:            
             if message.element is None: #button pressed
                 self.active_dialog = None                
-                result = dialog.changed(dialog, message.value) 
+                handler = dialog.changed
+                result = (await handler(dialog, message.value)) if asyncio.iscoroutinefunction(handler)\
+                      else handler(dialog, message.value)
             else:
                 el = self.find_element(message)
                 if el:
-                    result = self.process_element(el, message)                        
+                    result = await self.process_element(el, message)                        
         else:
-            result = self.process(message)           
+            result = await self.process(message)           
         if result and isinstance(result, Dialog):
             self.active_dialog = result
         return result
@@ -186,7 +178,7 @@ class User:
                 raw = Message(*raw, user = self)
         return raw
 
-    def process(self, message):
+    async def process(self, message):
         self.last_message = message     
         screen_change_message = getattr(message, 'screen',None) and self.screen.name != message.screen
         if is_screen_switch(message) or screen_change_message:
@@ -194,7 +186,7 @@ class User:
                 if s.name == message.value:
                     self.screen_module = s                    
                     if screen_change_message:
-                        break
+                        break                    
                     if getattr(s.screen,'prepare', False):
                         s.screen.prepare()
                     return True 
@@ -205,80 +197,71 @@ class User:
         
         elem = self.find_element(message)          
         if elem:                          
-            return self.process_element(elem, message)  
+            return await self.process_element(elem, message)  
         
         error = f'Element {message.block}>>{message.element} does not exist!'
         self.log(error)
         return Error(error)
         
-    def process_element(self, elem, message):                
+    async def process_element(self, elem, message):                
         event = message.event        
-        query = event in ['complete', 'append']
+        query = event == 'complete' or event == 'append'
         
         handler = self.__handlers__.get((elem, event), None)
         if handler:
-            result = handler(elem, message.value)                
-            return result
-        
+            return (await handler(elem, message.value)) if asyncio.iscoroutinefunction(handler)\
+                  else handler(elem, message.value)              
+            
         handler = getattr(elem, event, False)                                
         if handler:                
-            result = handler(elem, message.value)  
+            result = (await handler(elem, message.value)) if asyncio.iscoroutinefunction(handler)\
+                  else handler(elem, message.value) 
             if query:                        
                 result = Answer(event, message, result)                
             return result
         elif event == 'changed':            
             elem.value = message.value                                        
         else:
-            self.log(f'{elem} does not contain method for {event} event type!')                     
-            return Error(f'Invalid {event} event type for {message.block}>>{message.element} is received!')
+            error = f"{message.block}/{message.element} doesn't contain '{event}' method type!"
+            self.log(error)                     
+            return Error(error)
     
     def log(self, str, type = 'error'):        
         scr = self.screen.name if self.screens else 'void'
-        str = f"session: {self.session}, screen: {scr}, message: {self.last_message} \n  {str}"
+        str = f"session: {self.session}, screen: {scr}, message: {self.last_message}\n  {str}"
         if type == 'error':
             logging.error(str)
         else:
             logging.warning(str)    
 
+User.type = User
+User.last_user = None
+User.toolbar = []
+User.sessions = {}
+User.count = 0
+
 def make_user(request):
     session = f'{request.remote}-{User.count}'
     User.count += 1    
-    requested_connect = request.headers.get('session', '')
+    requested_connect = request.headers.get('session')
     if requested_connect:
         user = User.sessions.get(requested_connect, None)
         if not user:
             error = f'Session id "{requested_connect}" is unknown. Connection refused!'
             logging.error(error)
             return None, Error(error)
-        user = User.UserType(session, user)
+        user = User.type(session, user)
         ok = user.screens
     elif config.mirror and User.last_user:
-        user = User.UserType(session, User.last_user)
+        user = User.type(session, User.last_user)
         ok = user.screens
     else:
-        user = User.UserType(session)
+        user = User.type(session)
         ok = user.load()       
     User.sessions[session] = user 
     return user, ok
-
-#loop and thread is for progress window and sync interactions
-loop = asyncio.new_event_loop()
-
-def f(loop):
-    asyncio.set_event_loop(loop)
-    loop.run_forever() 
-
-async_thread = Thread(target=f, args=(loop,))
-async_thread.start()
 
 def handle(elem, event):
     def h(fn):
         User.last_user.__handlers__[elem, event] = fn
     return h
-
-User.extra_loop = loop
-User.UserType = User
-User.last_user = None
-User.toolbar = []
-User.sessions = {}
-User.count = 0
