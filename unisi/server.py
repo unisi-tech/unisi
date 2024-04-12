@@ -42,12 +42,6 @@ async def static_serve(request):
             
     return web.FileResponse(file_path) if file_path else web.HTTPNotFound()
      
-async def broadcast(message, message_user):
-    screen = message_user.screen_module
-    await asyncio.gather(*[user.send(message)
-        for user in message_user.reflections
-            if user is not message_user and screen is user.screen_module])            
-
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
     await ws.prepare(request)
@@ -86,12 +80,13 @@ async def websocket_handler(request):
                         if message:
                             if recorder.record_file:
                                 recorder.accept(message, user.prepare_result (result))
-                            if user.reflections and not is_screen_switch(message):                        
+                            await user.reflect(message, result)
+                            """ if user.reflections and not is_screen_switch(message):                        
                                 if result:
                                     await broadcast(result, user)                            
                                 msg_object = user.find_element(message)                         
                                 if not isinstance(result, Message) or not result.contains(msg_object):                                                        
-                                    await broadcast(toJson(user.prepare_result(msg_object)), user)
+                                    await broadcast(toJson(user.prepare_result(msg_object)), user) """
                 elif msg.type == WSMsgType.ERROR:
                     user.log('ws connection closed with exception %s' % ws.exception())
         except:        

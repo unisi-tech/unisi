@@ -27,7 +27,7 @@ appname = 'Unisi app'
     print("Config with default parameters is created!")
 
 def is_screen_switch(message):
-    return message.block == 'root' and message.element is None
+    return message and message.block == 'root' and message.element is None
 
 def filename2url(fn):   
     if fn[0] == '/' or fn[1] == ':': #if full path

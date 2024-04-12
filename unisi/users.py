@@ -30,11 +30,27 @@ class User:
     def sync_send(self, obj):                    
         asyncio.run(self.send(obj))
 
+    async def broadcast(self, message):
+        screen = self.screen_module
+        await asyncio.gather(*[user.send(message)
+            for user in self.reflections
+                if user is not self and screen is user.screen_module])        
+
+    async def reflect(self, message, result):
+        if self.reflections and not is_screen_switch(message):                        
+            if result:
+                await self.broadcast(result)        
+            if message:                    
+                msg_object = self.find_element(message)                                     
+                if not isinstance(result, Message) or not result.contains(msg_object):                                                        
+                    await self.broadcast(toJson(self.prepare_result(msg_object)))    
+
     async def progress(self, str, *updates):
-        """open or update progress window if str != null else close it  """  
+        """open or update progress window if str != null else close it """  
         if not self.testing:           
-            await self.send(TypeMessage('progress', str, *updates, user = self))
-                   
+            msg = TypeMessage('progress', str, *updates, user = self)            
+            await asyncio.gather(self.send(msg), self.reflect(None, msg))
+                                           
     def load_screen(self, file):
         screen_vars = {
             'icon' : None,
@@ -106,14 +122,16 @@ class User:
         return  self.screen_module.screen 
 
     def set_screen(self,name):
-        return  asyncio.run(self.process(ArgObject(block = 'root', element = None, value = name)))
+        return asyncio.run(self.process(ArgObject(block = 'root', element = None, value = name)))
 
     async def result4message(self, message):
         result = None
         dialog = self.active_dialog
         if dialog:            
             if message.element is None: #button pressed
-                self.active_dialog = None                
+                self.active_dialog = None    
+                if self.reflections:            
+                    await self.broadcast(TypeMessage('action', 'close'))
                 handler = dialog.changed
                 result = (await handler(dialog, message.value)) if asyncio.iscoroutinefunction(handler)\
                       else handler(dialog, message.value)
@@ -142,24 +160,16 @@ class User:
         else:
             for bl in flatten(self.blocks):
                 if bl.name == blname:
-                    for c in bl.value:
-                        if isinstance(c, list):
-                            for sub in c:
-                                if sub.name == elname:
-                                    return sub
-                        elif c.name == elname:
+                    for c in flatten(bl.value):
+                        if c.name == elname:
                             return c
         
     def find_path(self, elem):        
         for bl in flatten(self.blocks):        
             if bl == elem:
                 return [bl.name]
-            for c in bl.value:
-                if isinstance(c, list):
-                    for sub in c:
-                        if sub == elem:
-                            return [bl.name, sub.name]
-                elif c == elem:
+            for c in flatten(bl.value):
+                if c == elem:
                     return [bl.name, c.name]
         for e in self.screen.toolbar:
             if e == elem:                
@@ -199,7 +209,7 @@ class User:
         if elem:                          
             return await self.process_element(elem, message)  
         
-        error = f'Element {message.block}>>{message.element} does not exist!'
+        error = f'Element {message.block}/{message.element} does not exist!'
         self.log(error)
         return Error(error)
         

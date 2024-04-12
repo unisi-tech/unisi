@@ -2,7 +2,7 @@ import jsonpickle
 
 def flatten(*arr):
     for a in arr:
-        if isinstance(a, list):
+        if isinstance(a, list | tuple):
             yield from flatten(*a)
         else:
             yield a

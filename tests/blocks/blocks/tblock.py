@@ -2,7 +2,7 @@ from unisi import *
 import random, copy, time
 
 def append(_,val):
-    ''' append has to return new row or error string'''
+    ''' append has to return new row'''
     id, search = val
     new = [search, '', '']
     _.rows.append(new)
@@ -12,11 +12,8 @@ def updated(_, value):
     _.value = value  
     return Info(f'{_.name} is updated to {value}!')        
 
-def complete(_, value):
-    value = value[0]
-    if value and isinstance(value, str) and len(value) > 2 and value[0].isalpha():
-        return ['aaa', 'bbbb', 'cccccc']
-    return []
+def complete(_, value):    
+    return ['aaa', 'bbb', 'ccc']    
 
 def changed(_, value):
     _.value = value  
@@ -24,7 +21,7 @@ def changed(_, value):
 
 def table_modify(_, value):
     value, pos = value    
-    return Error(f'{_.name} {pos} is not modified to value {value}!')
+    return Error(f'{_.name} {pos} is not modified to value {value}!', _)
 
 def table_update(_, value):    
     accept_cell_value(_, value)
@@ -90,8 +87,7 @@ eblock = Block('New block',
         txt,
         Edit('Number only', 2.5),
         Edit('Edit string', 'xyz'),
-        Edit('Complete enter update field', '', changed, 
-            complete = smart_complete(list_complete), update = updated)
+        Edit('Complete enter update field', '', changed, complete = smart_complete(list_complete), update = updated)
 )
 
 def add_tree_elem(_, val):
@@ -99,8 +95,7 @@ def add_tree_elem(_, val):
     if not txt:
         return Info('Enter text first to the field!')
     if txt in ld:
-        return Warning('Cannot add doubles!')
-    
+        return Warning('Cannot add doubles!')    
     ld[txt] = tree.value if tree.value else None
     tree.value = txt
     return tree
