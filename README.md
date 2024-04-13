@@ -80,7 +80,7 @@ async def handler_x(gui_object, value_x)
 ```
 where gui_object is a Python object the user interacted with and value for the event.
 
-#### ! UNISI supports synchronous and asynchronous handlers automatically adopting them for using. ####
+#### UNISI supports synchronous and asynchronous handlers automatically adopting them for using. ####
 
 All Gui objects except Button have a field ‘value’. 
 For an edit field the value is a string or number, for a switch or check button the value is boolean, for table is row id or index, e.t.c.
@@ -99,10 +99,9 @@ clean_button = Button('Clean the table’, clean_table)
 | Gui object array or tuple |  Objects to update |
 | None | Nothing to update, Ok |
 | Error(...), Warning(...), Info(...) | Show to user info about a state. |
-| True | Redraw whole screen |
-
+| True | Update whole screen |
+| Redesign | Update and redesign whole screen |
 | Dialog(..) | Open a dialog with parameters |
-| user.set_screen(screen_name) | switch to another screen |
 
 Unisi synchronizes GUI state on frontend-end automatically after calling a handler.
 
