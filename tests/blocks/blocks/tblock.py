@@ -41,7 +41,7 @@ async def dialog_callback(_,value):
 def call_dialog(*_):
     return Dialog('Start a long process?', dialog_callback, ticks)
 
-table = Table('Audios', 0, changed, type = 'chart', headers = ['Audio', 'Duration,sec', 'Stars'], multimode = True,
+table = Table('Audios', 1, changed, type = 'chart', headers = ['Audio', 'Duration,sec', 'Stars'], multimode = True,
     rows =  [[f'sync{i}.mp3', round(random.random() * 15000) / 100, random.randint(1,50)] for i in range(100)],
     append = append, complete = complete, update = table_update, view = 'i-1,2')
 
@@ -83,7 +83,7 @@ simple_enter = Edit('_Simple Enter update', 'cherokke', update = updated)
 list_complete = ['value 21', 'Value 21', 'sum 289', 'absolute 3']
 
 eblock = Block('New block',                        
-        [Button('Dialog for a process', call_dialog), Range('Scaling', 0, lambda _,val: Info(val), options=[0,1,0.1])],
+        [Button('Dialog for a process', call_dialog),Range('Scaling', 0, changed, options=[0.0,1.0,0.1])],        
         txt,
         Edit('Number only', 2.5),
         Edit('Edit string', 'xyz'),

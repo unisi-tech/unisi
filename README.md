@@ -1,5 +1,5 @@
 # UNISI #
-UNified System Interface and GUI
+UNified System Interface, GUI and Remote API
 
 ### Purpose ###
 UNISI technology provides a unified system interface and advanced program functionality, eliminating the need for front-end and most back-end programming. It automates common tasks, as well as unique ones, significantly reducing the necessity for manual programming and effort.
@@ -75,9 +75,12 @@ Connect a browser to localhast:8000 which are by default and will see:
 ### Handling events ###
 All handlers are functions which have a signature
 ```
-def handler_x(gui_object, value_x)
+def handler_x(gui_object, value_x) #or
+async def handler_x(gui_object, value_x)
 ```
 where gui_object is a Python object the user interacted with and value for the event.
+
+#### ! UNISI supports synchronous and asynchronous handlers automatically adopting them for using. ####
 
 All Gui objects except Button have a field ‘value’. 
 For an edit field the value is a string or number, for a switch or check button the value is boolean, for table is row id or index, e.t.c.
@@ -391,16 +394,16 @@ Error(error_message, *someGUIforUpdades)
 ```
 They are returned by handlers and cause appearing on the top screen colored rectangles window for 3 second. someGUIforUpdades is optional GUI enumeration for updating.
 
-For long time processes it is possible to create Progress window. It is just call user.progress in any place.
+For long time processes it is possible to create Progress window. It is just call user.progress in any async handler.
 Open window 
 ```
-user.progress("Analyze .. Wait..")
+await user.progress("Analyze .. Wait..")
 ```
 Update window message 
 ```
-user.progress(" 1% is done..")
+await user.progress(" 1% is done..")
 ```
-Progree window is automatically closed when the handler is finished.
+Progress window is automatically closed when the handler is finished.
 
 ### Milti-user support. ###
 Unisi automatically creates and serves an environment for every user.

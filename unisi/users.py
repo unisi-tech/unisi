@@ -81,6 +81,17 @@ class User:
                                 
         module.screen = screen        
         return module
+    
+    def delete(self):
+        uss = User.sessions
+        if uss and uss.get(self.session):
+            del uss[self.session]
+        
+        if self.reflections: #reflections is common array
+            if len(self.reflections) == 2: 
+                self.reflections.clear() #1 element in user.reflections has no sense
+            else:
+                self.reflections.remove(self)     
 
     def set_clean(self):
         #remove user modules from sys 

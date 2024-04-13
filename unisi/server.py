@@ -80,27 +80,13 @@ async def websocket_handler(request):
                         if message:
                             if recorder.record_file:
                                 recorder.accept(message, user.prepare_result (result))
-                            await user.reflect(message, result)
-                            """ if user.reflections and not is_screen_switch(message):                        
-                                if result:
-                                    await broadcast(result, user)                            
-                                msg_object = user.find_element(message)                         
-                                if not isinstance(result, Message) or not result.contains(msg_object):                                                        
-                                    await broadcast(toJson(user.prepare_result(msg_object)), user) """
+                            await user.reflect(message, result)                            
                 elif msg.type == WSMsgType.ERROR:
                     user.log('ws connection closed with exception %s' % ws.exception())
         except:        
             user.log(traceback.format_exc())
 
-        uss = User.sessions
-        if uss and uss.get(user.session):
-            del uss[user.session]
-        
-        if user.reflections: #reflections is common array
-            if len(user.reflections) == 2: 
-                user.reflections.clear() #1 element in user.reflections has no sense
-            else:
-                user.reflections.remove(user)        
+        user.delete()   
     return ws  #?<->     
 
 def start(appname = None, user_type = User, http_handlers = []):    
