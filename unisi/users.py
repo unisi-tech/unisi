@@ -2,7 +2,7 @@ from .utils import *
 from .guielements import *
 from .common import *
 from .containers import Dialog, Screen
-import sys, asyncio, logging, importlib
+import sys, asyncio, logging, importlib, time
 
 class User:      
     def __init__(self, session: str, share = None):          
@@ -25,10 +25,9 @@ class User:
             self.screens = []        
             self.reflections = []
             self.screen_module = None         
-            self.__handlers__ = {}              
+            self.__handlers__ = {} 
 
-    def sync_send(self, obj):                    
-        asyncio.run(self.send(obj))
+        self.monitor(session, share)               
 
     async def broadcast(self, message):
         screen = self.screen_module
@@ -140,14 +139,13 @@ class User:
     async def result4message(self, message):
         result = None
         dialog = self.active_dialog
+        self.last_message = message     
         if dialog:            
-            if message.element is None: #button pressed
+            if message.element is None: #dialog command button is pressed
                 self.active_dialog = None    
                 if self.reflections:            
-                    await self.broadcast(TypeMessage('action', 'close'))
-                handler = dialog.changed
-                result = (await handler(dialog, message.value)) if asyncio.iscoroutinefunction(handler)\
-                      else handler(dialog, message.value)
+                    await self.broadcast(TypeMessage('action', 'close'))                                    
+                result = await self.eval_handler(dialog.changed, dialog, message.value)
             else:
                 el = self.find_element(message)
                 if el:
@@ -156,6 +154,17 @@ class User:
             result = await self.process(message)           
         if result and isinstance(result, Dialog):
             self.active_dialog = result
+        return result
+
+    async def eval_handler(self, handler, gui, value):
+        tstart = 0 if config.monitor is None else time.time()
+        result = (await handler(gui, value)) if asyncio.iscoroutinefunction(handler)\
+            else handler(gui, value)
+        if tstart:
+            duration = time.time() - tstart
+            if duration > config.monitor:
+                self.log(f'Handler {handler.__name__} was executed for {duration} seconds!', 
+                    type = 'warning')
         return result
 
     @property
@@ -201,8 +210,7 @@ class User:
                 raw = Message(*raw, user = self)
         return raw
 
-    async def process(self, message):
-        self.last_message = message     
+    async def process(self, message):        
         screen_change_message = getattr(message, 'screen',None) and self.screen.name != message.screen
         if is_screen_switch(message) or screen_change_message:
             for s in self.screens:
@@ -232,13 +240,11 @@ class User:
         
         handler = self.__handlers__.get((elem, event), None)
         if handler:
-            return (await handler(elem, message.value)) if asyncio.iscoroutinefunction(handler)\
-                  else handler(elem, message.value)              
+            return await self.eval_handler(handler, elem, message.value)
             
         handler = getattr(elem, event, False)                                
         if handler:                
-            result = (await handler(elem, message.value)) if asyncio.iscoroutinefunction(handler)\
-                  else handler(elem, message.value) 
+            result = await self.eval_handler(handler, elem, message.value)
             if query:                        
                 result = Answer(event, message, result)                
             return result
@@ -248,14 +254,23 @@ class User:
             error = f"{message.block}/{message.element} doesn't contain '{event}' method type!"
             self.log(error)                     
             return Error(error)
+        
+    def monitor(self, session, share):
+        if self.monitor is not None and session != testdir:
+            logging.info(f'User is connected, session: {session}, share: {share.session if share else None}')            
+
+    def sync_send(self, obj):                    
+        asyncio.run(self.send(obj))
     
     def log(self, str, type = 'error'):        
         scr = self.screen.name if self.screens else 'void'
         str = f"session: {self.session}, screen: {scr}, message: {self.last_message}\n  {str}"
         if type == 'error':
             logging.error(str)
-        else:
+        elif type == 'warning':
             logging.warning(str)    
+        else:
+            logging.info(str)
 
 User.type = User
 User.last_user = None

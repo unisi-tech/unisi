@@ -16,6 +16,8 @@ class ReceivedMessage:
         self.__dict__.update(data)
         self.screen = data.get('screen')        
         self.value = data.get('value')        
+    def __str__(self):
+        return f'{self.block}/{self.element}->{self.event}({self.value})'
 
 def toJson(obj):
     return jsonpickle.encode(obj,unpicklable = False)

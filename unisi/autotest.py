@@ -9,22 +9,6 @@ from .jsoncomparison import Compare, NO_DIFF
 def obj2json(obj):
     return json.loads(toJson(obj))
 
-#setting config variables
-defaults = {
-    testdir: False,
-    'upload_dir' : 'web',
-    'logfile': None,
-    'hot_reload' : False,
-    'appname' : 'Unisi app',
-    'mirror' : False,
-    'monitor' : None, 
-    'rag' : ''
-}
-
-for param, value in defaults.items():
-    if not hasattr(config, param):
-       setattr(config, param, value)
-
 if not os.path.exists(config.upload_dir):
     os.makedirs(config.upload_dir)
 
@@ -32,7 +16,7 @@ if not os.path.exists(config.upload_dir):
 format = "%(asctime)s - %(levelname)s - %(message)s"
 logfile = config.logfile
 handlers = [logging.FileHandler(logfile), logging.StreamHandler()] if logfile else []
-logging.basicConfig(level = logging.WARNING, format = format, handlers = handlers)
+logging.basicConfig(level = logging.INFO, format = format, handlers = handlers)
 
 comparator = Compare(rules = {'toolbar': '*'}).check
 

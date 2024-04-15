@@ -27,6 +27,22 @@ appname = 'Unisi app'
     import config
     print("Config with default parameters is created!")
 
+#setting config variables
+defaults = {
+    testdir: False,
+    'upload_dir' : 'web',
+    'logfile': None,
+    'hot_reload' : False,
+    'appname' : 'Unisi app',
+    'mirror' : False,
+    'monitor' : None, 
+    'rag' : ''
+}
+
+for param, value in defaults.items():
+    if not hasattr(config, param):
+       setattr(config, param, value)
+
 def is_screen_switch(message):
     return message and message.block == 'root' and message.element is None
 
