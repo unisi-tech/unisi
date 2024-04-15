@@ -5,6 +5,7 @@ screens_dir =  'screens'
 UpdateScreen = True
 Redesign = 2
 public_dirs = 'public_dirs'
+testdir = 'autotest'
 
 divpath = '\\' if platform.system() == 'Windows' else '/'
 libpath = os.path.dirname(os.path.realpath(__file__))

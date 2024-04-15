@@ -10,21 +10,20 @@ def obj2json(obj):
     return json.loads(toJson(obj))
 
 #setting config variables
-testdir = 'autotest'
-if not hasattr(config, testdir):
-    config.autotest = False
-if not hasattr(config, 'port'):
-    config.port = 8000
-if not hasattr(config, 'upload_dir'):
-    config.upload_dir = 'web'
-if not hasattr(config, 'logfile'):
-    config.logfile = None
-if not hasattr(config, 'hot_reload'):
-    config.hot_reload = False
-if not hasattr(config, 'appname'):
-    config.appname = 'Unisi app'
-if not hasattr(config, 'mirror'):
-    config.mirror = False
+defaults = {
+    testdir: False,
+    'upload_dir' : 'web',
+    'logfile': None,
+    'hot_reload' : False,
+    'appname' : 'Unisi app',
+    'mirror' : False,
+    'monitor' : None, 
+    'rag' : ''
+}
+
+for param, value in defaults.items():
+    if not hasattr(config, param):
+       setattr(config, param, value)
 
 if not os.path.exists(config.upload_dir):
     os.makedirs(config.upload_dir)
@@ -202,7 +201,7 @@ def check_module(module):
 def run_tests():
     if not os.path.exists(testdir):
         os.makedirs(testdir)
-    user = User.type('autotest')
+    user = User.type(testdir)
     user.load()    
     errors = []
     for module in user.screens:

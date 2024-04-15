@@ -9,16 +9,13 @@ def flatten(*arr):
             
 class ArgObject:
     def __init__(self, **kwargs):
-        for key, value in kwargs.items():
-            setattr(self, key, value) 
+        self.__dict__.update(kwargs)
 
 class ReceivedMessage:
     def __init__(self, data):
-        self.screen = data.get('screen')
-        self.block = data.get('block')
-        self.element = data.get('element')
-        self.event = data.get('event')
-        self.value = data.get('value')  
+        self.__dict__.update(data)
+        self.screen = data.get('screen')        
+        self.value = data.get('value')        
 
 def toJson(obj):
     return jsonpickle.encode(obj,unpicklable = False)

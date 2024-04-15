@@ -32,6 +32,8 @@ class User:
 
     async def broadcast(self, message):
         screen = self.screen_module
+        if type(message) != str:
+            message = toJson(self.prepare_result(message))  
         await asyncio.gather(*[user.send(message)
             for user in self.reflections
                 if user is not self and screen is user.screen_module])        
@@ -43,7 +45,7 @@ class User:
             if message:                    
                 msg_object = self.find_element(message)                                     
                 if not isinstance(result, Message) or not result.contains(msg_object):                                                        
-                    await self.broadcast(toJson(self.prepare_result(msg_object)))    
+                    await self.broadcast(msg_object)    
 
     async def progress(self, str, *updates):
         """open or update progress window if str != null else close it """  
@@ -126,7 +128,7 @@ class User:
 
     @property
     def testing(self):        
-        return  self.session == 'autotest'
+        return  self.session == testdir
     
     @property
     def screen(self):        
@@ -225,7 +227,7 @@ class User:
         return Error(error)
         
     async def process_element(self, elem, message):                
-        event = message.event        
+        event = message.event 
         query = event == 'complete' or event == 'append'
         
         handler = self.__handlers__.get((elem, event), None)
