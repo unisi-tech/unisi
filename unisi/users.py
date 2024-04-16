@@ -4,6 +4,16 @@ from .common import *
 from .containers import Dialog, Screen
 import sys, asyncio, logging, importlib, time
 
+#start logging 
+format = "%(asctime)s - %(levelname)s - %(message)s"
+logfile = config.logfile
+handlers = [logging.FileHandler(logfile), logging.StreamHandler()] if logfile else []
+
+def set_logging(level = logging.WARNING):
+    logging.basicConfig(level = level, format = format, handlers = handlers)
+
+set_logging()
+
 class User:      
     def __init__(self, session: str, share = None):          
         self.session = session        
@@ -256,8 +266,8 @@ class User:
             return Error(error)
         
     def monitor(self, session, share):
-        if self.monitor is not None and session != testdir:
-            logging.info(f'User is connected, session: {session}, share: {share.session if share else None}')            
+        if config.monitor is not None and session != testdir:
+            self.log(f'User is connected, session: {session}, share: {share.session if share else None}', type = 'info')            
 
     def sync_send(self, obj):                    
         asyncio.run(self.send(obj))
@@ -270,7 +280,9 @@ class User:
         elif type == 'warning':
             logging.warning(str)    
         else:
+            set_logging(level = logging.INFO)
             logging.info(str)
+            set_logging(level = logging.WARNING)
 
 User.type = User
 User.last_user = None

@@ -12,12 +12,6 @@ def obj2json(obj):
 if not os.path.exists(config.upload_dir):
     os.makedirs(config.upload_dir)
 
-#start logging 
-format = "%(asctime)s - %(levelname)s - %(message)s"
-logfile = config.logfile
-handlers = [logging.FileHandler(logfile), logging.StreamHandler()] if logfile else []
-logging.basicConfig(level = logging.INFO, format = format, handlers = handlers)
-
 comparator = Compare(rules = {'toolbar': '*'}).check
 
 class Recorder:
