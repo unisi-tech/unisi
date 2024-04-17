@@ -294,7 +294,7 @@ User.count = 0
 def make_user(request):
     session = f'{request.remote}-{User.count}'
     User.count += 1    
-    requested_connect = request.headers.get('session')
+    requested_connect = None if config.monitor is None else request.headers.get('session')
     if requested_connect:
         user = User.sessions.get(requested_connect, None)
         if not user:

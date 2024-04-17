@@ -56,7 +56,7 @@ def graph_selection(_, val):
 
 #graph can handle invalid edges and null nodes in the array    
 graph = Graph('test graph', None, graph_selection, 
-    nodes = [Node("Node 1"),Node("Node 2", size = 20),None, Node("Node 3", color = "#3CA072"), Node("Node 4")],
+    nodes = [Node("Node 1"),Node("Node 2", size = 20),None, Node("Node 3", color = "green"), Node("Node 4")],
     edges = [Edge(0,1, color = "#3CA072"), Edge(1,3,'extending', size = 6),Edge(3,4, size = 2), Edge(2,4)])
 
 def delblock(elem, value):
