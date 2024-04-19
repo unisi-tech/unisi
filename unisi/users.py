@@ -8,11 +8,7 @@ import sys, asyncio, logging, importlib, time
 format = "%(asctime)s - %(levelname)s - %(message)s"
 logfile = config.logfile
 handlers = [logging.FileHandler(logfile), logging.StreamHandler()] if logfile else []
-
-def set_logging(level = logging.WARNING):
-    logging.basicConfig(level = level, format = format, handlers = handlers)    
-
-set_logging()
+logging.basicConfig(level = logging.WARNING, format = format, handlers = handlers)    
 
 class User:      
     def __init__(self, session: str, share = None):          
@@ -76,9 +72,8 @@ class User:
         path = f'{screens_dir}{divpath}{file}'                
         spec = importlib.util.spec_from_file_location(name,path)
         module = importlib.util.module_from_spec(spec)        
+        module.user = self  
                 
-        module.user = self                               
-        
         spec.loader.exec_module(module)            
         screen = Screen(getattr(module, 'name', ''))
         #set system vars
@@ -89,8 +84,7 @@ class User:
             screen.toolbar += User.toolbar
         else: 
             screen.toolbar = User.toolbar  
-                                
-        module.screen = screen        
+        module.screen = screen                                 
         return module
     
     def delete(self):
@@ -121,7 +115,7 @@ class User:
                     self.screens.append(module)                
             
         if self.screens:
-            self.screens.sort(key=lambda s: s.screen.order)            
+            self.screens.sort(key=lambda s: s.order)            
             main = self.screens[0]
             if 'prepare' in dir(main):
                 main.prepare()
@@ -290,6 +284,13 @@ User.last_user = None
 User.toolbar = []
 User.sessions = {}
 User.count = 0
+
+def context_user():
+    return context_object(User)
+
+def context_screen():
+    user = context_user()
+    return user.screen if user else None
 
 def make_user(request):
     session = f'{request.remote}-{User.count}'

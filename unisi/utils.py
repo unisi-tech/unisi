@@ -1,4 +1,4 @@
-import os, platform, requests
+import os, platform, requests, inspect
 
 blocks_dir = 'blocks'        
 screens_dir =  'screens'        
@@ -42,6 +42,19 @@ defaults = {
 for param, value in defaults.items():
     if not hasattr(config, param):
        setattr(config, param, value)
+
+def context_object(target_type):
+  """
+  Finds the first argument of a specific type in the current function call stack.
+  """  
+  frame = inspect.currentframe()
+  while frame:    
+    args, _, _, values = inspect.getargvalues(frame)    
+    if args and isinstance(values[args[0]], target_type):
+      return values[args[0]]
+    # Move to the previous frame in the call stack
+    frame = frame.f_back
+  return None
 
 def is_screen_switch(message):
     return message and message.block == 'root' and message.element is None

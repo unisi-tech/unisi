@@ -32,6 +32,7 @@ ticks = Edit('How many ticks', 50)
 
 async def dialog_callback(_,value):    
     if value == 'Ok':
+        user = context_user()
         await user.progress('Process executing')
         for i in range(ticks.value):
             txt.value = i

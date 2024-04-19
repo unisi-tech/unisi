@@ -60,7 +60,7 @@ graph = Graph('test graph', None, graph_selection,
     edges = [Edge(0,1, color = "#3CA072"), Edge(1,3,'extending', size = 6),Edge(3,4, size = 2), Edge(2,4)])
 
 def delblock(elem, value):
-    screen.blocks = [block, config_area]
+    context_screen().blocks = [block, config_area]
     return Redesign
 
 bottom_block = Block('Graph, press Shift for multi (de)select', 
@@ -70,6 +70,7 @@ bottom_block = Block('Graph, press Shift for multi (de)select',
 blocks= [[block,bottom_block],config_area]
 
 async def log(x,y):    
+    user = context_user()
     for i in range(3):
         await user.send(Warning(str(i)))
     
