@@ -11,8 +11,6 @@ def read_string_from(shared_array):
 
 _multiprocessing_pool = None
 
-
-
 def multiprocessing_pool():
     global _multiprocessing_pool
     if not _multiprocessing_pool:
@@ -36,13 +34,11 @@ async def run_external_process(long_running_task, *args, callback = False):
         args = *args, queue
     result = multiprocessing_pool().apply_async(long_running_task, args)
     if callback:
-        while not result.ready():
-            if not queue.empty():
-                message = queue.get()
-                if message is None:
-                    break
-                await callback(message)
-            await asyncio.sleep(0.1)  
+        while not result.ready() or not queue.empty():            
+            message = queue.get()
+            if message is None:
+                break
+            await asyncio.gather(callback(message), asyncio.sleep(monitor_tick))            
     return result.get()
 
 logging_lock = multiprocessing.Lock()
@@ -61,8 +57,7 @@ def monitor_process(monitor_shared_arr):
             if timer is not None:
                 timer -= monitor_tick                
                 if timer < 0:
-                    timer = None
-                    
+                    timer = None                    
                     arr = list(session_status.items())
                     arr.sort(key = lambda s: s[1][1], reverse=True)
                     ct = time.time()
@@ -71,7 +66,6 @@ def monitor_process(monitor_shared_arr):
                     with logging_lock:
                         logging.warning(message)                    
                     timer = None
-        
         # Read and process the data
         status = read_string_from(monitor_shared_arr).split(splitter)
         #free
