@@ -1,4 +1,6 @@
-import multiprocessing, time, asyncio
+import multiprocessing, time, asyncio, logging
+from .utils import start_logging
+from config import froze_time, monitor_tick, profile 
 
 def write_string_to(shared_array, input_string):    
     input_bytes = input_string.encode()    
@@ -7,73 +9,72 @@ def write_string_to(shared_array, input_string):
 def read_string_from(shared_array):
     return shared_array[:].decode().rstrip('\x00')
 
+logging_lock = multiprocessing.Lock()
+
 splitter = '~'
-tick = 0.005
 
-def ext(s):
-    return s[1][1]
-
-def monitor_process(shared_arr):        
-    hangout_time = 2.0
+def monitor_process(monitor_shared_arr):            
     timer = None
-    session_status = {}
-    sname = None
-
+    session_status = {}    
+    sname = None    
+    start_logging()
     while True:
         #Wait for data in the shared array
-        while shared_arr[0] == b'\x00':
+        while monitor_shared_arr[0] == b'\x00':
             time.sleep(0.005)  
             if timer is not None:
-                timer -= tick                
+                timer -= monitor_tick                
                 if timer < 0:
                     timer = None
-                    print("Hangout is detected! Sessions in a queue and time waiting:")
+                    
                     arr = list(session_status.items())
-                    arr.sort(key = ext , reverse=True)
+                    arr.sort(key = lambda s: s[1][1], reverse=True)
                     ct = time.time()
-                    for s in arr:
-                        print('  ', s[0],s[1][0], ct - s[1][1], 's')
+                    message = "Hangout is detected! Sessions in a queue and time waiting:" +\
+                        ''.join(f'\n  {s[0]}, {s[1][0]}, {ct - s[1][1]} s' for s in arr)    
+                    with logging_lock:
+                        logging.warning(message)                    
                     timer = None
         
         # Read and process the data
-        status = read_string_from(shared_arr).split(splitter)
+        status = read_string_from(monitor_shared_arr).split(splitter)
         #free
-        shared_arr[0] = b'\x00'
+        monitor_shared_arr[0] = b'\x00'
         sname = status[1]  
         match status[0]:
             case '+' | 'e': #exit external process                             
                 session_status[sname] = [status[2], time.time()]
-                timer = hangout_time
-            case '-':                            
-                del session_status[sname] 
-                timer = None
+                timer = froze_time
+            case '-':    
+                event, tstart = session_status.get(sname, (None, 0))
+                if event:                                        
+                    duration = time.time() - tstart
+                    if profile and duration > profile:
+                        with logging_lock:
+                            logging.warning(f'Event handler {event} was executed for {duration} seconds!')
+                    del session_status[sname] 
+                    timer = None
             case 'p': #call external process
                 session_status[sname] = [status[2], time.time()]
                 timer = None
                             
+if froze_time or profile: 
+    # Create a shared memory array
+    monitor_shared_arr = multiprocessing.Array('c', 200)  
+    monitor_shared_arr[0] != b'\x00'
+    
+    async def notify_monitor(status, session, event):
+        s = f'{status}{splitter}{session}{splitter}{event}'        
+        # Wait for the shared array to be empty
+        while monitor_shared_arr[0] != b'\x00':
+            await asyncio.sleep(monitor_tick)
+        write_string_to(monitor_shared_arr, s)
 
-if __name__ == "__main__": 
-    async def run_monitor():
-        # Create a shared memory array
-        shared_arr = multiprocessing.Array('c', 100)  # Adjust size as needed
-        shared_arr[0] != b'\x00'
+    monitor_process = multiprocessing.Process(target=monitor_process, args=(monitor_shared_arr,))
+    monitor_process.start()
+else:
+    notify_monitor = None
+    
 
-        async def put_in_monitor(status, session, event):
-            s = f'{status}{splitter}{session}{splitter}{event}'        
-            # Wait for the shared array to be empty
-            while shared_arr[0] != b'\x00':
-                await asyncio.sleep(tick)
-            write_string_to(shared_arr, s)
-
-        # Start the synchronous process
-        sync_process = multiprocessing.Process(target=monitor_process, args=(shared_arr,))
-        sync_process.start()
-
-        await put_in_monitor('+', 's1', 1)
-        await asyncio.sleep(1)
-        await put_in_monitor('+', 's2', 2)
-        await asyncio.sleep(500)
-
-    asyncio.run(run_monitor())
 
         

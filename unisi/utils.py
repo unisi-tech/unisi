@@ -1,4 +1,4 @@
-import os, platform, requests, inspect
+import os, platform, requests, inspect, logging
 
 blocks_dir = 'blocks'        
 screens_dir =  'screens'        
@@ -30,18 +30,23 @@ appname = 'Unisi app'
 #setting config variables
 defaults = {
     testdir: False,
+    'appname' : 'Unisi app',
     'upload_dir' : 'web',
     'logfile': None,
-    'hot_reload' : False,
-    'appname' : 'Unisi app',
+    'hot_reload' : False,    
     'mirror' : False,
-    'monitor' : None, 
-    'rag' : ''
+    'share' : False,
+    'profile' : 0, 
+    'rag' : None,
+    'froze_time': None,
+    'monitor_tick' : 0.005
 }
-
 for param, value in defaults.items():
     if not hasattr(config, param):
        setattr(config, param, value)
+#froze_time can not be 0
+if config.froze_time == 0:
+    config.froze_time = None
 
 def context_object(target_type):
   """
@@ -134,5 +139,14 @@ def Answer(type, message, result):
     ms = TypeMessage(type, result)
     ms.message = message
     return ms
+
+def start_logging(): 
+    format = "%(asctime)s - %(levelname)s - %(message)s"
+    logfile = config.logfile
+    handlers = [logging.FileHandler(logfile), logging.StreamHandler()] if logfile else []
+    logging.basicConfig(level = logging.WARNING, format = format, handlers = handlers)    
+
+start_logging()
+
 
 

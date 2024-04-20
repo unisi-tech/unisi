@@ -83,14 +83,15 @@ async def websocket_handler(request):
                             await user.reflect(message, result)                            
                 elif msg.type == WSMsgType.ERROR:
                     user.log('ws connection closed with exception %s' % ws.exception())
-        except:        
-            user.log(traceback.format_exc())
+        except BaseException as e:
+            if not isinstance(e, ConnectionResetError):
+                user.log(traceback.format_exc())
 
-        user.delete()   
+        await user.delete()   
     return ws  #?<->     
 
 def start(appname = None, user_type = User, http_handlers = []):    
-    if appname is not None:
+    if appname:
         config.appname = appname
 
     User.type = user_type    

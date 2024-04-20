@@ -2,13 +2,8 @@ from .utils import *
 from .guielements import *
 from .common import *
 from .containers import Dialog, Screen
-import sys, asyncio, logging, importlib, time
-
-#start logging 
-format = "%(asctime)s - %(levelname)s - %(message)s"
-logfile = config.logfile
-handlers = [logging.FileHandler(logfile), logging.StreamHandler()] if logfile else []
-logging.basicConfig(level = logging.WARNING, format = format, handlers = handlers)    
+from .multimon import notify_monitor, logging_lock
+import sys, asyncio, logging, importlib
 
 class User:      
     def __init__(self, session: str, share = None):          
@@ -57,6 +52,8 @@ class User:
         if not self.testing:           
             msg = TypeMessage('progress', str, *updates, user = self)            
             await asyncio.gather(self.send(msg), self.reflect(None, msg))
+            if notify_monitor:
+                await notify_monitor('e', self.session, self.last_message) 
                                            
     def load_screen(self, file):
         screen_vars = {
@@ -87,7 +84,7 @@ class User:
         module.screen = screen                                 
         return module
     
-    def delete(self):
+    async def delete(self):
         uss = User.sessions
         if uss and uss.get(self.session):
             del uss[self.session]
@@ -96,7 +93,10 @@ class User:
             if len(self.reflections) == 2: 
                 self.reflections.clear() #1 element in user.reflections has no sense
             else:
-                self.reflections.remove(self)     
+                self.reflections.remove(self)  
+
+        if notify_monitor:
+            await notify_monitor('-', self.session, self.last_message)   
 
     def set_clean(self):
         #remove user modules from sys 
@@ -141,10 +141,9 @@ class User:
         return asyncio.run(self.process(ArgObject(block = 'root', element = None, value = name)))
 
     async def result4message(self, message):
-        result = None
-        dialog = self.active_dialog
+        result = None        
         self.last_message = message     
-        if dialog:            
+        if dialog := self.active_dialog:            
             if message.element is None: #dialog command button is pressed
                 self.active_dialog = None    
                 if self.reflections:            
@@ -161,14 +160,12 @@ class User:
         return result
 
     async def eval_handler(self, handler, gui, value):
-        tstart = 0 if config.monitor is None else time.time()
+        if notify_monitor:
+            await notify_monitor('+', self.session, self.last_message)        
         result = (await handler(gui, value)) if asyncio.iscoroutinefunction(handler)\
             else handler(gui, value)
-        if tstart:
-            duration = time.time() - tstart
-            if duration > config.monitor:
-                self.log(f'Handler {handler.__name__} was executed for {duration} seconds!', 
-                    type = 'warning')
+        if notify_monitor:
+            await notify_monitor('-', self.session, None)        
         return result
 
     @property
@@ -260,7 +257,7 @@ class User:
             return Error(error)
         
     def monitor(self, session, share):
-        if config.monitor is not None and session != testdir:
+        if config.share and session != testdir:
             self.log(f'User is connected, session: {session}, share: {share.session if share else None}', type = 'info')            
 
     def sync_send(self, obj):                    
@@ -269,15 +266,16 @@ class User:
     def log(self, str, type = 'error'):        
         scr = self.screen.name if self.screens else 'void'
         str = f"session: {self.session}, screen: {scr}, message: {self.last_message}\n  {str}"
-        if type == 'error':
-            logging.error(str)
-        elif type == 'warning':
-            logging.warning(str)    
-        else:
-            func = logging.getLogger().setLevel
-            func(level = logging.INFO)
-            logging.info(str)
-            func(level = logging.WARNING)
+        with logging_lock:
+            if type == 'error':
+                logging.error(str)
+            elif type == 'warning':
+                logging.warning(str)    
+            else:
+                func = logging.getLogger().setLevel
+                func(level = logging.INFO)
+                logging.info(str)
+                func(level = logging.WARNING)
 
 User.type = User
 User.last_user = None
@@ -295,12 +293,12 @@ def context_screen():
 def make_user(request):
     session = f'{request.remote}-{User.count}'
     User.count += 1    
-    requested_connect = None if config.monitor is None else request.headers.get('session')
-    if requested_connect:
+    if requested_connect := request.headers.get('session') if config.share else None:
         user = User.sessions.get(requested_connect, None)
         if not user:
             error = f'Session id "{requested_connect}" is unknown. Connection refused!'
-            logging.error(error)
+            with logging_lock:
+                logging.error(error)
             return None, Error(error)
         user = User.type(session, user)
         ok = user.screens

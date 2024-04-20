@@ -1,4 +1,6 @@
 port = 8000 
 upload_dir = 'downloads'
+logfile = 'log'
 autotest = '*'
-monitor = 0.1
+profile = 0.1
+froze_time = 1
