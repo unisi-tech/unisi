@@ -2,7 +2,7 @@ from .utils import *
 from .guielements import *
 from .common import *
 from .containers import Dialog, Screen
-from .multimon import notify_monitor, logging_lock
+from .multimon import notify_monitor, logging_lock, run_external_process
 import sys, asyncio, logging, importlib
 
 class User:      
@@ -28,7 +28,14 @@ class User:
             self.screen_module = None         
             self.__handlers__ = {} 
 
-        self.monitor(session, share)               
+        self.monitor(session, share)     
+
+    async def run_process(self, long_running_task, *args, callback = False):
+        if callback and notify_monitor and callback != self.progress: #progress notifies the monitor
+            async def new_callback(value):
+                asyncio.gather(notify_monitor('e', self.session, self.last_message), callback(value))                
+            callback = new_callback
+        return await run_external_process(long_running_task, *args, callback = callback)
 
     async def broadcast(self, message):
         screen = self.screen_module

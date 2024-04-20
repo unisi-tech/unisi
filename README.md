@@ -14,6 +14,7 @@ UNISI technology provides a unified system interface and advanced program functi
  - Integral autotesting
  - Protocol schema auto validation
  - Shared sessions
+ - Monitoring and profiling
 
 ### Installing ###
 ```

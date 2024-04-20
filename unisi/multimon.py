@@ -1,6 +1,6 @@
 import multiprocessing, time, asyncio, logging
 from .utils import start_logging
-from config import froze_time, monitor_tick, profile 
+from config import froze_time, monitor_tick, profile, pool
 
 def write_string_to(shared_array, input_string):    
     input_bytes = input_string.encode()    
@@ -8,6 +8,42 @@ def write_string_to(shared_array, input_string):
 
 def read_string_from(shared_array):
     return shared_array[:].decode().rstrip('\x00')
+
+_multiprocessing_pool = None
+
+
+
+def multiprocessing_pool():
+    global _multiprocessing_pool
+    if not _multiprocessing_pool:
+        _multiprocessing_pool = multiprocessing.Pool(pool)
+    return _multiprocessing_pool
+
+# Define an asynchronous function that will run the synchronous function in a separate process
+""" argument example
+def long_running_task(queue):
+    for i in range(5):
+        time.sleep(2)  # emulate long calculation
+        queue.put(f"Task is {i*20}% complete")
+    queue.put(None)
+
+async def callback(string):
+    await context_user().progress(str)
+"""
+async def run_external_process(long_running_task, *args, callback = False):
+    if callback:
+        queue = multiprocessing.Manager().Queue()    
+        args = *args, queue
+    result = multiprocessing_pool().apply_async(long_running_task, args)
+    if callback:
+        while not result.ready():
+            if not queue.empty():
+                message = queue.get()
+                if message is None:
+                    break
+                await callback(message)
+            await asyncio.sleep(0.1)  
+    return result.get()
 
 logging_lock = multiprocessing.Lock()
 

@@ -39,7 +39,8 @@ defaults = {
     'profile' : 0, 
     'rag' : None,
     'froze_time': None,
-    'monitor_tick' : 0.005
+    'monitor_tick' : 0.005,
+    'pool' : None
 }
 for param, value in defaults.items():
     if not hasattr(config, param):
