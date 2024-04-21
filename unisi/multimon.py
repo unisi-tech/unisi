@@ -1,4 +1,4 @@
-import multiprocessing, time, asyncio, logging
+import multiprocessing, time, asyncio, logging, inspect
 from .utils import start_logging
 from config import froze_time, monitor_tick, profile, pool
 
@@ -17,25 +17,29 @@ def multiprocessing_pool():
         _multiprocessing_pool = multiprocessing.Pool(pool)
     return _multiprocessing_pool
 
-# Define an asynchronous function that will run the synchronous function in a separate process
-""" argument example
-def long_running_task(queue):
-    for i in range(5):
-        time.sleep(2)  # emulate long calculation
-        queue.put(f"Task is {i*20}% complete")
-    queue.put(None)
+queue_class = "<class 'multiprocessing.managers.AutoProxy[Queue]'>"
 
-async def callback(string):
-    await context_user().progress(str)
-"""
 async def run_external_process(long_running_task, *args, callback = False):
     if callback:
-        queue = multiprocessing.Manager().Queue()    
-        args = *args, queue
+        signature = inspect.signature(long_running_task)
+        if len(signature.parameters) < len(args):
+            queue = multiprocessing.Manager().Queue()    
+            args = *args, queue
+        elif len(signature.parameters) == len(args):
+            if args[-1] is None:
+                queue = multiprocessing.Manager().Queue()    
+                args = *args[:-1], queue
+            elif str(type(args[-1])) == queue_class:
+                queue = args[-1]
+            else:
+                raise ValueError(f"The last argument has to be {queue_class}!")
+        else:
+            raise ValueError("The arguments length is more than the process fuctions accepts!")
+        
     result = multiprocessing_pool().apply_async(long_running_task, args)
     if callback:
         while not result.ready() or not queue.empty():            
-            message = queue.get()
+            message = queue.get(timeout = froze_time if froze_time else 10.0)
             if message is None:
                 break
             await asyncio.gather(callback(message), asyncio.sleep(monitor_tick))            
