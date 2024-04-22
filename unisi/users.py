@@ -30,13 +30,12 @@ class User:
 
         self.monitor(session, share)     
 
-    async def run_process(self, long_running_task, *args, progress_callback = None, queue = None, **kwargs):
+    async def run_process(self, long_running_task, *args, progress_callback = None, **kwargs):
         if progress_callback and notify_monitor and progress_callback != self.progress: #progress notifies the monitor
             async def new_callback(value):
                 asyncio.gather(notify_monitor('e', self.session, self.last_message), progress_callback(value))                
             progress_callback = new_callback
-        return await run_external_process(long_running_task, *args, progress_callback = progress_callback, 
-                queue = queue, **kwargs)
+        return await run_external_process(long_running_task, *args, progress_callback = progress_callback, **kwargs)
 
     async def broadcast(self, message):
         screen = self.screen_module

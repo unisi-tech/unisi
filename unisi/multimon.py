@@ -17,12 +17,14 @@ def multiprocessing_pool():
         _multiprocessing_pool = multiprocessing.Pool(pool)
     return _multiprocessing_pool
 
-async def run_external_process(long_running_task, *args, queue = None, progress_callback = None, **kwargs):
+async def run_external_process(long_running_task, *args, progress_callback = None, **kwargs):
     if progress_callback:
-        if queue is None:
+        if args[-1] is None:
             queue = multiprocessing.Manager().Queue()
-        if args[-1] is None:                    
-            args = *args[:-1], queue            
+            args = *args[:-1], queue
+        else:
+            queue = args[-1] 
+                        
     result = multiprocessing_pool().apply_async(long_running_task, args, kwargs)
     if progress_callback:
         while not result.ready() or not queue.empty():            
