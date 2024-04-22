@@ -49,8 +49,6 @@ async def websocket_handler(request):
     if not user:
         await ws.send_str(toJson(status))
     else:
-        user.transport = ws._writer.transport  if divpath != '/' else None          
-
         async def send(res):
             if type(res) != str:
                 res = toJson(user.prepare_result(res))        
@@ -88,7 +86,7 @@ async def websocket_handler(request):
                 user.log(traceback.format_exc())
 
         await user.delete()   
-    return ws  #?<->     
+    return ws     
 
 def start(appname = None, user_type = User, http_handlers = []):    
     if appname:

@@ -301,7 +301,7 @@ def context_screen():
 def make_user(request):
     session = f'{request.remote}-{User.count}'
     User.count += 1    
-    if requested_connect := request.headers.get('session') if config.share else None:
+    if requested_connect := request.query_string if config.share else None:
         user = User.sessions.get(requested_connect, None)
         if not user:
             error = f'Session id "{requested_connect}" is unknown. Connection refused!'

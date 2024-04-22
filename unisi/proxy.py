@@ -30,7 +30,9 @@ class Proxy:
         addr_port = f'{wss_header if ssl else ws_header}{host_port}'
         addr_port = f'{addr_port}{"" if addr_port.endswith("/") else "/"}{ws_path}'
         self.host_port = f'{"https" if ssl else "http"}://{host_port}'
-        self.conn = create_connection(addr_port, timeout = timeout, header = {'session' : session})
+        if session:
+            addr_port = f'{addr_port}?{session}'
+        self.conn = create_connection(addr_port, timeout = timeout)
         self.screen = None       
         self.screens = {}
         self.dialog = None

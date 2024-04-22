@@ -1,7 +1,8 @@
 #Hot connect to running session
 from unisi import Proxy, Event
 
-session = 'insert session from Hello user output' #'::1-0'
+#insert session from Hello user output' #
+session = '::1-0'
 
 proxy = Proxy('localhost:8000', session = session, timeout = 7)
 if proxy.event == Event.screen:
