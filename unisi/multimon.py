@@ -17,32 +17,19 @@ def multiprocessing_pool():
         _multiprocessing_pool = multiprocessing.Pool(pool)
     return _multiprocessing_pool
 
-queue_class = "<class 'multiprocessing.managers.AutoProxy[Queue]'>"
-
-async def run_external_process(long_running_task, *args, callback = False):
-    if callback:
-        signature = inspect.signature(long_running_task)
-        if len(signature.parameters) < len(args):
-            queue = multiprocessing.Manager().Queue()    
-            args = *args, queue
-        elif len(signature.parameters) == len(args):
-            if args[-1] is None:
-                queue = multiprocessing.Manager().Queue()    
-                args = *args[:-1], queue
-            elif str(type(args[-1])) == queue_class:
-                queue = args[-1]
-            else:
-                raise ValueError(f"The last argument has to be {queue_class}!")
-        else:
-            raise ValueError("The arguments length is more than the process fuctions accepts!")
-        
-    result = multiprocessing_pool().apply_async(long_running_task, args)
-    if callback:
+async def run_external_process(long_running_task, *args, queue = None, progress_callback = None, **kwargs):
+    if progress_callback:
+        if queue is None:
+            queue = multiprocessing.Manager().Queue()
+        if args[-1] is None:                    
+            args = *args[:-1], queue            
+    result = multiprocessing_pool().apply_async(long_running_task, args, kwargs)
+    if progress_callback:
         while not result.ready() or not queue.empty():            
-            message = queue.get(timeout = froze_time if froze_time else 10.0)
+            message = queue.get()
             if message is None:
                 break
-            await asyncio.gather(callback(message), asyncio.sleep(monitor_tick))            
+            await asyncio.gather(progress_callback(message), asyncio.sleep(monitor_tick))            
     return result.get()
 
 logging_lock = multiprocessing.Lock()

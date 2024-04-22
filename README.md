@@ -468,19 +468,15 @@ if proxy.set_screen("Image analysis"):
 proxy.close()
 ```
 
-### REST ##
+### Monitoring ###
 
-The REST service facilitates the REST interface through the following approach: a programmer is required to define aiohttp routes, which consist of routes and handlers, such as web.get('/', hello), and then pass it to the Unisi start function. 
+Activation: froze_time = max_freeze_time  in config.py
+The system monitor tracks current tasks and their execution time. If a task takes longer than  max_freeze_time time in seconds, the monitor writes a message in the log about the state of the system queue and the execution or waiting time of each session in the queue, and information about the event that triggered it. This allows you to uniquely identify the handler in your code and take action to correct the problem. 
 
-```
-from aiohttp import web
-import unisi
-async def handle_get(request):
-print(request.query_string)
-http_handlers = [web.get('/get', handle_get)]
-unisi.start(http_handlers = http_handlers)
-```
-#### REST is redundant because UNISI automatically provides the Unified Remote API without programming. Can use Proxy for accessing and querying. ####
+### Profiling ###
+
+Activation: profile = max_execution_time  in config.py
+The system tracks current tasks and their execution time. If a task takes longer than  profile time in seconds, the system writes a message in the log about the task, the execution time and information about the event that triggered it. This allows you to uniquely identify the handler in your code and take action to correct the problem. 
 
 Examples are in tests folder.
 

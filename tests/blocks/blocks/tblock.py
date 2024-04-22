@@ -34,7 +34,7 @@ ticks = Edit('How many ticks', 50)
 async def dialog_callback(_,value):    
     if value == 'Ok':
         user = context_user()        
-        res = await user.run_process(long_function, ticks.value, None, callback = user.progress)      
+        res = await user.run_process(long_function, ticks.value, None, progress_callback = user.progress)      
         txt.value = f'Process result is {res}'
         return txt  
         

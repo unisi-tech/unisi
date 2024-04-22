@@ -37,7 +37,7 @@ defaults = {
     'mirror' : False,
     'share' : False,
     'profile' : 0, 
-    'rag' : None,
+    'llm' : None,
     'froze_time': None,
     'monitor_tick' : 0.005,
     'pool' : None
@@ -45,8 +45,9 @@ defaults = {
 for param, value in defaults.items():
     if not hasattr(config, param):
        setattr(config, param, value)
-#froze_time can not be 0
+
 if config.froze_time == 0:
+    print('froze_time in config.py can not be 0!')
     config.froze_time = None
 
 def context_object(target_type):
