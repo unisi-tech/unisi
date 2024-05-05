@@ -46,7 +46,7 @@ def monitor_process(monitor_shared_arr):
     while True:
         #Wait for data in the shared array
         while monitor_shared_arr[0] == b'\x00':
-            time.sleep(0.005)  
+            time.sleep(monitor_tick)  
             if timer is not None:
                 timer -= monitor_tick                
                 if timer < 0:

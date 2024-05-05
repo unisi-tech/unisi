@@ -230,9 +230,9 @@ handler_when_loading_finish(button_, the_loaded_file_filename) where the_loaded_
 Edit(name,value = '', changed_handler = None) #for string value
 Edit(name, value: number, changed_handler = None) #changed handler gets a number in the value parameter
 ```
-If set edit = false the element will be readonly.
+If set edit = False the element will be readonly.
 ```
-Edit('Some field', '', edit = false) 
+Edit('Some field', '', edit = False) 
 #text, it is equal
 Text('Some field')
 ```
@@ -279,7 +279,7 @@ width,changed,height,header are optional, changed is called if the user select o
 When the user click the image, a check mark is appearing on the image, showning select status of the image.
 It is usefull for image list, gallery, e.t.c
 ```
-Image(image_path, value = False, changed_handler, header = 'description', url = ...,  width = .., height = ..)
+Image(image_path, value = False, changed_handler = None, label = None, url = None  width = None height = None)
 ```
 
 ### Video. ###
@@ -309,7 +309,7 @@ table = Table('Videos', [0], row_changed, headers = ['Video', 'Duration', 'Owner
     ['opt_sync1_3_0.mp4', '30 seconds', 'Admin', 'Processed'],
     ['opt_sync1_3_0.mp4', '37 seconds', 'Admin', 'Processed']
   ], 
-  multimode = false, update = update)
+  multimode = False, update = update)
 ```
 Unisi counts rows id as an index in a rows array. If table does not contain append, delete arguments, then it will be drawn without add and remove icons.  
 value = [0] means 0 row is selected in multiselect mode (in array). multimode is False so switch icon for single select mode will be not drawn and switching to single select mode is not allowed.
