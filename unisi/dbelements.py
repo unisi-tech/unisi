@@ -23,7 +23,7 @@ class Dblist:
     def __getattr__(self, name):
         return self.dbtable.limit if name == 'limit' else None
         
-    """ The methods causes invalid serialization!
+    """ The methods causes invalid serialization in Python and not used!
     def __iter__(self):
         "Override the default iterator to provide custom behavior."
         self._index = 0
@@ -118,9 +118,7 @@ class Dblist:
     def extend(self, rows):
         start = self.dbtable.length
         rows = self.dbtable.append_rows(rows)
-        len_rows = len(rows)
-        delta_list_update = start
-        
+        len_rows = len(rows)                
         i_rows = 0
         while len_rows > 0:
             delta_list = start // self.limit * self.limit
