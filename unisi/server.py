@@ -88,7 +88,15 @@ async def websocket_handler(request):
         await user.delete()   
     return ws     
 
+def ensure_directory_exists(directory_path):
+    if not os.path.exists(directory_path):
+        os.makedirs(directory_path)
+        print(f"Directory '{directory_path}' created.")
+
 def start(appname = None, user_type = User, http_handlers = []):    
+    ensure_directory_exists(screens_dir)
+    ensure_directory_exists(blocks_dir)
+
     if appname:
         config.appname = appname
 
@@ -101,7 +109,7 @@ def start(appname = None, user_type = User, http_handlers = []):
     http_handlers += [web.static(f'/{config.upload_dir}', upload_dir), 
         web.get('/{tail:.*}', static_serve), web.post('/', post_handler)]
 
-    print(f'Start {appname} web server..')    
+    #print(f'Start {appname} web server..')    
     app = web.Application()
     app.add_routes(http_handlers)    
     web.run_app(app,  port=port)

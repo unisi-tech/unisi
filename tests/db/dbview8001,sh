@@ -1,0 +1,1 @@
+docker run -p 8001:8000            -v /home/george/Projects/unisi-ext/tests/db/sysdb:/database            --rm kuzudb/explorer:latest

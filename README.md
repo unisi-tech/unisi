@@ -15,6 +15,7 @@ UNISI technology provides a unified system interface and advanced program functi
  - Protocol schema auto validation
  - Shared sessions
  - Monitoring and profiling
+ - Database interactions
 
 ### Installing ###
 ```
@@ -477,6 +478,29 @@ The system monitor tracks current tasks and their execution time. If a task take
 
 Activation: profile = max_execution_time  in config.py
 The system tracks current tasks and their execution time. If a task takes longer than  profile time in seconds, the system writes a message in the log about the task, the execution time and information about the event that triggered it. This allows you to uniquely identify the handler in your code and take action to correct the problem. 
+
+### Database interactions ###
+Programming database interactions is not an easy task for real life apps. It requests knowledge of concrete DBMS, specific of its language, programming and administrative details, and a lot of time for setting and programming. We invented a way to automate all DBMS operations for UNISI systems and a regular user event does not know how exactly the system gets and updates the data. UNISI hides complexity of DBMS programming under inherited-from-list objects that project operations on its data into DBMS. 
+UNISI database operates with named tables and graphs. The only difference between temporal data and persistent data is that the latter has an ID property, which serves as its system name. A transaction is automatically created for any user interaction and is committed only when the execution caused by the interaction finishes successfully. The UNISI DBMS supports tables, graphs, and Cypher queries on them.
+A link to another persistent table can be established using the 'link' option. This can be set as:
+- A table variable.
+- A tuple containing a table variable and link properties.
+- A tuple containing a table variable, link properties, and the index name in the database.
+
+Link properties are defined as a dictionary, where the keys are property names and the values are property values. These values are necessary for type detection.
+UNISI supports now the following data types for persistent tables and links:
+- Boolean (bool)
+- Integer (int)
+- Float (float)
+- String (str)
+- Datetime
+- Date
+- Bytes
+- List
+
+Table options multimode = True and value define relation type 1 -> 1 if equals None or 1 -> many if equals [].
+UNISI is compatible with any database that implements the Database and Dbtable methods. Internally UNISI operates using the Kuzu graph database.
+
 
 Examples are in tests folder.
 

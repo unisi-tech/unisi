@@ -1,3 +1,5 @@
+from .common import set_defaults
+
 class Gui:
     def __init__(self, name, *args, **kwargs):
         self.name = name
@@ -20,7 +22,7 @@ class Gui:
         else:
             self.value = value
 
-Line = Gui("Line", type = 'line')
+Line = Gui("__Line__", type = 'line')
 
 def smart_complete(lst, min_input_length = 0, max_output_length = 20):
     di = {it: it.lower() for it in lst}
@@ -105,10 +107,7 @@ class Video(Gui):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         self.type = 'video'        
-        if not hasattr(self,'url'):
-            self.url = self.name
-        if not hasattr(self,'ratio'):
-            self.ratio = None
+        set_defaults(self, {'url': self.name, 'ratio' : None})            
 
 class Node:
     def __init__(self, name = '', color = '', size = 0, id = ''):
@@ -141,28 +140,17 @@ class Graph(Gui):
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         self.type='graph'
-        if not hasattr(self,'value') or not self.value:
-            self.value = graph_default_value        
-        if not hasattr(self, 'nodes'):
-            self.nodes = []
-        if not hasattr(self, 'edges'):
-            self.edges = []
+        set_defaults(self,{'value': graph_default_value, 'nodes': [], 'edges': []})
         
 class Switch(Gui):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)        
-        if not hasattr(self,'value'):
-            self.value = False
-        if not hasattr(self,'type'):
-            self.type = 'switch'
+        set_defaults(self,{'value': False, 'type': 'switch'})
 
 class Select(Gui):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
-        if not hasattr(self,'options'):             
-            self.options = []
-        if not hasattr(self,'value'):
-            self.value = None
+        set_defaults(self,{'options': [], 'value': None})
         if not hasattr(self, 'type'):
             self.type = 'select' if len(self.options) > 3 else 'radio'        
 
@@ -170,10 +158,7 @@ class Tree(Gui):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)         
         self.type = 'tree' 
-        if not hasattr(self,'options'):
-            self.options = {}        
-        if not hasattr(self,'value'):
-            self.value = None        
+        set_defaults(self,{'options': [], 'value': None})
         
 class TextArea(Gui):
     def __init__(self,name, *args, **kwargs):

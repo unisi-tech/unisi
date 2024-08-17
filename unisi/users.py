@@ -3,9 +3,15 @@ from .guielements import *
 from .common import *
 from .containers import Dialog, Screen
 from .multimon import notify_monitor, logging_lock, run_external_process
+from .kdb import Database
 import sys, asyncio, logging, importlib
 
-class User:      
+class User:          
+    last_user = None
+    toolbar = []
+    sessions = {}
+    count = 0
+
     def __init__(self, session: str, share = None):          
         self.session = session        
         self.active_dialog = None        
@@ -62,16 +68,7 @@ class User:
             if notify_monitor:
                 await notify_monitor('e', self.session, self.last_message) 
                                            
-    def load_screen(self, file):
-        screen_vars = {
-            'icon' : None,
-            'prepare' : None,            
-            'blocks' : [],
-            'header' : config.appname,                        
-            'toolbar' : [], 
-            'order' : 0,
-            'reload': config.hot_reload 
-        }             
+    def load_screen(self, file):                     
         name = file[:-3]        
         path = f'{screens_dir}{divpath}{file}'                
         spec = importlib.util.spec_from_file_location(name,path)
@@ -81,8 +78,8 @@ class User:
         spec.loader.exec_module(module)            
         screen = Screen(getattr(module, 'name', ''))
         #set system vars
-        for var in screen_vars:                                            
-            setattr(screen, var, getattr(module,var,screen_vars[var]))         
+        for var, val in screen.defaults.items():                                            
+            setattr(screen, var, getattr(module, var, val))         
         
         if screen.toolbar:
             screen.toolbar += User.toolbar
@@ -122,7 +119,7 @@ class User:
                     self.screens.append(module)                
             
         if self.screens:
-            self.screens.sort(key=lambda s: s.order)            
+            self.screens.sort(key=lambda s: s.screen.order)            
             main = self.screens[0]
             if 'prepare' in dir(main):
                 main.prepare()
@@ -146,7 +143,6 @@ class User:
 
     def set_screen(self,name):
         return asyncio.run(self.process(ArgObject(block = 'root', element = None, value = name)))
-
     async def result4message(self, message):
         result = None        
         self.last_message = message     
@@ -244,18 +240,20 @@ class User:
         
     async def process_element(self, elem, message):                
         event = message.event 
-        query = event == 'complete' or event == 'append'
-        
+        query = event == 'complete' or event == 'append' or event == 'get'        
         handler = self.__handlers__.get((elem, event), None)
         if handler:
             return await self.eval_handler(handler, elem, message.value)
-            
-        handler = getattr(elem, event, False)                                
-        if handler:                
-            result = await self.eval_handler(handler, elem, message.value)
-            if query:                        
-                result = Answer(event, message, result)                
-            return result
+                                                                    
+        if hasattr(elem, event):                
+            attr = getattr(elem, event)
+            if is_callable(attr):
+                result = await self.eval_handler(attr, elem, message.value)
+                if query:                        
+                    result = Answer(event, message, result)                
+                return result
+            #set attribute only for declared properties
+            setattr(elem, event, message.value)
         elif event == 'changed':            
             elem.value = message.value                                        
         else:
@@ -284,18 +282,21 @@ class User:
                 logging.info(str)
                 func(level = logging.WARNING)
 
-User.type = User
-User.last_user = None
-User.toolbar = []
-User.sessions = {}
-User.count = 0
-
 def context_user():
     return context_object(User)
 
 def context_screen():
     user = context_user()
     return user.screen if user else None
+
+def message_logger(str, type = 'error'):
+    user = context_user()
+    user.log(str, type)
+
+references.context_user = context_user
+
+User.db = Database(config.db_dir, message_logger) if config.db_dir else None
+User.type = User
 
 def make_user(request):
     session = f'{request.remote}-{User.count}'
@@ -320,5 +321,14 @@ def make_user(request):
 
 def handle(elem, event):
     def h(fn):
-        User.last_user.__handlers__[elem, event] = fn
+        key = elem, event
+        handler_map = User.last_user.__handlers__        
+        func = handler_map.get(key, None)        
+        if func:
+            handler_map[key] =  lambda el, ev: compose_returns(func(el, ev), fn(el, ev))  
+        else: 
+            handler_map[key] = fn
+        return fn
     return h
+
+references.handle = handle

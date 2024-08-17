@@ -1,4 +1,5 @@
-from .guielements import Gui, Range, Edit, Switch, Select, Tree
+from .guielements import *
+from .common import pretty4
 from numbers import Number
 
 
@@ -58,8 +59,7 @@ class ParamBlock(Block):
         cnt = 0        
 
         for param, val in params.items():                    
-            pretty_name = param.replace('_',' ')
-            pretty_name = pretty_name[0].upper() + pretty_name[1:]
+            pretty_name = pretty4(param)            
             t = type(val)
             if t == str or t == int or t == float:
                 el = Edit(pretty_name, val)

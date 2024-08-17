@@ -1,9 +1,9 @@
-import os, platform, requests, inspect, logging
+import os, platform, requests, logging
+from .common import set_defaults
+from .containers import Screen
 
 blocks_dir = 'blocks'        
 screens_dir =  'screens'        
-UpdateScreen = True
-Redesign = 2
 public_dirs = 'public_dirs'
 testdir = 'autotest'
 
@@ -28,40 +28,35 @@ appname = 'Unisi app'
     print("Config with default parameters is created!")
 
 #setting config variables
-defaults = {
-    testdir: False,
-    'appname' : 'Unisi app',
-    'upload_dir' : 'web',
-    'logfile': None,
-    'hot_reload' : False,    
-    'mirror' : False,
-    'share' : False,
-    'profile' : 0, 
-    'llm' : None,
-    'froze_time': None,
-    'monitor_tick' : 0.005,
-    'pool' : None
-}
-for param, value in defaults.items():
-    if not hasattr(config, param):
-       setattr(config, param, value)
+set_defaults(config,  dict(
+    autotest= False,
+    appname = 'Unisi app',
+    upload_dir = 'web',
+    logfile= None,
+    hot_reload = False,    
+    mirror = False,
+    share = False,
+    profile = 0, 
+    llm = None,
+    froze_time= None,
+    monitor_tick = 0.005,
+    pool = None,
+    db_dir = None
+))
+
+Screen.defaults = dict(
+    icon = None,
+    prepare = None,            
+    blocks = [],
+    header = config.appname,                        
+    toolbar = [], 
+    order = 0,
+    reload = config.hot_reload 
+)
 
 if config.froze_time == 0:
     print('froze_time in config.py can not be 0!')
     config.froze_time = None
-
-def context_object(target_type):
-  """
-  Finds the first argument of a specific type in the current function call stack.
-  """  
-  frame = inspect.currentframe()
-  while frame:    
-    args, _, _, values = inspect.getargvalues(frame)    
-    if args and isinstance(values[args[0]], target_type):
-      return values[args[0]]
-    # Move to the previous frame in the call stack
-    frame = frame.f_back
-  return None
 
 def is_screen_switch(message):
     return message and message.block == 'root' and message.element is None
@@ -93,54 +88,6 @@ def cache_url(url):
     file.write(response.content)
     file.close() 
     return fname
-
-class Message:
-    def __init__(self, *gui_objects, user = None, type = 'update'):        
-        self.type = type
-        if gui_objects:
-            self.updates = [{'data': gui} for gui in gui_objects]
-        if user:
-            self.fill_paths4(user)
-
-    def fill_paths4(self, user):
-        if hasattr(self, 'updates'):
-            invalid = []
-            for update in self.updates:
-                data = update["data"]
-                path = user.find_path(data)
-                if path:
-                    update['path'] = path
-                else:
-                    invalid.append(update)                    
-                    user.log(f'Invalid element update {data.name}, type {data.type}.\n\
-                    Such element not on the screen!')
-            for inv in invalid:
-                self.updates.remove(inv)
-
-    def contains(self, guiobj):
-        if hasattr(self, 'updates'):
-            for update in self.updates:
-                if guiobj is update['data']:
-                    return True
-
-def TypeMessage(type, value, *data, user = None):
-    message = Message(*data, user=user, type = type)    
-    message.value = value    
-    return message    
-
-def Warning(text, *data):
-    return TypeMessage('warning', text, *data)
-
-def Error(text, *data):
-    return TypeMessage('error', text, *data)
-    
-def Info(text, *data):
-    return TypeMessage('info', text, *data)
-
-def Answer(type, message, result):
-    ms = TypeMessage(type, result)
-    ms.message = message
-    return ms
 
 def start_logging(): 
     format = "%(asctime)s - %(levelname)s - %(message)s"

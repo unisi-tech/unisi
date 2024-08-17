@@ -15,8 +15,8 @@ if config.hot_reload:
     import os, sys, traceback
     from watchdog.observers import Observer
     from watchdog.events import PatternMatchingEventHandler
-    from .users import User
-    from .utils import divpath, Redesign, app_dir
+    from .users import User, Redesign
+    from .utils import divpath, app_dir
     from .autotest import check_module
     import re, collections
 
