@@ -333,14 +333,16 @@ value = [0] means 0 row is selected in multiselect mode (in array). multimode is
 complete, modify and update have the same format as the others handlers, but value is consisted from the cell value and its position in the table.
 
 ```
-def table_updated(table_, tabval):
-    value, position = tabval
+def table_updated(table, tabval):
+    value = tabval['value']    
+    row_index = tabval['delta']
+    cell_index = tabval['cell']
     #check value
     ...
     if error_found:
         return Error('Can not accept the value!')
     #call a standart handler
-    accept_rowvalue(table_, tabval)
+    accept_rowvalue(table, tabval)
 ```
 
 ### Chart ###
