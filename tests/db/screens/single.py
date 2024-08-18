@@ -10,7 +10,6 @@ def change_ids(button, value):
     return ctable
 
 def add_data(button, _):
-    #lst = user.db.qlist("MATCH (n: Company) WHERE size(list_filter(['name'], x->x STARTS WITH '12')) > 0 RETURN n.*")
     rows_len = len(ctable.rows)
     data = [[f'Company {i}', f' Place {i}', f'Phone {i}']  for i in range(rows_len, rows_len + 1000)]
     ctable.rows.extend(data)

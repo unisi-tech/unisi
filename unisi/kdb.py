@@ -173,7 +173,6 @@ class Dbtable:
         return f'{self.id}2{link_table}'
     
     def calc_linked_rows(self,  index_name, link_ids, include_rels = False, search = ''):
-        #condition = ' OR '.join(f'b.ID = {id}' for id in link_ids) #bug in IN op!
         condition = f'b.ID in {link_ids}'
         rel_info = ', r.*' if include_rels else ''
         query = f"""
@@ -245,12 +244,10 @@ class Dbtable:
             index_name = self.default_index_name2(link_table_id)
         
         if link_ids:
-            condition = f'r.ID in {link_ids}'
-            #condition = ' OR '.join(f'r.ID = {id}' for id in link_ids) #bug in IN op!
+            condition = f'r.ID in {link_ids}'            
         else:
             if not isinstance(source_ids, list):
-                source_ids = list(source_ids)
-            #condition = ' OR '.join(f'a.ID = {id}' for id in source_ids) #bug in IN op!
+                source_ids = list(source_ids)            
             condition = f'a.ID in {source_ids}'
             condition = f'({condition}) AND b.ID = {link_node_id}'
         query = f"""
@@ -294,7 +291,6 @@ class Dbtable:
         return self.db.execute(query.detach_delete('a'))
     
     def delete_rows(self, ids):
-        #condition = ' OR '.join(f'a.ID = {id}' for id in ids) #bug in IN op!
         condition = f'a.ID in {ids}'
         query = f"""
         MATCH (a:{self.id})
