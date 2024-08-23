@@ -1,4 +1,4 @@
-from .common import set_defaults
+from .common import set_defaults, compose_handlers, toJson
 
 class Gui:
     def __init__(self, name, *args, **kwargs):
@@ -21,6 +21,20 @@ class Gui:
             self.changed(self, value)
         else:
             self.value = value
+
+    @property
+    def compact_view(self):
+        """reduce for llm using if required"""
+        return self
+    
+    def emit(self):        
+        """calcute value by system llm"""
+        if hasattr(self, 'llm'):        
+            llm_info = self.__llm__
+            return toJson({'name': llm_info.block.name, 'elements': [e.compact_view for e in llm_info.elements]})            
+
+    def add_changed_handler(self, handler):
+        self.changed = compose_handlers(self.changed, handler) if hasattr(self, 'changed') else  handler
 
 Line = Gui("__Line__", type = 'line')
 

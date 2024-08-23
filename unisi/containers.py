@@ -1,7 +1,6 @@
 from .guielements import *
-from .common import pretty4
+from .common import pretty4, flatten, ArgObject
 from numbers import Number
-
 
 class ContentScaler(Range):
     def __init__(self, *args, **kwargs):
@@ -36,7 +35,32 @@ class Block(Gui):
             elif isinstance(self.value[0], list):
                 self.value[0].append(scaler)
             else:
-                self.value[0] = [self.value, scaler]
+                self.value[0] = [self.value, scaler]        
+        self.make_llm_handlers()
+
+    def make_llm_handlers(self):        
+        for elem in flatten(self.value):            
+            if hasattr(elem, 'llm'): 
+                if self.llm is True:
+                   dependencies = [obj for obj in flatten(self.value) if elem != obj and obj.value is not None]                                
+                if isinstance(self.llm, list | tuple):
+                    dependencies = []
+                    for dependency in self.llm:
+                        dependency.add_changed_handler(lambda _, _1 :elem.emit())
+                        dependencies.append(dependency)
+                elif isinstance(self.llm, Gui):
+                    self.llm.add_changed_handler(lambda _, _1 :elem.emit())
+                    dependencies = [self.llm]
+                else:
+                    raise AttributeError(f'Invalid llm paramer value in {elem.name} {elem.type} element!')
+                elem.llm = True                    
+                self.__llm__ = ArgObject(block = self, elements = dependencies)
+
+    @property
+    def compact_view(self):
+        elements = [obj for obj in flatten(self.value) if obj.value is not None]
+        return  {'name': self.name, 'elements' : elements}                               
+
     @property
     def scroll_list(self):            
         return self.value[1] if len(self.value) > 1 and isinstance(self.value[1], (list, tuple)) else []

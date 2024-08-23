@@ -303,13 +303,12 @@ class Dbtable:
         """row can be list or dict, returns ID"""        
         if isinstance(row, list):
             props = {name: value for name, value in zip(self.node_columns, row) if value is not None}
-        try:                
-            answer = self.db.execute(qb().create().node(self.id, 'a', props).return_literal('a.ID'))
-        except Exception as e:
-            return None
-        if answer.has_next():                        
+                      
+        answer = self.db.execute(qb().create().node(self.id, 'a', props).return_literal('a.ID'))
+        
+        if answer and answer.has_next():                        
             self.length += 1
-            return answer.get_next()[0]
+            return answer.get_next()[-1]
         return None
     
     def append_rows(self, rows):

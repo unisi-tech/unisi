@@ -4,6 +4,11 @@ from .dbelements import Dblist
 
 relation_mark = 'Ⓡ'
 exclude_mark = '✘'
+max_len_rows4llm = 30
+
+def get_chunk(obj, start_index):
+    delta, data = obj.rows.get_delta_chunk(start_index)
+    return {'type': 'updates', 'index': delta, 'data': data}
 
 def iterate(iter, times):
     for i, val in enumerate(iter):
@@ -26,8 +31,7 @@ def accept_cell_value(table, dval):
         else:
             table_id = table.__link__[2]
             row_id = dval['id']             
-        dbt.db.update_row(table_id, row_id, {field: value}, in_node)
-    
+        dbt.db.update_row(table_id, row_id, {field: value}, in_node)    
     table.rows[dval['delta']][dval['cell']] = value    
             
 def delete_table_row(table, value):    
@@ -62,10 +66,6 @@ def append_table_row(table, search_str):
                 break                 
     table.rows.append(new_row)
     return new_row
-
-def get_chunk(obj, start_index):
-    delta, data = obj.rows.get_delta_chunk(start_index)
-    return {'type': 'updates', 'index': delta, 'data': data}
 
 class Table(Gui):
     def __init__(self, *args, panda = None, **kwargs):
@@ -160,8 +160,19 @@ class Table(Gui):
             raise ValueError("Only persistent tables can have 'ids' option!")
 
         if getattr(self,'edit', True): 
-            set_defaults(self,{'delete': delete_table_row, 'append': append_table_row, 'modify': accept_cell_value})             
-                
+            set_defaults(self,{'delete': delete_table_row, 'append': append_table_row, 'modify': accept_cell_value})   
+
+    @property
+    def compact_view(self):
+        """only selected are sended to llm"""
+        selected = self.selected_list
+        result = []
+        if not selected and len(self.rows) < max_len_rows4llm:
+            selected = range(len(self.rows))
+        for index in selected:
+            result.append({field: value for field, value in zip(self.headers, self.rows[index])})
+        return {'name': self.name, 'value': result}          
+    
     @property
     def selected_list(self):                            
         return [self.value] if self.value != None else [] if type(self.value) == int else self.value   

@@ -1,28 +1,19 @@
-from cymple import QueryBuilder as qb
-from cymple.typedefs import Properties
 
-def add_link( source_id, target_id, link_props=None):
-    query = f"""
-    MATCH (source), (target)
-    WHERE source.ID = $source_id AND target.ID = $target_id
-    CREATE (source)-[r:LINKS_TO]->(target)
-    SET r = [{Properties(link_props)}]
-    RETURN r
-    """
-    print(query)
-    
-    # Execute the query
-    try:
-        with self.db.transaction() as tx:
-            result = tx.run(query)
-            return result.get_next()
-    except Exception as e:
-        print(f"Error adding link: {e}")
-        return None
-        return None
-    
-add_link(1,2, {'f': 20})
+from openai import OpenAI
+client = OpenAI()
 
+completion = client.chat.completions.create(
+    model="gpt-4o-mini",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {
+            "role": "user",
+            "content": "Write a haiku about recursion in programming."
+        }
+    ]
+)
+
+print(completion.choices[0].message)
 
 import nltk
 #nltk.download('wordnet')

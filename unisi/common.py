@@ -10,20 +10,21 @@ def flatten(*arr):
         else:
             yield a
 
-def compose_returns(*arr):
-    objs = set()
-    update_screen = False
-    for obj in flatten(*arr):
-        if obj is Redesign:
-            return obj
-        elif obj is True:
-            update_screen = True
-        elif obj is not None:
-            objs.add(obj)            
-    if update_screen:
-        return True
-    if objs:
-        return list(objs)
+def compose_handlers(*handlers):
+    def compose(obj, value):
+        objs = set()        
+        for handler in handlers:
+            result = handler(obj, value)
+            if result == UpdateScreen or result == Redesign:
+                return result
+            if isinstance(result, list | tuple):
+                for obj in flatten(result):
+                    objs.add(obj)
+            elif result:
+                objs.add(result)
+        if objs:
+            return list(objs) 
+    return compose
     
 def equal_dicts(dict1, dict2):
     return dict1.keys() == dict2.keys() and all(dict1[key] == dict2[key] for key in dict1)

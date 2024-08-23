@@ -85,19 +85,14 @@ class Dblist:
             del chunk[index - delta_list] 
             limit = self.dbtable.limit
             next_delta_list = delta_list + limit
-            while len(chunk) == limit - 1: #chunk was fully filled                                
+            if len(chunk) == limit - 1: #chunk was fully filled                                
                 next_list = self.delta_list.get(next_delta_list)            
                 if next_list:
-                    chunk.append(next_list[0])                        
-                    chunk = next_list
-                    next_delta_list += limit
-                    del next_list[0]
+                    chunk.append(next_list[0])                                                               
                 else:
-                    last = self.dbtable.read_rows(skip = next_delta_list - 1, limit = 1)[0]
-                    chunk.append(last)                     
-                    #clean dictionary from following elements
-                    self.clean_cache_from(next_delta_list)
-                    break            
+                    delta_list, chunk = self.get_delta_chunk(delta_list)                    
+                    self.update = dict(type = 'update', index = delta_list, data = chunk)
+                self.clean_cache_from(next_delta_list)                     
 
     def __len__(self):
         return len(self.cache) if self.cache is not None else self.dbtable.length

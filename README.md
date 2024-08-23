@@ -208,15 +208,15 @@ causes  a call changed handler if it defined, otherwise just save value to self.
 ### Button ###
 Normal button.
 ```
-Button('Push me', changed = push_callback, icon = None) 
+Button('Push me', changed = None, icon = None) 
 ```
 Short form
 ```
-Button('Push me', push_callback = None, icon = None) 
+Button('Push me', changed = None, icon = None) 
 ```
 Icon button, the name has to be started from _ for hiding 
 ```
-Button('_Check', push_callback = None, icon = None)
+Button('_Check', changed = None, icon = None)
 ```
 
 ### Load to server Button ###

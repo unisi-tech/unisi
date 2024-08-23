@@ -325,7 +325,7 @@ def handle(elem, event):
         handler_map = User.last_user.__handlers__        
         func = handler_map.get(key, None)        
         if func:
-            handler_map[key] =  lambda el, ev: compose_returns(func(el, ev), fn(el, ev))  
+            handler_map[key] =  compose_handlers(func, fn)  
         else: 
             handler_map[key] = fn
         return fn
