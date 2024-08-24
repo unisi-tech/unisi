@@ -21,7 +21,7 @@ class ContentScaler(Range):
                 element.height /= prev            
             return elements
         
-class Block(Gui):
+class Block(Gui):    
     def __init__(self, name, *elems, **options):        
         self.name = name        
         self.type = 'block'
@@ -36,9 +36,7 @@ class Block(Gui):
                 self.value[0].append(scaler)
             else:
                 self.value[0] = [self.value, scaler]        
-        self.make_llm_handlers()
-
-    def make_llm_handlers(self):        
+    
         for elem in flatten(self.value):            
             if hasattr(elem, 'llm'): 
                 if self.llm is True:
@@ -54,7 +52,7 @@ class Block(Gui):
                 else:
                     raise AttributeError(f'Invalid llm paramer value in {elem.name} {elem.type} element!')
                 elem.llm = True                    
-                self.__llm__ = ArgObject(block = self, elements = dependencies)
+                self.__llm__ = ArgObject(block = self, elements = dependencies)            
 
     @property
     def compact_view(self):

@@ -1,4 +1,5 @@
 from .common import set_defaults, compose_handlers, toJson
+from collections import defaultdict
 
 class Gui:
     def __init__(self, name, *args, **kwargs):

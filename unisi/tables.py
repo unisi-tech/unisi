@@ -1,5 +1,5 @@
 from .guielements import Gui
-from .common import references, set_defaults, Warning, pretty4
+from .common import *
 from .dbelements import Dblist
 
 relation_mark = 'Ⓡ'
@@ -204,6 +204,12 @@ class Table(Gui):
             return True, iterate(table_fields, cell_index)
         delta -= 1 #ID field
         return False, iterate(self.link, delta)
+    
+    def emit(self):        
+        """calcute llm field values for selected rows if they are None"""
+        if hasattr(self, 'llm'):        
+            llm_info = self.__llm__
+            return toJson({'name': llm_info.block.name, 'elements': [e.compact_view for e in llm_info.elements]})            
         
 def delete_panda_row(table, row_num):    
     df = table.__panda__

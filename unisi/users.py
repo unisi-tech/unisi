@@ -5,18 +5,20 @@ from .containers import Dialog, Screen
 from .multimon import notify_monitor, logging_lock, run_external_process
 from .kdb import Database
 import sys, asyncio, logging, importlib
+from collections import defaultdict
 
 class User:          
     last_user = None
     toolbar = []
     sessions = {}
     count = 0
+    #storage id -> screen name -> [elem name, block name]
+    dbshare = defaultdict(lambda: defaultdict(lambda: []))
 
     def __init__(self, session: str, share = None):          
         self.session = session        
         self.active_dialog = None        
-        self.last_message = None                       
-        User.last_user = self
+        self.last_message = None                               
 
         if share:            
             self.screens = share.screens            
@@ -34,6 +36,7 @@ class User:
             self.screen_module = None         
             self.__handlers__ = {} 
 
+        User.last_user = self
         self.monitor(session, share)     
 
     async def run_process(self, long_running_task, *args, progress_callback = None, **kwargs):
@@ -117,15 +120,15 @@ class User:
                 if file.endswith(".py") and file != '__init__.py':
                     module = self.load_screen(file)                
                     self.screens.append(module)                
-            
-        if self.screens:
+        
+        if self.screens:                        
             self.screens.sort(key=lambda s: s.screen.order)            
             main = self.screens[0]
             if 'prepare' in dir(main):
                 main.prepare()
             self.screen_module = main
             self.update_menu()
-            self.set_clean()       
+            self.set_clean()                               
             return True                 
 
     def update_menu(self):
@@ -296,11 +299,10 @@ def message_logger(str, type = 'error'):
 references.context_user = context_user
 
 User.db = Database(config.db_dir, message_logger) if config.db_dir else None
-User.type = User
+User.type = User    
 
 def make_user(request):
-    session = f'{request.remote}-{User.count}'
-    User.count += 1    
+    session = f'{request.remote}-{User.count}'        
     if requested_connect := request.query_string if config.share else None:
         user = User.sessions.get(requested_connect, None)
         if not user:
@@ -315,7 +317,16 @@ def make_user(request):
         ok = user.screens
     else:
         user = User.type(session)
-        ok = user.load()       
+        ok = user.load()  
+        #register in shared db objects for init user        
+        if not user.count:
+            for module in user.screens:
+                screen = module.screen
+                for block in flatten(screen.blocks):
+                    for elem in flatten(block.value):
+                        if hasattr(elem, 'id'):
+                            User.dbshare[elem.id][screen.name].append([elem.name, block.name])                                
+    User.count += 1
     User.sessions[session] = user 
     return user, ok
 
