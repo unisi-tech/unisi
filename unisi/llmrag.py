@@ -52,7 +52,7 @@ async def get_property(name, json_context, type = 'string', options = None):
             f"""You are an intelligent and extremely concise assistant."""        
         ),
         ("human",  f"""{json_context} Reason and infer the "{name}" value, which {limits}. 
-            Do not include any additional text or commentary in your answer!""")
+            Do not include any additional text or commentary in your answer, just exact property value.""")
     ]
     ai_msg =  await llm_model.ainvoke(messages)
     return  ai_msg.content 
