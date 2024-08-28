@@ -25,14 +25,14 @@ class Gui:
 
     @property
     def compact_view(self):
-        """reduce for llm using if required"""
+        """reduce for external (llm) using if required"""
         return self
     
-    def emit(self):        
+    async def emit(self):        
         """calcute value by system llm"""
         if hasattr(self, 'llm'):        
             llm_info = self.__llm__
-            return toJson({'name': llm_info.block.name, 'elements': [e.compact_view for e in llm_info.elements]})            
+            context = toJson({'name': llm_info.block.name, 'elements': [e.compact_view for e in llm_info.elements]})            
 
     def add_changed_handler(self, handler):
         self.changed = compose_handlers(self.changed, handler) if hasattr(self, 'changed') else  handler

@@ -483,7 +483,7 @@ The system tracks current tasks and their execution time. If a task takes longer
 
 ### Database interactions ###
 Programming database interactions is not an easy task for real life apps. It requests knowledge of concrete DBMS, specific of its language, programming and administrative details, and a lot of time for setting and programming. UNISI automates all DBMS operations and a regular programmer or user event does not need to know how exactly the system gets and updates the program data. UNISI hides complexity of DBMS programming under inherited-from-list objects that project operations on its data into DBMS. 
-UNISI database operates with named tables and graphs. The only difference between temporal data and persistent data is that the latter has an ID property, which serves as its system name. A transaction is automatically created for any user interaction and is committed only when the execution caused by the interaction finishes successfully. The UNISI DBMS supports tables, graphs, and Cypher queries on them.
+UNISI database operates with named tables and graphs. The only difference between temporal data and persistent data is that the latter has an ID property, which serves as its system name. The UNISI DBMS supports tables, graphs, and Cypher queries on them.
 A link to another persistent table can be established using the 'link' option. This can be set as:
 - A table variable.
 - A tuple containing a table variable and link properties (name to type dictionary).

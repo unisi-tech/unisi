@@ -1,4 +1,4 @@
-import jsonpickle, inspect
+import jsonpickle, inspect, asyncio
 
 UpdateScreen = True
 Redesign = 2
@@ -11,10 +11,11 @@ def flatten(*arr):
             yield a
 
 def compose_handlers(*handlers):
-    def compose(obj, value):
+    async def compose(obj, value):
         objs = set()        
         for handler in handlers:
-            result = handler(obj, value)
+            result = (await handler(obj, value)) if asyncio.iscoroutinefunction(handler)\
+            else handler(obj, value)
             if result == UpdateScreen or result == Redesign:
                 return result
             if isinstance(result, list | tuple):

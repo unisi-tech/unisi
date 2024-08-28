@@ -40,7 +40,7 @@ class Block(Gui):
         for elem in flatten(self.value):            
             if hasattr(elem, 'llm'): 
                 if self.llm is True:
-                   dependencies = [obj for obj in flatten(self.value) if elem != obj and obj.value is not None]                                
+                   dependencies = [obj for obj in flatten(self.value) if elem != obj and obj.value != '' and obj.value is not None]                                
                 if isinstance(self.llm, list | tuple):
                     dependencies = []
                     for dependency in self.llm:

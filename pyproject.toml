@@ -14,7 +14,11 @@ dependencies = [
     "websockets",
     "websocket-client",
     "cymple",
-    "kuzu"
+    "kuzu",
+    "langchain",
+    "langchain-groq",
+    "langchain-community",
+    "langchain-openai"
 ]
 requires-python = ">=3.10"
 readme = "README.md"
