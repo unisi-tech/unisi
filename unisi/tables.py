@@ -205,7 +205,7 @@ class Table(Gui):
         delta -= 1 #ID field
         return False, iterate(self.link, delta)
     
-    def emit(self):        
+    def emit(self, _ = None, __ = None):        
         """calcute llm field values for selected rows if they are None"""
         if hasattr(self, 'llm'):        
             llm_info = self.__llm__

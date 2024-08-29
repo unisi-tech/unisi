@@ -156,7 +156,7 @@ def check_module(module):
         errors.append(f"Screen file {module.__file__} does not contain name!")
         screen.name = 'Unknown'
     elif not isinstance(screen.name, str):
-        errors.append(f"The name in screen file {module.__file__} {screen.name} is not a string!")
+        errors.append(f"name' variable in screen file {module.__file__} {screen.name} is not a string!")
     if not isinstance(screen.blocks, list):
         errors.append(f"Screen file {module.__file__} does not contain 'blocks' list!")
     else:

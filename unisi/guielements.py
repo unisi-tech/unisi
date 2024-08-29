@@ -1,5 +1,5 @@
-from .common import set_defaults, compose_handlers, toJson
-from .llmrag import get_property, llm_model
+from .common import *
+from .llmrag import get_property
 
 class Gui:
     def __init__(self, name, *args, **kwargs):
@@ -26,17 +26,25 @@ class Gui:
     @property
     def compact_view(self):
         """reduce for external (llm) using if required"""
-        return self
+        return {self.name : self.value}
     
-    async def emit(self):        
-        """calcute value by system llm"""
-        if llm_model and hasattr(self, 'llm'):        
+    async def emit(self, _ = None, __ = None):        
+        """calcute value by system llm, can be used as a handler"""
+        if references.llm_model and (exactly := getattr(self, 'llm', None)) is not None:        
             llm_info = self.__llm__
-            context = toJson({'name': llm_info.block.name, 'elements': [e.compact_view for e in llm_info.elements]})            
-            self.value = await get_property(self.name, context, self.type, options = getattr(self, 'options', None))
+            elems = [e.compact_view for e in llm_info.elements if e.value != '' and e.value is not None]
+            #exactly is requirment that all elements have to have valid value
+            if not exactly or len(elems) == len(llm_info.elements):
+                context = toJson({'section': llm_info.block.name, 'elements': elems})            
+                self.value = await get_property(self.name, context, self.type, options = getattr(self, 'options', None))
+                return self
 
     def add_changed_handler(self, handler):
-        self.changed = compose_handlers(self.changed, handler) if hasattr(self, 'changed') else  handler
+        changed_handler = getattr(self, 'changed', None)
+        if not changed_handler:
+            def changed_handler(obj, value):
+                obj.value = value
+        self.changed = compose_handlers(changed_handler, handler) 
 
 Line = Gui("__Line__", type = 'line')
 
@@ -86,6 +94,7 @@ class Range(Gui):
 class Button(Gui):
     def __init__(self, name, handler = None, **kwargs):
         self.name = name
+        self.value = None
         self.add(kwargs)
         if not hasattr(self, 'type'):
             self.type = 'command'

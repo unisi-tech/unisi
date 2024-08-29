@@ -1,14 +1,10 @@
 import asyncio
-from common import ArgObject, references
-
+from .common import references
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
-
-llm_model = None
 #mixtral-8x7b-32768
 def setup_llmrag():    
-    #import config #the module is loaded before config.py
-    config = ArgObject(llm = ('local', "http://localhost:1234/v1"))
+    import config #the module is loaded before config.py    
     if hasattr(config, 'llm'):
         match config.llm:
             case ['local', address]: 
@@ -19,18 +15,17 @@ def setup_llmrag():
             case _:
                 print(f'Error: Invalid llm configutation: {config.llm}') 
                 return
-        
-        global llm_model
+                
         type = type.lower()
         if type == 'openai':            
-            llm_model = ChatOpenAI(
+            references.llm_model = ChatOpenAI(
                 api_key = 'llm-studio',
                 temperature = 0.0,
                 openai_api_base = address
             ) if address else ChatOpenAI(temperature=0.0)
 
         elif type == 'groq':
-            llm_model = ChatGroq(
+            references.llm_model = ChatGroq(
                 model = model,
                 temperature = 0.0,
                 max_tokens = None,
@@ -44,6 +39,8 @@ numeric_types = ['number', 'int', 'float', 'double']
 async def get_property(name, json_context = '', type = 'string', options = None, attempts = 1, messages = None):
     if messages is None:
         limits = f'type is {type}'
+        if type == 'date':
+            limits = f'{limits}, use format "dd/mm/yyyy"'
         if options:            
             limits = f'{limits}, and its possible options are {",".join(opt for opt in options)}'        
         messages = [
@@ -54,21 +51,27 @@ async def get_property(name, json_context = '', type = 'string', options = None,
             ("human",  f"""{json_context} Reason and infer the "{name}" value, which {limits}. 
                 Do not include any additional text or commentary in your answer, just exact property value.""")
         ]
-    ai_msg =  await llm_model.ainvoke(messages)
+    ai_msg =  await references.llm_model.ainvoke(messages)
     value = ai_msg.content
+    log_error = ''
     if type in numeric_types:
-        value = float(value)
+        try:
+            value = float(value)
+        except:
+            log_error = f'Invalid value {value} from llm-rag for {messages[1][1]}'
+            return value
+    else:
+        value = value.strip('""')
 
-    if options and value not in options:
+    if not log_error and options and value not in options:
         attempts -= 1
         if attempts > 0:
             value = get_property(name, json_context, type, options, attempts, messages)
         else:
-            references.message_logger(f'Invalid value {value} from llm-rag for {messages[1][1]}')
+            log_error = f'Invalid value {value} from llm-rag for {messages[1][1]}'
+
+    if log_error:
+        references.message_logger(log_error)
     return value
 
-if __name__ == "__main__":
-    async def main():
-        data = await get_property('Date of birth', dict(Name = 'Michael Jackson'))
-        print(data)
-    asyncio.run(main())
+

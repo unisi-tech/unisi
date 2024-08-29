@@ -36,28 +36,33 @@ class Block(Gui):
                 self.value[0].append(scaler)
             else:
                 self.value[0] = [self.value, scaler]        
-    
+        
         for elem in flatten(self.value):            
             if hasattr(elem, 'llm'): 
-                if self.llm is True:
-                   dependencies = [obj for obj in flatten(self.value) if elem != obj and obj.value != '' and obj.value is not None]                                
-                if isinstance(self.llm, list | tuple):
-                    dependencies = []
-                    for dependency in self.llm:
-                        dependency.add_changed_handler(lambda _, _1 :elem.emit())
-                        dependencies.append(dependency)
-                elif isinstance(self.llm, Gui):
-                    self.llm.add_changed_handler(lambda _, _1 :elem.emit())
-                    dependencies = [self.llm]
+                if elem.llm is True:
+                   dependencies = [obj for obj in flatten(self.value) if elem is not obj and obj.type != 'command'] 
+                   exactly = False                               
+                elif isinstance(elem.llm, list | tuple):
+                    dependencies = elem.llm                    
+                    exactly = True
+                elif isinstance(elem.llm, Gui):                    
+                    dependencies = [elem.llm]
+                    exactly = True
                 else:
-                    raise AttributeError(f'Invalid llm paramer value in {elem.name} {elem.type} element!')
-                elem.llm = True                    
-                self.__llm__ = ArgObject(block = self, elements = dependencies)            
-
+                    raise AttributeError(f'Invalid llm parameter value for {elem.name} {elem.type}!')
+                if dependencies:
+                    elem.llm = exactly                
+                    for dependency in dependencies:
+                        dependency.add_changed_handler(elem.emit)    
+                    elem.__llm__ = ArgObject(block = self, elements = dependencies)            
+                else:
+                    elem.llm = None
+                    print(f'Empty dependency list for llm calculation for {elem.name} {elem.type}!')
+                
     @property
     def compact_view(self):
         elements = [obj for obj in flatten(self.value) if obj.value is not None]
-        return  {'name': self.name, 'elements' : elements}                               
+        return  {'section': self.name, 'elements' : elements}                               
 
     @property
     def scroll_list(self):            
