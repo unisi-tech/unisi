@@ -48,6 +48,12 @@ class Block(Gui):
                 elif isinstance(elem.llm, Gui):                    
                     dependencies = [elem.llm]
                     exactly = True
+                elif isinstance(elem.llm, dict):
+                    if elem.type != 'table':                        
+                        raise AttributeError(f'{elem.name} llm parameter is a dictionary only for tables, not for {elem.type}!')                                            
+                    elem.__llm__ = elem.llm
+                    elem.llm = True
+                    continue
                 else:
                     raise AttributeError(f'Invalid llm parameter value for {elem.name} {elem.type}!')
                 if dependencies:

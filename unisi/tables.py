@@ -1,6 +1,7 @@
 from .guielements import Gui
 from .common import *
 from .dbelements import Dblist
+from .llmrag import get_property
 
 relation_mark = 'Ⓡ'
 exclude_mark = '✘'
@@ -205,11 +206,24 @@ class Table(Gui):
         delta -= 1 #ID field
         return False, iterate(self.link, delta)
     
-    def emit(self, _ = None, __ = None):        
+    async def emit(self, _ = None, __ = None):        
         """calcute llm field values for selected rows if they are None"""
         if hasattr(self, 'llm'):        
             llm_info = self.__llm__
             return toJson({'name': llm_info.block.name, 'elements': [e.compact_view for e in llm_info.elements]})            
+                
+        if references.llm_model and (exactly := getattr(self, 'llm', None)) is not None:  
+            llm_info = self.__llm__
+            for index in self.selected:
+                values = {field: value for field, value in zip(self.headers, self.rows[index]) if value is not None and value != ''}
+                for fld, deps in llm_info.items():
+                    if fld not in values and all(dep in values for dep in deps):
+                        context = {dep: values[dep] for dep in deps}
+                        context['section'] = self.name
+                        context = toJson(context) 
+                        fld_val = await get_property(fld, context)
+                        self.rows[index][self.headers.index(fld)] = fld_val
+            return self
         
 def delete_panda_row(table, row_num):    
     df = table.__panda__
