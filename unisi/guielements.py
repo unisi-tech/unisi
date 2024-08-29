@@ -1,5 +1,5 @@
 from .common import set_defaults, compose_handlers, toJson
-from .llmrag import get_property
+from .llmrag import get_property, llm_model
 
 class Gui:
     def __init__(self, name, *args, **kwargs):
@@ -30,10 +30,10 @@ class Gui:
     
     async def emit(self):        
         """calcute value by system llm"""
-        if hasattr(self, 'llm'):        
+        if llm_model and hasattr(self, 'llm'):        
             llm_info = self.__llm__
             context = toJson({'name': llm_info.block.name, 'elements': [e.compact_view for e in llm_info.elements]})            
-            self.value = await get_property(self.name, context, self.type, options = self.options if hasattr(self, 'options') else None)
+            self.value = await get_property(self.name, context, self.type, options = getattr(self, 'options', None))
 
     def add_changed_handler(self, handler):
         self.changed = compose_handlers(self.changed, handler) if hasattr(self, 'changed') else  handler

@@ -297,6 +297,7 @@ def message_logger(str, type = 'error'):
     user.log(str, type)
 
 references.context_user = context_user
+references.message_logger = message_logger
 
 User.db = Database(config.db_dir, message_logger) if config.db_dir else None
 User.type = User    
