@@ -51,7 +51,8 @@ class Block(Gui):
                 elif isinstance(elem.llm, dict):
                     if elem.type != 'table':                        
                         raise AttributeError(f'{elem.name} llm parameter is a dictionary only for tables, not for {elem.type}!')                                            
-                    elem.__llm__ = elem.llm
+                    
+                    elem.__llm_dependencies__ = {fld: (deps if isinstance(deps, list) else [deps]) for fld, deps in elem.llm.items()} 
                     elem.llm = True
                     continue
                 else:
@@ -60,15 +61,14 @@ class Block(Gui):
                     elem.llm = exactly                
                     for dependency in dependencies:
                         dependency.add_changed_handler(elem.emit)    
-                    elem.__llm__ = ArgObject(block = self, elements = dependencies)            
+                    elem.__llm_dependencies__ = dependencies
                 else:
                     elem.llm = None
                     print(f'Empty dependency list for llm calculation for {elem.name} {elem.type}!')
                 
     @property
     def compact_view(self):
-        elements = [obj for obj in flatten(self.value) if obj.value is not None]
-        return  {'section': self.name, 'elements' : elements}                               
+        return [obj for obj in flatten(self.value) if obj.value is not None]        
 
     @property
     def scroll_list(self):            

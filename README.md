@@ -16,6 +16,7 @@ UNISI technology provides a unified system interface and advanced program functi
  - Shared sessions
  - Monitoring and profiling
  - Database interactions
+ - LLM-RAG interactions
 
 ### Installing ###
 ```

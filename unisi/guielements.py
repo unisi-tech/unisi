@@ -28,14 +28,13 @@ class Gui:
         """reduce for external (llm) using if required"""
         return {self.name : self.value}
     
-    async def emit(self, _ = None, __ = None):        
+    async def emit(self, *_ ):        
         """calcute value by system llm, can be used as a handler"""
         if references.llm_model and (exactly := getattr(self, 'llm', None)) is not None:        
-            llm_info = self.__llm__
-            elems = [e.compact_view for e in llm_info.elements if e.value != '' and e.value is not None]
+            elems = [e.compact_view for e in self.__llm_dependencies__ if e.value != '' and e.value is not None]
             #exactly is requirment that all elements have to have valid value
-            if not exactly or len(elems) == len(llm_info.elements):
-                context = toJson({'section': llm_info.block.name, 'elements': elems})            
+            if not exactly or len(elems) == len(self.__llm_dependencies__):
+                context = toJson(elems)            
                 self.value = await get_property(self.name, context, self.type, options = getattr(self, 'options', None))
                 return self
 

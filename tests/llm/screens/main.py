@@ -2,9 +2,10 @@ from unisi import *
 name = 'Main'
 
 table = Table('Persons', headers = ['Name', 'Date of birth','Occupation'], 
+                llm = {'Date of birth': 'Name', 'Occupation': 'Name'},
     rows = [['Michael Jackson', None, None], ['Ronald Reagan', None, None]])
 
-block1 = Block('Relations',[], table)
+block1 = Block('Relations',Button('Calculate the selected', table.emit), table)
 
 ename = Edit('Name')
 

@@ -2,6 +2,7 @@ from .guielements import Gui
 from .common import *
 from .dbelements import Dblist
 from .llmrag import get_property
+import asyncio
 
 relation_mark = 'Ⓡ'
 exclude_mark = '✘'
@@ -176,7 +177,7 @@ class Table(Gui):
     
     @property
     def selected_list(self):                            
-        return [self.value] if self.value != None else [] if type(self.value) == int else self.value   
+        return [] if self.value is None else self.value if isinstance(self.value, list) else [self.value]   
 
     def clean_selection(self):        
         self.value = [] if isinstance(self.value,tuple | list) else None
@@ -206,24 +207,35 @@ class Table(Gui):
         delta -= 1 #ID field
         return False, iterate(self.link, delta)
     
-    async def emit(self, _ = None, __ = None):        
-        """calcute llm field values for selected rows if they are None"""
-        if hasattr(self, 'llm'):        
-            llm_info = self.__llm__
-            return toJson({'name': llm_info.block.name, 'elements': [e.compact_view for e in llm_info.elements]})            
-                
-        if references.llm_model and (exactly := getattr(self, 'llm', None)) is not None:  
-            llm_info = self.__llm__
-            for index in self.selected:
-                values = {field: value for field, value in zip(self.headers, self.rows[index]) if value is not None and value != ''}
-                for fld, deps in llm_info.items():
-                    if fld not in values and all(dep in values for dep in deps):
-                        context = {dep: values[dep] for dep in deps}
-                        context['section'] = self.name
-                        context = toJson(context) 
-                        fld_val = await get_property(fld, context)
-                        self.rows[index][self.headers.index(fld)] = fld_val
-            return self
+    async def emit(self, *_):        
+        """calcute llm field values for selected rows if they are None"""        
+        if references.llm_model and getattr(self, 'llm', None) is not None:              
+            tasks = []
+            for index in self.selected_list:
+                values = {field: value for field, value in zip(self.headers, self.rows[index]) 
+                          if value is not None and value != ''}
+                for fld, deps in self.__llm_dependencies__.items():                    
+                    if fld not in values:
+                        context = {}
+                        for dep in deps:
+                            value = values.get(dep, None)
+                            if value is None:
+                                if self.llm: #exact
+                                    return   #not all fields
+                            else:                                
+                                if isinstance(dep, str):
+                                    context[dep] = value
+                                elif isinstance(dep, Gui):
+                                    context[dep.name] = dep.value                                    
+                                else:
+                                    raise AttributeError(f'Invalid llm parameter {dep} in {self.name} element!')
+                        if context:                                                    
+                            async def assign(index, fld, jcontext):
+                                self.rows[index][self.headers.index(fld)] = await get_property(fld, jcontext)
+                            tasks.append(asyncio.create_task(assign(index, fld, toJson(context))))
+            if tasks:
+                await asyncio.gather(*tasks)
+                return self
         
 def delete_panda_row(table, row_num):    
     df = table.__panda__
