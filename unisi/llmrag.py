@@ -1,8 +1,7 @@
-import asyncio
 from .common import references
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
-#mixtral-8x7b-32768
+
 def setup_llmrag():    
     import config #the module is loaded before config.py    
     if hasattr(config, 'llm'):
@@ -32,7 +31,6 @@ def setup_llmrag():
                 timeout = None,
                 max_retries = 2, 
             )
-setup_llmrag()
 
 numeric_types = ['number', 'int', 'float', 'double']
 

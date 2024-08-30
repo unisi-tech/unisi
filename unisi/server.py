@@ -4,6 +4,7 @@ from pathlib import Path
 from .reloader import empty_app 
 from .autotest import recorder, run_tests
 from .common import  *
+from.llmrag import setup_llmrag
 from config import port, upload_dir
 import traceback, json
 
@@ -96,6 +97,7 @@ def ensure_directory_exists(directory_path):
 def start(appname = None, user_type = User, http_handlers = []):    
     ensure_directory_exists(screens_dir)
     ensure_directory_exists(blocks_dir)
+    setup_llmrag()
 
     if appname:
         config.appname = appname
