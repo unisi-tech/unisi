@@ -78,7 +78,7 @@ class Table(Unit):
             set_defaults(self, dict(headers = [], type = 'table', value = None, rows = [], editing = False, dense = True))
             self.__headers__ = self.headers[:]
         if getattr(self,'id', None): 
-            db = references.context_user().db
+            db = Unishare.context_user().db
             if db:
                 db.set_db_list(self)
             else:
@@ -99,7 +99,7 @@ class Table(Unit):
                 self.__link__ = link_table, list(prop_types.keys()), rel_name
                 self.link = rel_fields
                 
-                @references.handle(link_table,'changed')
+                @Unishare.handle(link_table,'changed')
                 def link_table_selection_changed(master_table, val, init = False):
                     lstvalue = val if isinstance(val, list) else [val] if val != None else []
                     if lstvalue:
@@ -122,14 +122,14 @@ class Table(Unit):
                 link_table_selection_changed(link_table, link_table.value, True)
                 self.__link_table_selection_changed__ = link_table_selection_changed
 
-                @references.handle(self,'filter')
+                @Unishare.handle(self,'filter')
                 def filter_status_changed(table, value):
                     self.filter = value
                     link_table_selection_changed(link_table, link_table.value, True)
                     self.calc_headers()
                     return self                
                 
-                @references.handle(self,'changed')
+                @Unishare.handle(self,'changed')
                 def changed_selection_causes__changing_links(self, new_value):                   
                     if link_table.value is not None and link_table.value != []:
                         #if link table is in multi mode, links are not editable 
@@ -147,7 +147,7 @@ class Table(Unit):
                                 return Warning('The linked table is not in edit mode', self)
                     return self.accept(new_value)    
                 
-            @references.handle(self,'search')
+            @Unishare.handle(self,'search')
             def search_changed(table, value):
                 self.search = value
                 if has_link:
@@ -209,7 +209,7 @@ class Table(Unit):
     
     async def emit(self, *_):        
         """calcute llm field values for selected rows if they are None"""        
-        if references.llm_model and getattr(self, 'llm', None) is not None:              
+        if Unishare.llm_model and getattr(self, 'llm', None) is not None:              
             tasks = []
             for index in self.selected_list:
                 values = {field: value for field, value in zip(self.headers, self.rows[index]) 

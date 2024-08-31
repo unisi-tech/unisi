@@ -1,4 +1,4 @@
-from .common import references
+from .common import Unishare
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 
@@ -17,14 +17,14 @@ def setup_llmrag():
                 
         type = type.lower()
         if type == 'openai':            
-            references.llm_model = ChatOpenAI(
+            Unishare.llm_model = ChatOpenAI(
                 api_key = 'llm-studio',
                 temperature = 0.0,
                 openai_api_base = address
             ) if address else ChatOpenAI(temperature=0.0)
 
         elif type == 'groq':
-            references.llm_model = ChatGroq(
+            Unishare.llm_model = ChatGroq(
                 model = model,
                 temperature = 0.0,
                 max_tokens = None,
@@ -49,7 +49,7 @@ async def get_property(name, json_context = '', type = 'string', options = None,
             ("human",  f"""{json_context} Reason and infer the "{name}" value, which {limits}. 
                 Do not include any additional text or commentary in your answer, just exact property value.""")
         ]
-    ai_msg =  await references.llm_model.ainvoke(messages)
+    ai_msg =  await Unishare.llm_model.ainvoke(messages)
     value = ai_msg.content
     log_error = ''
     if type in numeric_types:
@@ -69,7 +69,7 @@ async def get_property(name, json_context = '', type = 'string', options = None,
             log_error = f'Invalid value {value} from llm-rag for {messages[1][1]}'
 
     if log_error:
-        references.message_logger(log_error)
+        Unishare.message_logger(log_error)
     return value
 
 
