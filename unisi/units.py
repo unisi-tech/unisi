@@ -37,6 +37,7 @@ class Unit:
                 context = toJson(elems)            
                 self.value = await get_property(self.name, context, self.type, options = getattr(self, 'options', None))
                 return self
+            
 
     def add_changed_handler(self, handler):
         changed_handler = getattr(self, 'changed', None)

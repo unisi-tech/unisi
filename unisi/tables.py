@@ -212,23 +212,25 @@ class Table(Unit):
         if Unishare.llm_model and getattr(self, 'llm', None) is not None:              
             tasks = []
             for index in self.selected_list:
-                values = {field: value for field, value in zip(self.headers, self.rows[index]) 
-                          if value is not None and value != ''}
+                values = {field: value for field, value in zip(self.headers, self.rows[index]) if value}
                 for fld, deps in self.__llm_dependencies__.items():                    
-                    if fld not in values:
-                        context = {}
-                        for dep in deps:
-                            value = values.get(dep, None)
-                            if value is None:
-                                if self.llm: #exact
-                                    return   #not all fields
-                            else:                                
-                                if isinstance(dep, str):
-                                    context[dep] = value
-                                elif isinstance(dep, Unit):
-                                    context[dep.name] = dep.value                                    
-                                else:
-                                    raise AttributeError(f'Invalid llm parameter {dep} in {self.name} element!')
+                    if fld not in values:                        
+                        if deps is True:
+                            context = values
+                        else:
+                            context = {}
+                            for dep in deps:
+                                value = values.get(dep, None)
+                                if value is None:
+                                    if self.llm: #exact
+                                        continue   #not all fields
+                                else:                                
+                                    if isinstance(dep, str):
+                                        context[dep] = value
+                                    elif isinstance(dep, Unit):
+                                        context[dep.name] = dep.value                                    
+                                    else:
+                                        raise AttributeError(f'Invalid llm parameter {dep} in {self.name} element!')
                         if context:                                                    
                             async def assign(index, fld, jcontext):
                                 self.rows[index][self.headers.index(fld)] = await get_property(fld, jcontext)

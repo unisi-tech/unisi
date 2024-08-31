@@ -52,7 +52,7 @@ class Block(Unit):
                     if elem.type != 'table':                        
                         raise AttributeError(f'{elem.name} llm parameter is a dictionary only for tables, not for {elem.type}!')                                            
                     
-                    elem.__llm_dependencies__ = {fld: (deps if isinstance(deps, list) else [deps]) for fld, deps in elem.llm.items()} 
+                    elem.__llm_dependencies__ = {fld: (deps if isinstance(deps, list | bool) else [deps]) for fld, deps in elem.llm.items()} 
                     elem.llm = True
                     continue
                 else:
