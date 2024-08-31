@@ -2,8 +2,11 @@ import kuzu, shutil, os, re, time
 from datetime import date, datetime
 from cymple import QueryBuilder as qb
 from cymple.typedefs import Properties
-from .common import get_default_args, equal_dicts
+from .common import get_default_args
 from .dbunits import Dblist
+
+def equal_fields_dicts(dict1, dict2):
+    return dict1.keys() == dict2.keys() and all(dict1[key].lower() == dict2[key].lower() for key in dict1)
 
 def is_modifying_query(cypher_query):
     query = cypher_query.lower()
@@ -109,7 +112,7 @@ class Database:
                 fields = {headers[i]: type for i, type in enumerate(types)}
                         
             if (table_fields := self.get_table_fields(id)) is not None:
-                if not equal_dicts(table_fields, fields):                    
+                if not equal_fields_dicts(table_fields, fields):                    
                     if self.delete_table(id):      
                         self.message_logger(f'Node table {id} was deleted because of fields contradiction!', 'warning')          
                 else:
@@ -191,7 +194,7 @@ class Dbtable:
         rel_table_fields = self.db.get_table_fields(relname)
         if isinstance(rel_table_fields, dict):
             if isinstance(fields, dict):
-                if equal_dicts(rel_table_fields, fields):
+                if equal_fields_dicts(rel_table_fields, fields):
                     return relname, rel_table_fields
                 else:
                     self.db.delete_table(relname)            

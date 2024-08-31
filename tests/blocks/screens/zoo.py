@@ -9,5 +9,8 @@ ext_rows = [row * 2 for row in zoo_table.rows]
 
 sec_table = Table('Sec table', rows = ext_rows, headers = zoo_table.headers*2)
 
-blocks = [Block('Csv table', [],  zoo_table,sec_table)]
+blocks = [Block('Csv table', [], zoo_table,sec_table)]
+
+def prepare():
+    sec_table.name += ' is prepared!'
 

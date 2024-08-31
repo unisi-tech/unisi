@@ -38,7 +38,6 @@ class Unit:
                 self.value = await get_property(self.name, context, self.type, options = getattr(self, 'options', None))
                 return self
             
-
     def add_changed_handler(self, handler):
         changed_handler = getattr(self, 'changed', None)
         if not changed_handler:
@@ -71,7 +70,7 @@ class Edit(Unit):
                 if type_value == int or type_value == float:
                     self.type = 'number'
                     return
-            self.type =  'string'
+            self.type = 'string'
         if not has_value:
             self.value = '' if self.type != 'number' else 0
 

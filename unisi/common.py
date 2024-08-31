@@ -39,7 +39,7 @@ class ArgObject:
 
 class ReceivedMessage(ArgObject):
     def __init__(self, kwargs):
-        super().__init__(**kwargs)
+        self.__dict__.update(kwargs)
     def __str__(self):
         return f'{self.block}/{self.element}->{self.event}({self.value})'
 

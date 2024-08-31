@@ -124,7 +124,7 @@ class User:
         if self.screens:                        
             self.screens.sort(key=lambda s: s.screen.order)            
             main = self.screens[0]
-            if 'prepare' in dir(main):
+            if hasattr(main, 'prepare'):  
                 main.prepare()
             self.screen_module = main
             self.update_menu()
@@ -218,14 +218,14 @@ class User:
         return raw
 
     async def process(self, message):        
-        screen_change_message = getattr(message, 'screen',None) and self.screen.name != message.screen
-        if is_screen_switch(message) or screen_change_message:
+        screen_change_message = message.screen and self.screen.name != message.screen
+        if screen_change_message or is_screen_switch(message):
             for s in self.screens:
                 if s.name == message.value:
                     self.screen_module = s                    
                     if screen_change_message:
                         break                    
-                    if getattr(s.screen,'prepare', False):
+                    if getattr(s.screen,'prepare', None):
                         s.screen.prepare()
                     return True 
             else:        
