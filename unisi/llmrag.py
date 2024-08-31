@@ -6,7 +6,7 @@ def setup_llmrag():
     import config #the module is loaded before config.py    
     if config.llm:
         match config.llm:
-            case ['local', address]: 
+            case ['host', address]: 
                 model = None
                 type = 'openai' #provider type is openai for local llms
             case [type, model, address]: ...
