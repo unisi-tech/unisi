@@ -1,6 +1,6 @@
 import config, os, logging, json, asyncio
 from .utils import *
-from .guielements import * 
+from .units import * 
 from .containers import Block, Dialog
 from .users import User
 from .common import *
@@ -135,8 +135,8 @@ def check_block(block, hash_elements):
             errors.append(f'The block {block.name} contains already used "{child.name}" in block "{hash_elements[hash_element]}"!')
         else: 
             hash_elements[hash_element] = block.name         
-            if not isinstance(child, Gui) or not child:
-                errors.append(f'The block {block.name} contains invalid element {child} instead of Gui+ object!') 
+            if not isinstance(child, Unit) or not child:
+                errors.append(f'The block {block.name} contains invalid element {child} instead of Unit+ object!') 
             elif isinstance(child, Block):
                 errors.append(f'The block {block.name} contains block {child.name}. Blocks cannot contain blocks!')                                                                                                       
             elif child.name in child_names and child.type != 'line':                        

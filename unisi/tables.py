@@ -1,6 +1,6 @@
-from .guielements import Gui
+from .units import Unit
 from .common import *
-from .dbelements import Dblist
+from .dbunits import Dblist
 from .llmrag import get_property
 import asyncio
 
@@ -69,7 +69,7 @@ def append_table_row(table, search_str):
     table.rows.append(new_row)
     return new_row
 
-class Table(Gui):
+class Table(Unit):
     def __init__(self, *args, panda = None, **kwargs):
         if panda is not None:
             self.mutate(PandaTable(*args, panda=panda, **kwargs))
@@ -225,7 +225,7 @@ class Table(Gui):
                             else:                                
                                 if isinstance(dep, str):
                                     context[dep] = value
-                                elif isinstance(dep, Gui):
+                                elif isinstance(dep, Unit):
                                     context[dep.name] = dep.value                                    
                                 else:
                                     raise AttributeError(f'Invalid llm parameter {dep} in {self.name} element!')

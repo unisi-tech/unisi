@@ -4,7 +4,7 @@ from langchain_openai import ChatOpenAI
 
 def setup_llmrag():    
     import config #the module is loaded before config.py    
-    if hasattr(config, 'llm'):
+    if config.llm:
         match config.llm:
             case ['local', address]: 
                 model = None

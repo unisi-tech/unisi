@@ -55,7 +55,7 @@ block = Block('X Block',
 | blocks | Has to be defined | list |which blocks to show on the screen |
 | user   | Always defined, read-only | User+ | Access to User(inherited) class which associated with a current user |
 | header | Optional | str | show it instead of app name |
-| toolbar | Optional | list | Gui elements to show in the screen toolbar |
+| toolbar | Optional | list | Unit elements to show in the screen toolbar |
 | order | Optional | int | order in the program menu |
 | icon  | Optional | str | MD icon of screen to show in the screen menu |
 | prepare | Optional | def prepare() | Syncronizes GUI elements one to another and with the program/system data. If defined then is called before screen appearing. |
@@ -85,9 +85,9 @@ where gui_object is a Python object the user interacted with and value for the e
 
 #### UNISI supports synchronous and asynchronous handlers automatically adopting them for using. ####
 
-All Gui objects except Button have a field ‘value’. 
+All Unit objects except Button have a field ‘value’. 
 For an edit field the value is a string or number, for a switch or check button the value is boolean, for table is row id or index, e.t.c.
-When a user changes the value of the Gui object or presses Button, the server calls the ‘changed’ function handler.
+When a user changes the value of the Unit object or presses Button, the server calls the ‘changed’ function handler.
 
 ```
 def clean_table(_, value):
@@ -98,8 +98,8 @@ clean_button = Button('Clean the table’, clean_table)
 
 | Handler returns |	Description |
 | :---: | :---: | 
-| Gui object |  Object to update |
-| Gui object array or tuple |  Objects to update |
+| Unit object |  Object to update |
+| Unit object array or tuple |  Objects to update |
 | None | Nothing to update, Ok |
 | Error(...), Warning(...), Info(...) | Show to user info about a state. |
 | True | Update whole screen |
@@ -108,7 +108,7 @@ clean_button = Button('Clean the table’, clean_table)
 
 Unisi synchronizes GUI state on frontend-end automatically after calling a handler.
 
-If a Gui object doesn't have 'changed' handler the object accepts incoming value automatically to the 'value' variable of gui object.
+If a Unit object doesn't have 'changed' handler the object accepts incoming value automatically to the 'value' variable of gui object.
 
 If 'value' is not acceptable instead of returning an object possible to return Error or Warning or Info. That functions can update a object list passed after the message argument.
 
@@ -174,7 +174,7 @@ blocks = [ [b1,b2], [b3, [b4, b5]]]
 ### ParamBlock ###
 ParamBlock(name, *gui_elements, row = 3, **parameters)
 
-ParamBlock creates blocks with Gui elements formed from parameters. Parameters can be string, bool, number and optional types. Example:
+ParamBlock creates blocks with Unit elements formed from parameters. Parameters can be string, bool, number and optional types. Example:
 ```
 block = ParamBlock('Learning parameters', Button('Start learning', learn_nn)
     per_device_eval_batch_size=16, num_train_epochs=10, warmup_ratio=0.1, 
@@ -194,13 +194,13 @@ Normally they have type property which says unisi what data it contains and opti
 #### If the element name starts from _ , unisi will hide its name on the screen. ####
 if we need to paint an icon in an element, add 'icon': 'any MD icon name' to the element constructor.
 
-#### Most constructor parameters are optional for Gui elements except the first one which is the element name. ####
+#### Most constructor parameters are optional for Unit elements except the first one which is the element name. ####
 
 Common form for element constructors:
 ```
-Gui('Name', value = some_value, changed = changed_handler)
+Unit('Name', value = some_value, changed = changed_handler)
 #It is possible to use short form, that is equal:
-Gui('Name', some_value, changed_handler)
+Unit('Name', some_value, changed_handler)
 ```
 calling the method 
 def accept(self, value) 
@@ -386,7 +386,7 @@ def dialog_callback(current_dialog, command_button_name):
         do_this()
     elif ..
 ```
-content can be filled with Gui elements for additional dialog functionality like a Block.
+content can be filled with Unit elements for additional dialog functionality like a Block.
 
 
 ### Popup windows ###

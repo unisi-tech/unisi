@@ -1,5 +1,5 @@
 from .utils import *
-from .guielements import *
+from .units import *
 from .common import *
 from .containers import Dialog, Screen
 from .multimon import notify_monitor, logging_lock, run_external_process
@@ -211,7 +211,7 @@ class User:
         else:
             if isinstance(raw, Message):
                 raw.fill_paths4(self)                
-            elif isinstance(raw,Gui):
+            elif isinstance(raw,Unit):
                 raw = Message(raw, user = self)                 
             elif isinstance(raw, (list, tuple)):
                 raw = Message(*raw, user = self)

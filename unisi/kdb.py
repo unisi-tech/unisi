@@ -3,7 +3,7 @@ from datetime import date, datetime
 from cymple import QueryBuilder as qb
 from cymple.typedefs import Properties
 from .common import get_default_args, equal_dicts
-from .dbelements import Dblist
+from .dbunits import Dblist
 
 def is_modifying_query(cypher_query):
     query = cypher_query.lower()

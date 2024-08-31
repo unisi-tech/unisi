@@ -1,7 +1,7 @@
 from .common import *
 from .llmrag import get_property
 
-class Gui:
+class Unit:
     def __init__(self, name, *args, **kwargs):
         self.name = name
         la = len(args)
@@ -45,7 +45,7 @@ class Gui:
                 obj.value = value
         self.changed = compose_handlers(changed_handler, handler) 
 
-Line = Gui("__Line__", type = 'line')
+Line = Unit("__Line__", type = 'line')
 
 def smart_complete(lst, min_input_length = 0, max_output_length = 20):
     di = {it: it.lower() for it in lst}
@@ -60,7 +60,7 @@ def smart_complete(lst, min_input_length = 0, max_output_length = 20):
         return [e[1] for e in arr]
     return complete
 
-class Edit(Gui):
+class Edit(Unit):
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)        
         has_value = hasattr(self,'value')
@@ -74,14 +74,14 @@ class Edit(Gui):
         if not has_value:
             self.value = '' if self.type != 'number' else 0
 
-class Text(Gui):
+class Text(Unit):
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         self.value = self.name
         self.type = 'string'
         self.edit = False       
 
-class Range(Gui):
+class Range(Unit):
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)    
         if not hasattr(self, 'value'):
@@ -90,7 +90,7 @@ class Range(Gui):
         if 'options' not in kwargs:
             self.options = [self.value - 10, self.value + 10, 1]
 
-class Button(Gui):
+class Button(Unit):
     def __init__(self, name, handler = None, **kwargs):
         self.name = name
         self.value = None
@@ -110,7 +110,7 @@ def UploadButton(name, handler = None,**kwargs):
         kwargs['width'] = 250.0                  
     return Button(name, handler, **kwargs)
 
-class Image(Gui):
+class Image(Unit):
     '''name is file name or url, label is optional text to draw on the image'''
     def __init__(self, name, value = False, handler = None, label = '', width = 300, **kwargs):
         super().__init__(name, [], **kwargs)
@@ -126,7 +126,7 @@ class Image(Gui):
         if self.url[1] == ':': 
             self.url = f'/{self.url}'
 
-class Video(Gui):
+class Video(Unit):
     '''has to contain src parameter'''
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
@@ -159,32 +159,32 @@ class Edge:
 
 graph_default_value = {'nodes' : [], 'edges' : []}
 
-class Graph(Gui):
+class Graph(Unit):
     '''has to contain nodes, edges, see Readme'''
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         self.type='graph'
         set_defaults(self,{'value': graph_default_value, 'nodes': [], 'edges': []})
         
-class Switch(Gui):
+class Switch(Unit):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)        
         set_defaults(self,{'value': False, 'type': 'switch'})
 
-class Select(Gui):
+class Select(Unit):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         set_defaults(self,{'options': [], 'value': None})
         if not hasattr(self, 'type'):
             self.type = 'select' if len(self.options) > 3 else 'radio'        
 
-class Tree(Gui):
+class Tree(Unit):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)         
         self.type = 'tree' 
         set_defaults(self,{'options': [], 'value': None})
         
-class TextArea(Gui):
+class TextArea(Unit):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         self.type = 'text' 

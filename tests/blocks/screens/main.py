@@ -75,4 +75,4 @@ async def log(x,y):
         await user.send(Warning(str(i)))
     
 toolbar = [Button('_Save', log, icon = 'save', tooltip = 'Save info'),
-        Button('_Ignored', lambda _, x: Info('ignored!'), icon = 'delete_forever', tooltip = 'Ignore info!')]
+        Button('_Ignored', lambda *_: Info('ignored!'), icon = 'delete_forever', tooltip = 'Ignore info!')]

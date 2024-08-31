@@ -1,5 +1,5 @@
-from .guielements import *
-from .common import pretty4, flatten, ArgObject
+from .units import *
+from .common import pretty4, flatten
 from numbers import Number
 
 class ContentScaler(Range):
@@ -21,7 +21,7 @@ class ContentScaler(Range):
                 element.height /= prev            
             return elements
         
-class Block(Gui):    
+class Block(Unit):    
     def __init__(self, name, *elems, **options):        
         self.name = name        
         self.type = 'block'
@@ -45,7 +45,7 @@ class Block(Gui):
                 elif isinstance(elem.llm, list | tuple):
                     dependencies = elem.llm                    
                     exactly = True
-                elif isinstance(elem.llm, Gui):                    
+                elif isinstance(elem.llm, Unit):                    
                     dependencies = [elem.llm]
                     exactly = True
                 elif isinstance(elem.llm, dict):
