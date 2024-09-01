@@ -91,7 +91,7 @@ class Dblist:
                     chunk.append(next_list[0])                                                               
                 else:
                     delta_list, chunk = self.get_delta_chunk(delta_list)                    
-                    self.update = dict(type = 'update', index = delta_list, data = chunk)
+                    self.update = dict(type = 'updates', index = delta_list, data = chunk)
                 self.clean_cache_from(next_delta_list)                     
 
     def __len__(self):
@@ -112,9 +112,11 @@ class Dblist:
         
     def extend(self, rows):
         start = self.dbtable.length
+        delta_start = start // self.limit * self.limit
         rows = self.dbtable.append_rows(rows)
         len_rows = len(rows)                
         i_rows = 0
+        length = len_rows + start
         while len_rows > 0:
             delta_list = start // self.limit * self.limit
             list = self.delta_list.get(delta_list)
@@ -129,8 +131,10 @@ class Dblist:
                         
             i_rows += can_fill           
             start += can_fill
-            len_rows -= can_fill                            
-        self.update = self.dbtable.get_init_list().update
+            len_rows -= can_fill        
+        delta, data = self.get_delta_chunk(delta_start)
+        self.update = dict(type = 'updates', index = delta, data = data, length = length)
+        return self.update
 
     def insert(self, index, value):
         self.append(value)        

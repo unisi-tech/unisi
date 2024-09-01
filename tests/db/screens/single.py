@@ -9,10 +9,9 @@ def change_ids(button, value):
     ctable.calc_headers()
     return ctable
 
-def add_data(button, _):
+def add_data(*_):
     rows_len = len(ctable.rows)
     data = [[f'Company {i}', f' Place {i}', f'Phone {i}']  for i in range(rows_len, rows_len + 1000)]
-    ctable.rows.extend(data)
-    return ctable
+    return ctable.extend(data)    
 
 blocks = [Block('TBlock', [Switch('Show ID', False, change_ids), Button('+ data',add_data)], ctable)]

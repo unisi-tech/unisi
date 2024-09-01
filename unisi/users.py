@@ -14,7 +14,8 @@ class User:
     count = 0
     #storage id -> screen name -> [elem name, block name]
     dbshare = defaultdict(lambda: defaultdict(lambda: []))
-
+    #db id -> update
+    dbupdates = defaultdict(lambda: [])
     def __init__(self, session: str, share = None):          
         self.session = session        
         self.active_dialog = None        
@@ -53,6 +54,15 @@ class User:
         await asyncio.gather(*[user.send(message)
             for user in self.reflections
                 if user is not self and screen is user.screen_module])        
+        
+    async def sync_dbupdates():
+        for id, updates in User.dbupdates.items():
+            for update in updates:
+                screen2el_bl = User.dbshare[id]
+                for user in User.sessions.values():
+                    if user.screen.name in screen2el_bl:
+                        ...
+
 
     async def reflect(self, message, result):
         if self.reflections and not is_screen_switch(message):                        

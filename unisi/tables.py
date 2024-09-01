@@ -77,8 +77,9 @@ class Table(Unit):
             super().__init__(*args, **kwargs)    
             set_defaults(self, dict(headers = [], type = 'table', value = None, rows = [], editing = False, dense = True))
             self.__headers__ = self.headers[:]
-        if getattr(self,'id', None): 
-            db = Unishare.context_user().db
+        if hasattr(self,'id'): 
+            self.__user__ = Unishare.context_user()
+            db = self.__user__.db
             if db:
                 db.set_db_list(self)
             else:
@@ -182,6 +183,11 @@ class Table(Unit):
     def clean_selection(self):        
         self.value = [] if isinstance(self.value,tuple | list) else None
         return self
+    
+    def extend(self, new_rows):
+        update = self.rows.extend(new_rows)        
+        if hasattr(self,'id'): 
+            self.__user__.dbupdates[self.id].append[update]
     
     def calc_headers(self):        
         """only for persistent"""
