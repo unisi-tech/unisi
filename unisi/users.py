@@ -143,6 +143,7 @@ class User:
 
     def set_screen(self,name):
         return asyncio.run(self.process(ArgObject(block = 'root', element = None, value = name)))
+    
     async def result4message(self, message):
         result = None        
         self.last_message = message     
@@ -290,7 +291,7 @@ class User:
             for block in flatten(screen.blocks):
                 for elem in flatten(block.value):
                     if hasattr(elem, 'id'):
-                        dbshare[elem.id][screen.name].append(ArgObject(element = elem.name, block =block.name))                                
+                        dbshare[elem.id][screen.name].append({'element': elem.name, 'block': block.name})                                
 
 def context_user():
     return context_object(User)
