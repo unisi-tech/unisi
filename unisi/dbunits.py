@@ -1,3 +1,26 @@
+from .common import Unishare
+import asyncio
+from collections import defaultdict
+
+#storage id -> screen name -> [elem name, block name]
+dbshare = defaultdict(lambda: defaultdict(lambda: []))
+#db id -> update
+dbupdates = defaultdict(lambda: [])
+
+async def sync_dbupdates():
+    sync_calls = []
+    for id, updates in dbupdates.items():
+        for update in updates:
+            screen2el_bl = dbshare[id]
+            for user in Unishare.sessions.values():
+                scr_name = user.screen.name
+                if scr_name in screen2el_bl:
+                    for elem_block in screen2el_bl[scr_name]: #optim--                        
+                        update4user = {**update, **elem_block.__dict__}
+                        sync_calls.append(user.send(update4user))
+    dbupdates.clear()
+    await asyncio.gather(*sync_calls)
+    
 class Dblist:
     def __init__(self, dbtable, init_list = None, cache = None):                
         self.cache = cache

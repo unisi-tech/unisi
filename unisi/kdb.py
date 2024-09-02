@@ -1,4 +1,4 @@
-import kuzu, shutil, os, re, time
+import kuzu, shutil, os, re
 from datetime import date, datetime
 from cymple import QueryBuilder as qb
 from cymple.typedefs import Properties

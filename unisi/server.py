@@ -5,6 +5,7 @@ from .reloader import empty_app
 from .autotest import recorder, run_tests
 from .common import  *
 from.llmrag import setup_llmrag
+from .dbunits import dbupdates, sync_dbupdates
 from config import port, upload_dir
 import traceback, json
 
@@ -79,7 +80,9 @@ async def websocket_handler(request):
                         if message:
                             if recorder.record_file:
                                 recorder.accept(message, user.prepare_result (result))
-                            await user.reflect(message, result)                            
+                            await user.reflect(message, result)     
+                        if dbupdates:
+                            await sync_dbupdates()                       
                 elif msg.type == WSMsgType.ERROR:
                     user.log('ws connection closed with exception %s' % ws.exception())
         except BaseException as e:

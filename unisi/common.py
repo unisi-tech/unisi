@@ -89,7 +89,7 @@ def get_default_args(func):
             defaults[name] = param.default
     return defaults
 
-Unishare = ArgObject(context_user = None)
+Unishare = ArgObject(context_user = None, sessions = {})
 
 class Message:
     def __init__(self, *gui_objects, user = None, type = 'update'):        

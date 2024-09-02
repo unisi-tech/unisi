@@ -1,6 +1,6 @@
 from .units import Unit
 from .common import *
-from .dbunits import Dblist
+from .dbunits import Dblist, dbupdates
 from .llmrag import get_property
 import asyncio
 
@@ -77,11 +77,9 @@ class Table(Unit):
             super().__init__(*args, **kwargs)    
             set_defaults(self, dict(headers = [], type = 'table', value = None, rows = [], editing = False, dense = True))
             self.__headers__ = self.headers[:]
-        if hasattr(self,'id'): 
-            self.__user__ = Unishare.context_user()
-            db = self.__user__.db
-            if db:
-                db.set_db_list(self)
+        if hasattr(self,'id'):             
+            if Unishare.db:
+                Unishare.db.set_db_list(self)
             else:
                 raise AssertionError('Config db_dir is not defined!')            
             self.get = get_chunk
@@ -187,7 +185,7 @@ class Table(Unit):
     def extend(self, new_rows):
         update = self.rows.extend(new_rows)        
         if hasattr(self,'id'): 
-            self.__user__.dbupdates[self.id].append[update]
+            dbupdates[self.id].append(update)
     
     def calc_headers(self):        
         """only for persistent"""
@@ -244,6 +242,12 @@ class Table(Unit):
             if tasks:
                 await asyncio.gather(*tasks)
                 return self
+    @property    
+    def is_base_table_list(self):
+        """is table in basic view mode"""
+        if hasattr(self, 'id'):
+            dbtable = self.rows.dbtable
+            return dbtable.list is self.rows
         
 def delete_panda_row(table, row_num):    
     df = table.__panda__
