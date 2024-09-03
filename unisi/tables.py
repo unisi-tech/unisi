@@ -185,7 +185,7 @@ class Table(Unit):
     def extend(self, new_rows):
         update = self.rows.extend(new_rows)        
         if hasattr(self,'id'): 
-            dbupdates[self.id].append(update)
+            dbupdates[self.id, self].append(update)
     
     def calc_headers(self):        
         """only for persistent"""
