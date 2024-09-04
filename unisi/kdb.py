@@ -307,8 +307,7 @@ class Dbtable:
         if isinstance(row, list):
             props = {name: value for name, value in zip(self.node_columns, row) if value is not None}
                       
-        answer = self.db.execute(qb().create().node(self.id, 'a', props).return_literal('a.ID'))
-        
+        answer = self.db.execute(qb().create().node(self.id, 'a', props).return_literal('a.*'))        
         if answer and answer.has_next():                        
             self.length += 1
             return answer.get_next()[-1]
