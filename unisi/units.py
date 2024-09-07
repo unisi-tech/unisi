@@ -134,7 +134,7 @@ class Video(Unit):
         set_defaults(self, {'url': self.name, 'ratio' : None})            
 
 class Node:
-    def __init__(self, name = '', color = '', size = 0, id = ''):
+    def __init__(self, name = '',id = '', color = '', size = 0):
         if name:
             self.name = name
         if color:
@@ -145,7 +145,7 @@ class Node:
             self.id = id        
 
 class Edge:
-    def __init__(self, source, target, name = '', color = '', size = 0, id = ''):
+    def __init__(self, source, target, name = '', id = '', color = '', size = 0):
         self.source = source
         self.target = target
         if name:
