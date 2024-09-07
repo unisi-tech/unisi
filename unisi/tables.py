@@ -3,6 +3,7 @@ from .common import *
 from .dbunits import Dblist, dbupdates
 from .llmrag import get_property
 import asyncio
+from collections import OrderedDict
 
 relation_mark = 'Ⓡ'
 exclude_mark = '✘'
@@ -164,15 +165,13 @@ class Table(Unit):
             set_defaults(self,{'delete': delete_table_row, 'append': append_table_row, 'modify': accept_cell_value})   
 
     @property
-    def compact_view(self):
+    def compact_view(self) -> str:
         """only selected are sended to llm"""
-        selected = self.selected_list
-        result = []
+        selected = self.selected_list        
         if not selected and len(self.rows) < max_len_rows4llm:
-            selected = range(len(self.rows))
-        for index in selected:
-            result.append({field: value for field, value in zip(self.headers, self.rows[index])})
-        return {'name': self.name, 'value': result}          
+            selected = range(len(self.rows))        
+        str_rows = ';'.join(','.join(f'{field}: {value}' for field, value in zip(self.headers, self.rows[index])) for index in selected)
+        return f'{self.name} : {str_rows}' 
     
     @property
     def selected_list(self):                            
@@ -222,7 +221,7 @@ class Table(Unit):
                         if deps is True:
                             context = values
                         else:
-                            context = {}
+                            context = OrderedDict()
                             for dep in deps:
                                 value = values.get(dep, None)
                                 if value is None:
@@ -236,9 +235,10 @@ class Table(Unit):
                                     else:
                                         raise AttributeError(f'Invalid llm parameter {dep} in {self.name} element!')
                         if context:                                                    
-                            async def assign(index, fld, jcontext):
-                                self.rows[index][self.headers.index(fld)] = await get_property(fld, jcontext)
-                            tasks.append(asyncio.create_task(assign(index, fld, toJson(context))))
+                            async def assign(index, fld, context):
+                                self.rows[index][self.headers.index(fld)] = await get_property(fld, context)                            
+                            context =  ','.join(f'{fld}:{val}' for fld, val in context.items())
+                            tasks.append(asyncio.create_task(assign(index, fld, context)))
             if tasks:
                 await asyncio.gather(*tasks)
                 return self

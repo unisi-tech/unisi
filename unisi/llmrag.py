@@ -1,9 +1,15 @@
 from .common import Unishare
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
+from langchain_google_genai import (
+    ChatGoogleGenerativeAI,
+    HarmBlockThreshold,
+    HarmCategory,
+)
 
 def setup_llmrag():    
     import config #the module is loaded before config.py    
+    temperature = getattr(config, 'temperature', 0.0)
     if config.llm:
         match config.llm:
             case ['host', address]: 
@@ -16,21 +22,35 @@ def setup_llmrag():
                 return
                 
         type = type.lower()
-        if type == 'openai':            
-            Unishare.llm_model = ChatOpenAI(
-                api_key = 'llm-studio',
-                temperature = 0.0,
-                openai_api_base = address
-            ) if address else ChatOpenAI(temperature=0.0)
+        match type:
+            case 'host':            
+                Unishare.llm_model = ChatOpenAI(
+                    api_key = 'llm-studio',
+                    temperature = temperature,
+                    openai_api_base = address
+                ) 
+            case 'openai':
+                Unishare.llm_model = ChatOpenAI(temperature=0.0)
 
-        elif type == 'groq':
-            Unishare.llm_model = ChatGroq(
-                model = model,
-                temperature = 0.0,
-                max_tokens = None,
-                timeout = None,
-                max_retries = 2, 
-            )
+            case 'groq':
+                Unishare.llm_model = ChatGroq(
+                    model = model,
+                    temperature = temperature,
+                    max_tokens = None,
+                    timeout = None,
+                    max_retries = 2, 
+                )
+            case 'google' | 'gemini':
+                Unishare.llm_model = ChatGoogleGenerativeAI(
+                    model = model,
+                    temperature = temperature,
+                    max_tokens = None,
+                    timeout = None,
+                    max_retries = 2,
+                    safety_settings = {
+                        HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE
+                    }
+                )
 
 numeric_types = ['number', 'int', 'float', 'double']
 
@@ -46,7 +66,7 @@ async def get_property(name, json_context = '', type = 'string', options = None,
                 "system",
                 f"""You are an intelligent and extremely concise assistant."""        
             ),
-            ("human",  f"""{json_context} Reason and infer the "{name}" value, which {limits}. 
+            ("human",  f"""{json_context} . Reason and infer the "{name}" value, which {limits}. 
                 Do not include any additional text or commentary in your answer, just exact the property value.""")
         ]
     ai_msg =  await Unishare.llm_model.ainvoke(messages)

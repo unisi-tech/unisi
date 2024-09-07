@@ -24,9 +24,9 @@ class Unit:
             self.value = value
 
     @property
-    def compact_view(self):
+    def compact_view(self) -> str:
         """reduce for external (llm) using if required"""
-        return {self.name : self.value}
+        return f'{self.name} : {self.value}'
     
     async def emit(self, *_ ):        
         """calcute value by system llm, can be used as a handler"""
@@ -34,7 +34,7 @@ class Unit:
             elems = [e.compact_view for e in self.__llm_dependencies__ if e.value != '' and e.value is not None]
             #exactly is requirment that all elements have to have valid value
             if not exactly or len(elems) == len(self.__llm_dependencies__):
-                context = toJson(elems)            
+                context = ','.join(elems)    
                 self.value = await get_property(self.name, context, self.type, options = getattr(self, 'options', None))
                 return self
             

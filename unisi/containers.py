@@ -67,8 +67,8 @@ class Block(Unit):
                     print(f'Empty dependency list for llm calculation for {elem.name} {elem.type}!')
                 
     @property
-    def compact_view(self):
-        return [obj for obj in flatten(self.value) if obj.value is not None]        
+    def compact_view(self) -> str:
+        return ','.join(obj.compact_view for obj in flatten(self.value) if obj.value)
 
     @property
     def scroll_list(self):            

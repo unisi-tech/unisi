@@ -18,7 +18,8 @@ dependencies = [
     "langchain",
     "langchain-groq",
     "langchain-community",
-    "langchain-openai"
+    "langchain-openai",
+    "langchain-google-genai"
 ]
 requires-python = ">=3.10"
 readme = "README.md"
