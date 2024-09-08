@@ -54,7 +54,7 @@ def setup_llmrag():
 
 numeric_types = ['number', 'int', 'float', 'double']
 
-async def get_property(name, json_context = '', type = 'string', options = None, attempts = 1, messages = None):
+async def get_property(name, context = '', type = 'string', options = None, attempts = 1, messages = None):
     if messages is None:
         limits = f'type is {type}'
         if type == 'date':
@@ -66,7 +66,7 @@ async def get_property(name, json_context = '', type = 'string', options = None,
                 "system",
                 f"""You are an intelligent and extremely concise assistant."""        
             ),
-            ("human",  f"""{json_context} . Reason and infer the "{name}" value, which {limits}. 
+            ("human",  f"""{context} . Reason and infer the "{name}" value, which {limits}. 
                 Do not include any additional text or commentary in your answer, just exact the property value.""")
         ]
     ai_msg =  await Unishare.llm_model.ainvoke(messages)
@@ -84,7 +84,7 @@ async def get_property(name, json_context = '', type = 'string', options = None,
     if not log_error and options and value not in options:
         attempts -= 1
         if attempts > 0:
-            value = get_property(name, json_context, type, options, attempts, messages)
+            value = get_property(name, context, type, options, attempts, messages)
         else:
             log_error = f'Invalid value {value} from llm-rag for {messages[1][1]}'
 
