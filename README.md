@@ -24,7 +24,8 @@ pip install unisi
 ```
 
 ### Programming ###
-This repo explains how to work with Unisi using Python and a small but optimal system and framework for that. Unisi web version is included in this library.  Supports Python 3.10 and up.
+UNISI tech provides a unified system interface and advanced program functionality, eliminating the need for front-end and most back-end programming. It automates common tasks by inner services, as well as unique ones, significantly reducing the necessity for manual programming and effort.
+This document serves as a comprehensive guide on utilizing Unisi with Python, along with a compact yet highly efficient framework specifically designed for this purpose. Additionally, the library includes the web version of Unisi, providing developers with a comprehensive set of tools and resources for web application development. Supports Python 3.10+.
 
 
 ### High level - Screen ###
