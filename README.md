@@ -68,7 +68,7 @@ tests/template/run.py
 import unisi
 unisi.start('Test app') 
 ```
-Unisi builds the interactive app for the code above.
+UNISI builds the interactive app for the code above.
 Connect a browser to localhast:8000 which are by default and will see:
 
 ![image](https://github.com/unisi-tech/unisi/assets/1247062/dafebd1f-ae48-4790-9282-dea83d986749)  
@@ -190,8 +190,8 @@ device = (‘cpu’,['cpu', 'gpu'])
 means the current value of 'device' is 'cpu' and options are ['cpu', 'gpu'] .
 
 
-### Basic gui elements ###
-Normally they have type property which says unisi what data it contains and optionally how to draw the element. 
+### Basic information element - Unit ###
+Normally they have type property which says unisi what data it contains and optionally how to operate and draw the element. 
 #### If the element name starts from _ , unisi will hide its name on the screen. ####
 if we need to paint an icon in an element, add 'icon': 'any MD icon name' to the element constructor.
 
@@ -205,7 +205,7 @@ Unit('Name', some_value, changed_handler)
 ```
 calling the method 
 def accept(self, value) 
-causes  a call changed handler if it defined, otherwise just save value to self.value
+causes  a call changed handler if it defined, otherwise just save value to the element 'value'.
 
 ### Button ###
 Normal button.
@@ -214,7 +214,7 @@ Button('Push me', changed = None, icon = None)
 ```
 Short form
 ```
-Button('Push me', changed = None, icon = None) 
+Button('Name', changed_handler) 
 ```
 Icon button, the name has to be started from _ for hiding 
 ```
@@ -296,7 +296,7 @@ Video(video_url, width = None, height = None)
 Tree(name, value = None, changed_handler = None, options = {name1: parent1, name2 : None, .})
 ```
 options is a tree structure, a dictionary {item_name:parent_name}. 
-parent_name is None for root items. changed_handler gets item key (name) as value. 
+parent_name is None for root items. changed_handler gets selected item key (name) as value. 
 
 ### Table. ###
 Tables is common structure for presenting 2D data and charts. 
@@ -305,7 +305,7 @@ Table(name, value = None, changed_handler = None, **options)
 
 Optional append, delete, update handlers are called for adding, deleting and updating handlers for a table.
 
-Auto assigning handlers for such action can be blocked by assigning edit  = False to the Table constructor.
+All editing table handlers for such action can be blocked by assigning edit  = False in a Table constructor.
 ```
 table = Table('Videos', [0], row_changed, headers = ['Video', 'Duration', 'Owner', 'Status'],  
   rows = [
@@ -314,7 +314,7 @@ table = Table('Videos', [0], row_changed, headers = ['Video', 'Duration', 'Owner
   ], 
   multimode = False, update = update)
 ```
-Unisi counts rows id as an index in a rows array. If table does not contain append, delete arguments, then it will be drawn without add and remove icons.  
+UNISI counts rows id as an index in a rows array. If table does not contain append, delete arguments, then it will be drawn without add and remove icons.  
 value = [0] means 0 row is selected in multiselect mode (in array). multimode is False so switch icon for single select mode will be not drawn and switching to single select mode is not allowed.
 
 | Table option parameter |	Description |
@@ -348,8 +348,8 @@ def table_updated(table, tabval):
 ```
 
 ### Chart ###
-Chart is a table with additional Table constructor parameter 'view' which explaines unisi how to draw a chart. The format is '{x index}-{y index1},{y index2}[,..]'. '0-1,2,3' means that x axis values will be taken from 0 column, and y values from 1,2,3 columns of row data.
-'i-3,5' means that x axis values will be equal the row indexes in rows, and y values from 3,5 columns of rows data. If a table constructor got view = '..' parameter then unisi displays a chart icon at the table header, pushing it switches table mode to the chart mode. If a table constructor got type = 'chart' in addition to view parameter the table will be displayed as a chart on start. In the chart mode pushing the icon button on the top right switches back to table view mode.
+Chart is a table with additional Table constructor parameter 'view' which explaines UNISI how to draw a chart. The format is '{x index}-{y index1},{y index2}[,..]'. '0-1,2,3' means that x axis values will be taken from 0 column, and y values from 1,2,3 columns of row data.
+'i-3,5' means that x axis values will be equal the row indexes in rows, and y values from 3,5 columns of rows data. If a table constructor got view = '..' parameter then UNISI displays a chart icon at the table header, pushing it switches table mode to the chart mode. If a table constructor got type = 'chart' in addition to view parameter the table will be displayed as a chart on start. In the chart mode pushing the icon button on the top right switches back to table view mode.
 
 ### Graph ###
 Graph supports an interactive graph.
@@ -383,7 +383,7 @@ where buttons is a list of the dialog button names,
 Dialog callback has the signature as other with a pushed button name value
 ```
 def dialog_callback(current_dialog, command_button_name):
-    if command_button_name == 'Yes':
+    if command_button_name == 'Ok':
         do_this()
     elif ..
 ```
@@ -393,11 +393,11 @@ content can be filled with Unit elements for additional dialog functionality lik
 ### Popup windows ###
 They are intended for non-blocking displaying of error messages and informing about some events, for example, incorrect user input and the completion of a long process on the server.
 ```
-Info(info_message, *someGUIforUpdades)
-Warning(warning_message, *someGUIforUpdades)
-Error(error_message, *someGUIforUpdades)
+Info(info_message, *UnitforUpdades)
+Warning(warning_message, *UnitforUpdades)
+Error(error_message, *UnitforUpdades)
 ```
-They are returned by handlers and cause appearing on the top screen colored rectangles window for 3 second. someGUIforUpdades is optional GUI enumeration for updating.
+They are returned by handlers and cause appearing on the top screen colored rectangles window for 3 second. UnitforUpdades is optional Unit enumeration for updating on GUI client side.
 
 For long time processes it is possible to create Progress window. It is just call user.progress in any async handler.
 Open window 
@@ -411,8 +411,8 @@ await user.progress(" 1% is done..")
 Progress window is automatically closed when the handler is finished.
 
 ### Milti-user support. ###
-Unisi automatically creates and serves an environment for every user.
-The management class is User contains all required methods for processing and handling the user activity. A programmer can redefine methods in the inherited class, point it as system user class and that is all. Such methods suit for history navigation, undo/redo and initial operations. The screen folder contains screens which are recreated for every user. The same about blocks. The code and modules outside that folders are common for all users as usual. By default Unisi uses the system User class and you do not need to point it. 
+UNISI automatically creates and serves an environment for every user.
+The management class is User contains all required methods for processing and handling the user activity. A programmer can redefine methods in the inherited class, point it as system user class and that is all. Such methods suit for history navigation, undo/redo and initial operations. The screen folder contains screens which are recreated for every user. The same about blocks. The code and modules outside that folders are common for all users as usual. By default UNISI uses the system User class and you do not need to point it. 
 ```
 class Hello_user(unisi.User):
     def __init__(self, session, share = None):
