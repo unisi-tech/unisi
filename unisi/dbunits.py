@@ -13,7 +13,7 @@ async def sync_dbupdates():
         for update in updates:
             screen2el_bl = dbshare[id]
             for user in Unishare.sessions.values():                
-                if not exclude or user is not exclude:
+                if user is not exclude:
                     scr_name = user.screen.name
                     if scr_name in screen2el_bl:
                         for elem_block in screen2el_bl[scr_name]: 
@@ -21,6 +21,11 @@ async def sync_dbupdates():
                             sync_calls.append(user.send(update4user))
     dbupdates.clear()
     await asyncio.gather(*sync_calls)
+
+def iterate(iter, times):
+    for i, val in enumerate(iter):
+        if i == times:
+            return val
     
 class Dblist:
     def __init__(self, dbtable, init_list = None, cache = None):                
@@ -120,6 +125,29 @@ class Dblist:
 
     def __len__(self):
         return len(self.cache) if self.cache is not None else self.dbtable.length
+    
+    def index2node_relation(self, cell_index):
+        """calculate delta to property of node or link for persistent"""
+        table_fields = self.dbtable.table_fields
+        delta = cell_index - len(table_fields)       
+        if delta < 0:            
+            return True, iterate(table_fields, cell_index)
+        delta -= 1 #ID field
+        return False, iterate(self.link, delta)
+    
+    def update_cell(self, delta, cell, value, id = None):
+        in_node, field = self.index2node_relation(cell)                    
+        if in_node:
+            table_id = self.dbtable.id 
+            row_id =  self[delta][len(self.dbtable.table_fields)] 
+        else:
+            table_id = self.link[2]
+            row_id = id
+        self.dbtable.db.update_row(table_id, row_id, {field: value}, in_node) 
+        self[delta][cell] = value 
+        delta, data = self.get_delta_chunk(delta)
+        self.update = dict(type = 'updates', index = delta, data = data)
+        return self.update 
 
     def append(self, value):
         if self.cache is not None:
@@ -135,8 +163,8 @@ class Dblist:
         return id
         
     def extend(self, rows):
-        start = self.dbtable.length
-        delta_start = start // self.limit * self.limit
+        delta_start = self.dbtable.length
+        start = delta_start
         rows = self.dbtable.append_rows(rows)
         len_rows = len(rows)                
         i_rows = 0

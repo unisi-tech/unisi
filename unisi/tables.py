@@ -13,12 +13,7 @@ def get_chunk(obj, start_index):
     delta, data = obj.rows.get_delta_chunk(start_index)
     return {'type': 'updates', 'index': delta, 'data': data}
 
-def iterate(iter, times):
-    for i, val in enumerate(iter):
-        if i == times:
-            return val
-
-def accept_cell_value(table, dval):        
+def accept_cell_value(table, dval):            
     value = dval['value']
     if not isinstance(value, bool):
         try:
@@ -26,21 +21,17 @@ def accept_cell_value(table, dval):
         except:
             pass            
     if hasattr(table,'id'):
-        dbt = table.rows.dbtable
-        in_node, field = table.index2node_relation(dval['cell'])                    
-        if in_node:
-            table_id = table.id 
-            row_id =  table.rows[dval['delta']][len(dbt.table_fields)] 
-        else:
-            table_id = table.__link__[2]
-            row_id = dval['id']             
-        dbt.db.update_row(table_id, row_id, {field: value}, in_node)    
-    table.rows[dval['delta']][dval['cell']] = value    
+        dval['value'] = value
+        update = table.rows.update_cell(**dval)
+        if update:
+            dbupdates[table.id, Unishare.context_user()].append(update)
+    else:        
+        table.rows[dval['delta']][dval['cell']] = value    
             
 def delete_table_row(table, value):    
     if table.selected_list:
         if hasattr(table, 'link') and table.filter:
-            link_table, rel_props, rel_name = table.__link__        
+            link_table, rel_props, rel_name = table.rows.link
             if not isinstance(value, list):                                
                 value = [value]
             table.rows.dbtable.delete_links(link_table.id, link_ids = value, index_name = rel_name)
@@ -62,7 +53,7 @@ def append_table_row(table, search_str):
         id = table.rows.dbtable.list.append(new_row)
         new_row.append(id)         
         if hasattr(table, 'link') and table.filter:
-            link_table, _, rel_name = table.__link__               
+            link_table, _, rel_name = table.rows.link
             for linked_id in link_table.selected_list:
                 relation = table.rows.dbtable.add_link(id, link_table.id, linked_id, link_index_name = rel_name) 
                 new_row.extend(relation)                     
@@ -96,7 +87,7 @@ class Table(Unit):
                 rel_name, rel_fields = self.rows.dbtable.get_rel_fields2(link_table.id, prop_types, rel_name)
                 if not hasattr(link_table, 'id'):
                     raise AttributeError('Linked table has to be persistent!')
-                self.__link__ = link_table, list(prop_types.keys()), rel_name
+                self.rows.link = link_table, list(prop_types.keys()), rel_name
                 self.link = rel_fields
                 
                 @Unishare.handle(link_table,'changed')
@@ -184,7 +175,7 @@ class Table(Unit):
     def extend(self, new_rows):
         update = self.rows.extend(new_rows)        
         if hasattr(self,'id'): 
-            dbupdates[self.id, self].append(update)
+            dbupdates[self.id, Unishare.context_user()].append(update)
     
     def calc_headers(self):        
         """only for persistent"""
@@ -200,15 +191,6 @@ class Table(Unit):
                 self.headers.extend([relation_mark + pretty4(link_field) for link_field in self.link])
             if self.ids:
                 self.headers.append(relation_mark + 'ID')
-
-    def index2node_relation(self, cell_index):
-        """calculate delta to property of node or link for persistent"""
-        table_fields = self.rows.dbtable.table_fields
-        delta = cell_index - len(table_fields)       
-        if delta < 0:            
-            return True, iterate(table_fields, cell_index)
-        delta -= 1 #ID field
-        return False, iterate(self.link, delta)
     
     async def emit(self, *_):        
         """calcute llm field values for selected rows if they are None"""        
