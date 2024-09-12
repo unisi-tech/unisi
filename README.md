@@ -511,3 +511,6 @@ Examples are in tests folder.
 
 Demo project and UNISI part https://github.com/unisi-tech/vision
 
+Support the development and get Comprehensive and Professional UNISI Documentation:
+[Patreon](https://www.patreon.com/user/shop/comprehensive-and-professional-unisi-392229?u=119394296&utm_medium=clipboard_copy&utm_source=copyLink&utm_campaign=productshare_creator&utm_content=join_link)
+
