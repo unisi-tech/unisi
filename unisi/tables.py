@@ -11,7 +11,7 @@ max_len_rows4llm = 30
 
 def get_chunk(obj, start_index):
     delta, data = obj.rows.get_delta_chunk(start_index)
-    return {'type': 'updates', 'index': delta, 'data': data}
+    return {'update': 'updates', 'index': delta, 'data': data}
 
 def accept_cell_value(table, dval):            
     value = dval['value']
@@ -101,10 +101,9 @@ class Table(Unit):
                         self.rows = link_rows
                     else: 
                         selected_ids = [link_rows[i][-1] for i in range(len(link_rows))]
-                        self.value = selected_ids
-                        #restore table rows if they are not rows
+                        self.value = selected_ids  
                         if self.rows.cache is not None:
-                           self.rows = self.rows.dbtable.get_init_list()
+                            self.rows = self.rows.dbtable.list
                     if not init:
                         master_table.accept(val)              
                         return self     
@@ -135,7 +134,7 @@ class Table(Unit):
                             else:
                                 return Warning('The linked table is not in edit mode', self)
                     return self.accept(new_value)    
-                
+            """
             @Unishare.handle(self,'search')
             def search_changed(table, value):
                 self.search = value
@@ -144,7 +143,7 @@ class Table(Unit):
                 else:
                     self.rows = self.rows.dbtable.get_init_list(self.search)
                 return self
-                
+            """        
             self.calc_headers()                                
                     
         elif hasattr(self,'ids'):

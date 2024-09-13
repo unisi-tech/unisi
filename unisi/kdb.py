@@ -127,9 +127,7 @@ class Database:
     def set_db_list(self, gui_table):
         table = self.get_table(**self.get_table_params(gui_table.__dict__))
         tlst = table.list
-        gui_table.rows = tlst
-        if tlst.update['update'] != 'init':
-            tlst.update = dict(update ='init', length = table.length, limit = table.limit, data = tlst.get_delta_0())
+        gui_table.rows = tlst        
                     
     def create_table(self, id, fields : dict, limit = 100, rows = None):                
         specs = ','.join(f'{prop} {type}' for prop, type in fields.items())
@@ -252,9 +250,8 @@ class Dbtable:
             condition = f'r.ID in {link_ids}'            
         else:
             if not isinstance(source_ids, list):
-                source_ids = list(source_ids)            
-            condition = f'a.ID in {source_ids}'
-            condition = f'({condition}) AND b.ID = {link_node_id}'
+                source_ids = list(source_ids)                        
+            condition = f'(a.ID in {source_ids}) AND b.ID = {link_node_id}'
         query = f"""
         MATCH (a:{self.id})-[r:{index_name}]->(b:{link_table_id})
         WHERE {condition}
@@ -266,19 +263,12 @@ class Dbtable:
         list = self.read_rows(limit = self.limit)
         length = len(list)
         #possibly the table has more rows        
-        if length == self.limit:
-            #qresult = self.db.execute()   
+        if length == self.limit:            
             ql = self.db.qlist(f"MATCH (n:{self.id}) RETURN count(n)")
             self.length = ql[0][0]
         else:
             self.length = length
         self.list = Dblist(self, list)
-
-    def get_init_list(self, search_string = None):
-        lst = self.list
-        lst.update = dict(update ='init', length = self.length, 
-            limit = self.limit, data = self.list.get_delta_0())
-        return lst
         
     def read_rows(self, skip = 0, limit = 0):
         query = qb().match().node(self.id, 'a').return_literal('a.*').order_by('a.ID')
@@ -288,7 +278,8 @@ class Dbtable:
         return self.db.qlist(query)    
 
     def assign_row(self, row_array):
-        return self.db.update_row(self.id, row_array[-1], {name : value for name, value in zip(self.node_columns, row_array)})
+        return self.db.update_row(self.id, row_array[-1], 
+            {name : value for name, value in zip(self.node_columns, row_array)})
 
     def delete_row(self, id):
         query = query_offset(self.id, id)
@@ -312,8 +303,7 @@ class Dbtable:
         answer = self.db.execute(qb().create().node(self.id, 'a', props).return_literal('a.*'))        
         if answer and answer.has_next():                        
             self.length += 1
-            return answer.get_next()[-1]
-        return None
+            return answer.get_next()[-1]        
     
     def append_rows(self, rows):
         """row can be list or dict"""

@@ -22,22 +22,17 @@ class Dblist:
             raise AttributeError('init_list or cache has to be assigned!')
                               
         self.delta_list = {0 : init_list}                
-        self.dbtable = dbtable                
-        self.update = dict(update ='init', length = len(self), 
-                limit = self.limit, data = init_list) 
+        self.dbtable = dbtable                        
 
     def get_delta_0(self):
-        return self.delta_list[0]
+        return self.delta_list[0] if self.cache is None else self.cache[:self.limit]
 
-    def __getattribute__(self, name):
-        if name == '__dict__':
-            return object.__getattribute__(self, 'update')
-        return object.__getattribute__(self, name)
+    def __getstate__(self):        
+        return dict(length = len(self),  limit = self.limit, data = self.get_delta_0())
     
     def __getattr__(self, name):
         return self.dbtable.limit if name == 'limit' else None
         
-    """ The methods causes invalid serialization in Python and not used!
     def __iter__(self):
         "Override the default iterator to provide custom behavior."
         self._index = 0
@@ -50,12 +45,12 @@ class Dblist:
             return value
         else:
             raise StopIteration
-    """
-    
+           
     def __str__(self):
-        return f'\ndeltas: {self.delta_list}\nupdate: {self.update}'        
+        return str(self.__getstate__())
         
-    def get_delta_chunk(self, index):
+    def get_delta_chunk(self, index) -> tuple[int, list]:
+        """return delta list and chunk of data"""
         if index >= len(self):
             return -1, None
         delta_list = index // self.limit * self.limit
@@ -70,7 +65,8 @@ class Dblist:
         self.delta_list[delta_list] = lst        
         return delta_list, lst
 
-    def __getitem__(self, index):        
+    def __getitem__(self, index) -> list:
+        """return row from delta list or cache"""
         if self.cache is not None:
             return self.cache[index]
         delta_list, chunk = self.get_delta_chunk(index)
@@ -78,6 +74,7 @@ class Dblist:
             return chunk[index - delta_list]        
 
     def __setitem__(self, index, value):
+        """update row in delta list or cache"""
         if self.cache is not None:
             self.cache[index] = value
         else:
@@ -120,7 +117,7 @@ class Dblist:
         delta -= 1 #ID field
         return False, iterate(self.link, delta)
     
-    def update_cell(self, delta, cell, value, id = None):
+    def update_cell(self, delta, cell, value, id = None) -> dict:
         in_node, field = self.index2node_relation(cell)                    
         if in_node:
             table_id = self.dbtable.id 
@@ -139,16 +136,15 @@ class Dblist:
             self.cache.append(value)
             return value[-1]
         index = len(self)
-        id = self.dbtable.append_row(value)            
-        delta_list = index // self.limit * self.limit
-        list = self.delta_list.get(delta_list)
+        row = self.dbtable.append_row(value)                    
+        list = self.get_delta_chunk(index)
         if list:
-            list.append(value)
-            update = dict(update = 'add', index = index, data = value) 
+            list.append(row)
+            update = dict(update = 'add', index = index, data = row) 
             dbupdates[self.dbtable.id].append(update)
             return update                     
         
-    def extend(self, rows):
+    def extend(self, rows) -> dict:
         delta_start = self.dbtable.length
         start = delta_start
         rows = self.dbtable.append_rows(rows)
@@ -171,7 +167,9 @@ class Dblist:
             start += can_fill
             len_rows -= can_fill        
         delta, data = self.get_delta_chunk(delta_start)        
-        dbupdates[self.dbtable.id].append(dict(update = 'updates', index = delta, data = data, length = length))        
+        update = dict(update = 'updates', index = delta, data = data, length = length)
+        dbupdates[self.dbtable.id].append(update)
+        return  update
     
     def insert(self, index, value):
         self.append(value)        
