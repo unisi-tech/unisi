@@ -64,9 +64,9 @@ async def get_property(name, context = '', type = 'string', options = None, atte
         messages = [
             (
                 "system",
-                f"""You are an intelligent and extremely concise assistant."""        
+                f"""You are an intelligent and extremely smart assistant."""        
             ),
-            ("human",  f"""{context} . Reason and infer the "{name}" value, which {limits}. 
+            ("human",  f"""{context} . Reason and infer {name}, which {limits}. 
                 Do not include any additional text or commentary in your answer, just exact the property value.""")
         ]
     ai_msg =  await Unishare.llm_model.ainvoke(messages)
