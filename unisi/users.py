@@ -297,15 +297,16 @@ class User:
         sync_calls = []
         for id, updates in dbupdates.items():
             for update in updates:
-                screen2el_bl = dbshare[id]
-                exclude = update.get('exclude', False)
-                for user in Unishare.sessions.values():                
-                    if not exclude or user is not self:
-                        scr_name = user.screen.name
-                        if scr_name in screen2el_bl:
-                            for elem_block in screen2el_bl[scr_name]: 
-                                update4user = {**update, **elem_block}
-                                sync_calls.append(user.send(update4user))
+                if update:
+                    screen2el_bl = dbshare[id]
+                    exclude = update.get('exclude', False)
+                    for user in Unishare.sessions.values():                
+                        if not exclude or user is not self:
+                            scr_name = user.screen.name
+                            if scr_name in screen2el_bl:
+                                for elem_block in screen2el_bl[scr_name]: 
+                                    update4user = {**update, **elem_block}
+                                    sync_calls.append(user.send(update4user))
         dbupdates.clear()
         await asyncio.gather(*sync_calls)
 

@@ -1,5 +1,4 @@
 from .common import Unishare
-import asyncio
 from collections import defaultdict
 
 #storage id -> screen name -> [elem name, block name]
@@ -73,7 +72,7 @@ class Dblist:
         if chunk:
             return chunk[index - delta_list]        
 
-    def __setitem__(self, index, value):
+    def __setitem__(self, index, value: list):
         """update row in delta list or cache"""
         if self.cache is not None:
             self.cache[index] = value
@@ -82,7 +81,9 @@ class Dblist:
             if chunk:
                 chunk[index - delta_list] = value            
             self.dbtable.assign_row(value)
-            self.update[self.dbtable.id, None] = dict(update = 'update', index = index, data = value)
+            update = dict(update = 'update', index = index, data = value)
+            dbupdates[self.dbtable.id].append(update)
+            return update
 
     def clean_cache_from(self, delta_list):
         """clear dirty delta_list cache"""
@@ -92,18 +93,17 @@ class Dblist:
         delta_list, chunk = self.get_delta_chunk(index)
         if chunk:
             self.dbtable.delete_row(index)
-            self.update = dict(update ='delete', index = index)            
+            update = dict(update ='delete', index = index, exclude = True)            
+            dbupdates[self.dbtable.id].append(update)
             del chunk[index - delta_list] 
             limit = self.dbtable.limit
             next_delta_list = delta_list + limit
             if len(chunk) == limit - 1: #chunk was fully filled                                
                 next_list = self.delta_list.get(next_delta_list)            
                 if next_list:
-                    chunk.append(next_list[0])                                                               
-                else:
-                    delta_list, chunk = self.get_delta_chunk(delta_list)                    
-                    self.update = dict(update = 'updates', index = delta_list, data = chunk)
-                self.clean_cache_from(next_delta_list)                     
+                    chunk.append(next_list[0])                                                                               
+                self.clean_cache_from(next_delta_list)
+            return update
 
     def __len__(self):
         return len(self.cache) if self.cache is not None else self.dbtable.length
