@@ -49,6 +49,7 @@ def dict_to_cypher_set(properties, alias = 'a'):
     return "SET " + ", ".join(set_items)
 
 class Database:
+    tables = {} #id -> Dbtable
     def __init__(self, dbpath, message_logger = print) -> None:    
         self.db = kuzu.Database(dbpath)
         self.conn = kuzu.Connection(self.db)
@@ -116,7 +117,7 @@ class Database:
                     if self.delete_table(id):      
                         self.message_logger(f'Node table {id} was deleted because of fields contradiction!', 'warning')          
                 else:
-                    return Dbtable(id, self, limit, table_fields)
+                    return self.tables.get(id) or Dbtable(id, self, limit, table_fields)
                         
         return self.create_table(id, fields, limit, rows)   
 
@@ -162,6 +163,7 @@ class Database:
 class Dbtable:
     def __init__(self, id, db, limit = 100, table_fields = None) -> None:        
         self.db = db
+        db.tables[id] = self
         self.id = id              
         self.table_fields = table_fields
         self.limit = limit    

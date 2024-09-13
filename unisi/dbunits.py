@@ -144,8 +144,9 @@ class Dblist:
         list = self.delta_list.get(delta_list)
         if list:
             list.append(value)
-            self.update = dict(update = 'add', index = index, data = value) 
-        return id
+            update = dict(update = 'add', index = index, data = value) 
+            dbupdates[self.dbtable.id].append(update)
+            return update                     
         
     def extend(self, rows):
         delta_start = self.dbtable.length
