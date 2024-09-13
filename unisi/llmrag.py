@@ -14,7 +14,7 @@ def setup_llmrag():
         match config.llm:
             case ['host', address]: 
                 model = None
-                type = 'openai' #provider type is openai for local llms
+                type = 'host' #provider type is openai for local llms
             case [type, model, address]: ...
             case [type, model]: address = None
             case _:
