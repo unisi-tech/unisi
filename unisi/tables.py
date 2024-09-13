@@ -22,9 +22,7 @@ def accept_cell_value(table, dval):
             pass            
     if hasattr(table,'id'):
         dval['value'] = value
-        update = table.rows.update_cell(**dval)
-        if update:
-            dbupdates[table.id, Unishare.context_user()].append(update)
+        table.rows.update_cell(**dval)['exclude'] = True       
     else:        
         table.rows[dval['delta']][dval['cell']] = value    
             
@@ -170,12 +168,7 @@ class Table(Unit):
 
     def clean_selection(self):        
         self.value = [] if isinstance(self.value,tuple | list) else None
-        return self
-    
-    def extend(self, new_rows):
-        update = self.rows.extend(new_rows)        
-        if hasattr(self,'id'): 
-            dbupdates[self.id, Unishare.context_user()].append(update)
+        return self    
     
     def calc_headers(self):        
         """only for persistent"""

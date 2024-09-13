@@ -127,8 +127,8 @@ class Database:
         table = self.get_table(**self.get_table_params(gui_table.__dict__))
         tlst = table.list
         gui_table.rows = tlst
-        if tlst.update['type'] != 'init':
-            tlst.update = dict(type ='init', length = table.length, limit = table.limit, data = tlst.get_delta_0())
+        if tlst.update['update'] != 'init':
+            tlst.update = dict(update ='init', length = table.length, limit = table.limit, data = tlst.get_delta_0())
                     
     def create_table(self, id, fields : dict, limit = 100, rows = None):                
         specs = ','.join(f'{prop} {type}' for prop, type in fields.items())
@@ -274,7 +274,7 @@ class Dbtable:
 
     def get_init_list(self, search_string = None):
         lst = self.list
-        lst.update = dict(type ='init', length = self.length, 
+        lst.update = dict(update ='init', length = self.length, 
             limit = self.limit, data = self.list.get_delta_0())
         return lst
         

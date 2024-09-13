@@ -7,21 +7,6 @@ dbshare = defaultdict(lambda: defaultdict(lambda: []))
 # (db id, exclude user from updating) -> update
 dbupdates = defaultdict(lambda: [])
 
-async def sync_dbupdates():
-    sync_calls = []
-    for (id, exclude), updates in dbupdates.items():
-        for update in updates:
-            screen2el_bl = dbshare[id]
-            for user in Unishare.sessions.values():                
-                if user is not exclude:
-                    scr_name = user.screen.name
-                    if scr_name in screen2el_bl:
-                        for elem_block in screen2el_bl[scr_name]: 
-                            update4user = {**update, **elem_block}
-                            sync_calls.append(user.send(update4user))
-    dbupdates.clear()
-    await asyncio.gather(*sync_calls)
-
 def iterate(iter, times):
     for i, val in enumerate(iter):
         if i == times:
@@ -38,7 +23,7 @@ class Dblist:
                               
         self.delta_list = {0 : init_list}                
         self.dbtable = dbtable                
-        self.update = dict(type ='init', length = len(self), 
+        self.update = dict(update ='init', length = len(self), 
                 limit = self.limit, data = init_list) 
 
     def get_delta_0(self):
@@ -98,9 +83,9 @@ class Dblist:
         else:
             delta_list, chunk = self.get_delta_chunk(index)
             if chunk:
-                chunk[index - delta_list] = value
-            self.update = dict(type = 'update', index = index, data = value)
+                chunk[index - delta_list] = value            
             self.dbtable.assign_row(value)
+            self.update[self.dbtable.id, None] = dict(update = 'update', index = index, data = value)
 
     def clean_cache_from(self, delta_list):
         """clear dirty delta_list cache"""
@@ -110,7 +95,7 @@ class Dblist:
         delta_list, chunk = self.get_delta_chunk(index)
         if chunk:
             self.dbtable.delete_row(index)
-            self.update = dict(type ='delete', index = index)            
+            self.update = dict(update ='delete', index = index)            
             del chunk[index - delta_list] 
             limit = self.dbtable.limit
             next_delta_list = delta_list + limit
@@ -120,7 +105,7 @@ class Dblist:
                     chunk.append(next_list[0])                                                               
                 else:
                     delta_list, chunk = self.get_delta_chunk(delta_list)                    
-                    self.update = dict(type = 'updates', index = delta_list, data = chunk)
+                    self.update = dict(update = 'updates', index = delta_list, data = chunk)
                 self.clean_cache_from(next_delta_list)                     
 
     def __len__(self):
@@ -145,9 +130,9 @@ class Dblist:
             row_id = id
         self.dbtable.db.update_row(table_id, row_id, {field: value}, in_node) 
         self[delta][cell] = value 
-        delta, data = self.get_delta_chunk(delta)
-        self.update = dict(type = 'updates', index = delta, data = data)
-        return self.update 
+        update = dict(update = 'update', index = delta, data = self[delta])
+        dbupdates[self.dbtable.id].append(update)
+        return update 
 
     def append(self, value):
         if self.cache is not None:
@@ -159,7 +144,7 @@ class Dblist:
         list = self.delta_list.get(delta_list)
         if list:
             list.append(value)
-            self.update = dict(type = 'add', index = index, data = value) 
+            self.update = dict(update = 'add', index = index, data = value) 
         return id
         
     def extend(self, rows):
@@ -184,10 +169,9 @@ class Dblist:
             i_rows += can_fill           
             start += can_fill
             len_rows -= can_fill        
-        delta, data = self.get_delta_chunk(delta_start)
-        self.update = dict(type = 'updates', index = delta, data = data, length = length)
-        return self.update
-
+        delta, data = self.get_delta_chunk(delta_start)        
+        dbupdates[self.dbtable.id].append(dict(update = 'updates', index = delta, data = data, length = length))        
+    
     def insert(self, index, value):
         self.append(value)        
 

@@ -4,7 +4,7 @@ from .common import *
 from .containers import Dialog, Screen
 from .multimon import notify_monitor, logging_lock, run_external_process
 from .kdb import Database
-from .dbunits import dbshare
+from .dbunits import dbshare, dbupdates
 import sys, asyncio, logging, importlib
 
 class User:          
@@ -292,6 +292,22 @@ class User:
                 for elem in flatten(block.value):
                     if hasattr(elem, 'id'):
                         dbshare[elem.id][screen.name].append({'element': elem.name, 'block': block.name})                                
+
+    async def sync_dbupdates(self):
+        sync_calls = []
+        for id, updates in dbupdates.items():
+            for update in updates:
+                screen2el_bl = dbshare[id]
+                exclude = update.get('exclude', False)
+                for user in Unishare.sessions.values():                
+                    if not exclude or user is not self:
+                        scr_name = user.screen.name
+                        if scr_name in screen2el_bl:
+                            for elem_block in screen2el_bl[scr_name]: 
+                                update4user = {**update, **elem_block}
+                                sync_calls.append(user.send(update4user))
+        dbupdates.clear()
+        await asyncio.gather(*sync_calls)
 
 def context_user():
     return context_object(User)

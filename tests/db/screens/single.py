@@ -12,6 +12,7 @@ def change_ids(button, value):
 def add_data(*_):
     rows_len = len(ctable.rows)
     data = [[f'Company {i}', f' Place {i}', f'Phone {i}']  for i in range(rows_len, rows_len + 1000)]
-    return ctable.extend(data)    
+    ctable.rows.extend(data)    
+    #does not need to return persistent table!
 
 blocks = [Block('TBlock', [Switch('Show ID', False, change_ids), Button('+ data',add_data)], ctable)]
