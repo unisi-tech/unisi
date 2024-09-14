@@ -475,6 +475,8 @@ A link to another persistent table can be established using the 'link' option. T
 - A tuple containing a table variable and link properties (name to type dictionary).
 - A tuple containing a table variable, link properties, and the index name in the database.
 
+UNISI synchronizes all database changes between users, allowing them to see real-time updates made by others on persistent units.
+
 Link properties are defined as a dictionary, where the keys are property names and the values are property values. These values are necessary for type detection.
 UNISI supports now the following data types for persistent tables and links:
 - Boolean (bool)

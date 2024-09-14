@@ -295,15 +295,24 @@ class Dbtable:
         """
         return self.db.execute(query)
     
+    def clear(self, detach = False):
+        query = f'MATCH (a:{self.id})'
+        if detach:
+            query += ' DETACH DELETE a'
+        else:
+            query += ' DELETE a'
+        self.length = 0
+        return self.db.execute(query)
+    
     def append_row(self, row):
-        """row can be list or dict, returns ID"""        
+        """row can be list or dict, returns new row"""        
         if isinstance(row, list):
             props = {name: value for name, value in zip(self.node_columns, row) if value is not None}
                       
         answer = self.db.execute(qb().create().node(self.id, 'a', props).return_literal('a.*'))        
         if answer and answer.has_next():                        
             self.length += 1
-            return answer.get_next()[-1]        
+            return answer.get_next()        
     
     def append_rows(self, rows):
         """row can be list or dict"""

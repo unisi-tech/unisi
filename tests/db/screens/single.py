@@ -15,4 +15,8 @@ def add_data(*_):
     ctable.rows.extend(data)    
     #does not need to return persistent table!
 
-blocks = [Block('TBlock', [Switch('Show ID', False, change_ids), Button('+ data',add_data)], ctable)]
+def clear_data(*_):
+    ctable.rows.clear()
+    #does not need to return persistent table!
+
+blocks = [Block('TBlock', [Switch('Show ID', False, change_ids), Button('+ data',add_data), Button('Clear data', clear_data)], ctable)]

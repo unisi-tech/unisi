@@ -22,17 +22,19 @@ def accept_cell_value(table, dval):
             pass            
     if hasattr(table,'id'):
         dval['value'] = value
-        table.rows.update_cell(**dval)['exclude'] = True       
+        if update := table.rows.update_cell(**dval):
+            update['exclude'] = True       
     else:        
         table.rows[dval['delta']][dval['cell']] = value    
             
 def delete_table_row(table, value):    
     if table.selected_list:
         if hasattr(table, 'link') and table.filter:
-            link_table, rel_props, rel_name = table.rows.link
+            link_table, rel_props, rel_name = table.rows.dbtable.list.link
             if not isinstance(value, list):                                
                 value = [value]
-            table.rows.dbtable.delete_links(link_table.id, link_ids = value, index_name = rel_name)
+            link_ids = [table.rows[index][-1] for index in value]
+            table.rows.dbtable.delete_links(link_table.id, link_ids = link_ids, index_name = rel_name)
             table.__link_table_selection_changed__(link_table, link_table.value)
             return table
         elif isinstance(value, list):                    
@@ -44,16 +46,16 @@ def delete_table_row(table, value):
             del table.rows[value]  
             table.value = None    
 
-def append_table_row(table, search_str):
+def append_table_row(table, search_str = ''):
     ''' append has to return new row, value is the search string value in the table'''    
     new_row = [None] * len(table.rows.dbtable.table_fields)           
     if getattr(table,'id', None):          
-        id = table.rows.dbtable.list.append(new_row)
-        new_row.append(id)         
+        new_row = table.rows.dbtable.list.append(new_row)        
         if hasattr(table, 'link') and table.filter:
-            link_table, _, rel_name = table.rows.link
+            link_table, _, rel_name = table.rows.dbtable.list.link
             for linked_id in link_table.selected_list:
-                relation = table.rows.dbtable.add_link(id, link_table.id, linked_id, link_index_name = rel_name) 
+                relation = table.rows.dbtable.add_link(new_row[-1], link_table.id,
+                     linked_id, link_index_name = rel_name) 
                 new_row.extend(relation)                     
                 break                 
     table.rows.append(new_row)
