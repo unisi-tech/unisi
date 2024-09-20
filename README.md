@@ -222,7 +222,7 @@ Button('_Check', changed = None, icon = None)
 ```
 
 ### Load to server Button ###
-Special button provides file loading from user device or computer to the Unisi server.
+Special button provides file loading from user device or computer to a Unisi system.
 ```
 UploadButton('Load', handler_when_loading_finish, icon = 'photo_library')
 ```
@@ -363,8 +363,8 @@ Graph can handle invalid edges and null nodes in the nodes array.
 ```
 Dialog(question, dialog_callback, commands = ['Ok', 'Cancel'], *content)
 ```
-where buttons is a list of the dialog button names,
-Dialog callback has the signature as other with a pushed button name value
+where buttons is a list of the dialog command names,
+Dialog callback has the signature as others with a pushed button name value
 ```
 def dialog_callback(current_dialog, command_button_name):
     if command_button_name == 'Ok':
