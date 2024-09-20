@@ -118,7 +118,7 @@ def changed(elem, value):
    if value == 4:       
        return Error(f‘The value can not be 4!', elem) 
     #accept value othewise
-    elem.value = value
+    elem.accept(value)
 
 edit = Edit('Involving', 0.6, changed)
 ```
@@ -132,14 +132,14 @@ For example above interception of select_mode changed event will be:
 def do_not_select_mode_x(selector, value):
     if value == 'Mode X':
         return Error('Do not select Mode X in this context', selector) # send old value for update select_mode to the previous state
-    return _.accept(value) #otherwise accept the value
+    return selector.accept(value) #otherwise accept the value
 ```
 
 ### Block details ###
 The width and height of blocks is calculated automatically depending on their children. It is possible to set the block width, or make it scrollable , for example for images list. Possible to add MD icon to the header, if required. width, scroll, height, icon are optional.
 ```
 #Block(name, *children, **options)
-block = Block(‘Pictures’,add_button, images, width = 500, scroll = True,icon = 'api')
+block = Block(‘Pictures’,add_button, images)
 ```
  
 The first Block child is a widget(s) which are drawn in the block header just after its name.
@@ -160,8 +160,8 @@ Using a shared block in some screen:
 ```
 from blocks.tblock import concept_block
 ...
-blocks = [.., concept_block]
-```
+blocks = [xblock, concept_block]
+
 
 #### Layout of blocks. #### 
 If the blocks are simply listed Unisi draws them from left to right or from top to bottom depending on the orientation setting. If a different layout is needed, it can be set according to the following rule: if the vertical area must contain more than one block, then the enumeration in the array will arrange the elements vertically one after another. If such an element enumeration is an array of blocks, then they will be drawn horizontally in the corresponding area.
