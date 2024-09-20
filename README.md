@@ -381,7 +381,7 @@ Info(info_message, *UnitforUpdades)
 Warning(warning_message, *UnitforUpdades)
 Error(error_message, *UnitforUpdades)
 ```
-They are returned by handlers and cause appearing on the top screen colored rectangles window for 3 second. UnitforUpdades is optional Unit enumeration for updating on GUI client side.
+They are returned by handlers and cause appearing on the top screen colored rectangle window for 3 second. UnitforUpdades is optional Unit enumeration for updating on GUI client side.
 
 For long time processes it is possible to create Progress window. It is just call user.progress in any async handler.
 Open window 

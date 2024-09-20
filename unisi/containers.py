@@ -22,7 +22,8 @@ class ContentScaler(Range):
             return elements
         
 class Block(Unit):    
-    def __init__(self, name, *elems, **options):        
+    def __init__(self, name, *elems, **options):    
+        self.set_reactivity()    
         self.name = name        
         self.type = 'block'
         self.value = list(elems)        
@@ -84,6 +85,7 @@ class Block(Unit):
 
 class ParamBlock(Block):
     def __init__(self, name, *args, row = 3, **params):
+        self.set_reactivity()
         if not args:
             args = [[]]
         super().__init__(name, *args)

@@ -64,6 +64,7 @@ def append_table_row(table, search_str = ''):
 class Table(Unit):
     def __init__(self, *args, panda = None, **kwargs):
         if panda is not None:
+            self.set_reactivity()
             self.mutate(PandaTable(*args, panda=panda, **kwargs))
         else:
             super().__init__(*args, **kwargs)    

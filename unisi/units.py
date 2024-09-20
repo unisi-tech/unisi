@@ -1,21 +1,89 @@
 from .common import *
 from .llmrag import get_property
 
-class Unit:
-    def __init__(self, name, *args, **kwargs):
+atomics = (int, float, complex, bool, str, bytes, type(None))
+
+class ChangedProxy:
+    MODIFYING_METHODS = {
+        'append', 'extend', 'insert', 'remove', 'pop', 'clear', 'sort', 'reverse',
+        'update', 'popitem', 'setdefault', '__setitem__', '__delitem__'
+    }
+
+    def __init__(self, obj, unit):
+        self._obj = obj
+        self._unit = unit
+    
+    def __getattribute__(self, name):        
+        if name == '_obj' or name == '_unit' or name == '__getstate__':
+            return super().__getattribute__(name)
+        obj = super().__getattribute__('_obj')
+        value = getattr(obj, name)  
+        if not callable(value) and not isinstance(value, atomics):
+            return ChangedProxy(value, self)
+        return value
+
+    def __setitem__(self, key, value):
+        self._obj[key] = value
+        self._unit.__changed__ ()
+
+        # Make the class subscriptable (getting an item)
+    def __getitem__(self, key):
+        return self._obj[key]    
+
+    def __delitem__(self, key):
+        del self._obj[key]
+        self._unit.__changed__ ()
+
+    def __iter__(self):
+        return iter(self._obj)
+
+    def __len__(self):
+        return len(self._obj)
+    
+    def __getstate__(self):     
+        return self._obj
+        
+class Unit:    
+    def __init__(self, name, *args, **kwargs):                
+        self.set_reactivity()
         self.name = name
         la = len(args)
         if la:
             self.value = args[0]
         if la > 1:
             self.changed = args[1]                    
-        self.add(kwargs) 
-        
+        self.add(kwargs)
+
+    def set_reactivity(self):
+        if not hasattr(self, 'id') and (user := getattr(globals(), 'user', None)):
+            add_changed_unit = lambda: user.add_changed_unit(self)
+        else:
+            add_changed_unit = self.nothing
+        super().__setattr__('__changed__', add_changed_unit)
+
     def add(self, kwargs):              
-        self.__dict__.update(kwargs) 
+        for key, value in kwargs.items():
+            setattr(self, key, value)
 
     def mutate(self, obj):
         self.__dict__ = obj.__dict__ 
+        self.__changed__()
+
+    def __setattr__(self, name, value):
+        setattr = super().__setattr__
+        if name == "__changed__":
+            setattr(name, value)
+        else:
+            if name != "__dict__" and not isinstance(value, atomics) and not callable(value):
+              value = ChangedProxy(value, self)            
+            setattr(name, value)      
+            self.__changed__()
+
+    def mutate(self, obj):
+        for key, value in obj.__dict__.items():
+            if not key.startswith('__'):
+                setattr(self, key, value)
+        self.__changed__()
     
     def accept(self, value):
         if hasattr(self, 'changed'):
@@ -44,6 +112,8 @@ class Unit:
             def changed_handler(obj, value):
                 obj.value = value
         self.changed = compose_handlers(changed_handler, handler) 
+
+    def nothing(_): ...
 
 Line = Unit("__Line__", type = 'line')
 
@@ -92,6 +162,7 @@ class Range(Unit):
 
 class Button(Unit):
     def __init__(self, name, handler = None, **kwargs):
+        self.set_reactivity()
         self.name = name
         self.value = None
         self.add(kwargs)

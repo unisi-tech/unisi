@@ -6,6 +6,7 @@ from .multimon import notify_monitor, logging_lock, run_external_process
 from .kdb import Database
 from .dbunits import dbshare, dbupdates
 import sys, asyncio, logging, importlib
+from collections.abc import Iterable
 
 class User:          
     last_user = None
@@ -16,6 +17,7 @@ class User:
         self.session = session        
         self.active_dialog = None        
         self.last_message = None                               
+        self.changed_units = set()
 
         if share:            
             self.screens = share.screens            
@@ -207,12 +209,18 @@ class User:
             raw = self.screen      
             raw.reload = raw == Redesign                              
         else:
-            if isinstance(raw, Message):
-                raw.fill_paths4(self)                
-            elif isinstance(raw,Unit):
-                raw = Message(raw, user = self)                 
-            elif isinstance(raw, (list, tuple)):
-                raw = Message(*raw, user = self)
+            match raw:
+                case Message():
+                    raw.fill_paths4(self)                
+                case Unit():
+                    self.changed_units.add(raw)
+                    raw = Message(*self.changed_units, user = self) 
+                case Iterable(): #raw is *unit
+                    self.changed_units.update(raw)
+                    raw = Message(*self.changed_units, user = self) 
+                case _:
+                    pass
+        self.changed_units.clear()           
         return raw
 
     async def process(self, message):        

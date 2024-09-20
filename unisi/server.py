@@ -57,7 +57,7 @@ async def websocket_handler(request):
             await ws.send_str(res)        
 
         user.send = send         
-        await send(user.screen if status else empty_app) 
+        await send(True if status else empty_app) 
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
