@@ -161,7 +161,7 @@ Using a shared block in some screen:
 from blocks.tblock import concept_block
 ...
 blocks = [xblock, concept_block]
-
+```
 
 #### Layout of blocks. #### 
 If the blocks are simply listed Unisi draws them from left to right or from top to bottom depending on the orientation setting. If a different layout is needed, it can be set according to the following rule: if the vertical area must contain more than one block, then the enumeration in the array will arrange the elements vertically one after another. If such an element enumeration is an array of blocks, then they will be drawn horizontally in the corresponding area.
