@@ -18,6 +18,8 @@ class ChangedProxy:
             return super().__getattribute__(name)
         obj = super().__getattribute__('_obj')
         value = getattr(obj, name)  
+        if isinstance(value, ChangedProxy):
+            value = value._obj
         if not callable(value) and not isinstance(value, atomics):
             return ChangedProxy(value, self)
         return value
@@ -42,6 +44,7 @@ class ChangedProxy:
     
     def __getstate__(self):     
         return self._obj
+    
         
 class Unit:    
     def __init__(self, name, *args, **kwargs):                
