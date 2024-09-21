@@ -89,15 +89,17 @@ def get_default_args(func):
             defaults[name] = param.default
     return defaults
 
-Unishare = ArgObject(context_user = None, sessions = {})
+Unishare = ArgObject(context_user = lambda: None, sessions = {})
 
 class Message:
-    def __init__(self, *gui_objects, user = None, type = 'update'):        
-        self.type = type
-        if gui_objects:
-            self.updates = [{'data': gui} for gui in gui_objects]
+    def __init__(self, *units, user = None, type = 'update'):        
+        self.type = type        
+        self.set_updates(units)
         if user:
             self.fill_paths4(user)
+
+    def set_updates(self, units):
+        self.updates = [{'data': unit} for unit in units]
 
     def fill_paths4(self, user):
         if hasattr(self, 'updates'):
@@ -114,10 +116,10 @@ class Message:
             for inv in invalid:
                 self.updates.remove(inv)
 
-    def contains(self, guiobj):
+    def contains(self, unit):
         if hasattr(self, 'updates'):
             for update in self.updates:
-                if guiobj is update['data']:
+                if unit is update['data']:
                     return True
 
 def TypeMessage(type, value, *data, user = None):

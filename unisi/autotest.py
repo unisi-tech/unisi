@@ -158,7 +158,7 @@ def check_module(module):
     elif not isinstance(screen.name, str):
         errors.append(f"name' variable in screen file {module.__file__} {screen.name} is not a string!")
     if not isinstance(screen.blocks, list):
-        errors.append(f"Screen file {module.__file__} does not contain 'blocks' list!")
+        errors.append(f"Screen file {module.__file__} 'blocks' is not a list!")
     else:
         toolbar = 'toolbar'
         block_names.add(toolbar)

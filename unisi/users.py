@@ -82,7 +82,8 @@ class User:
         #set system vars
         for var, val in screen.defaults.items():                                            
             setattr(screen, var, getattr(module, var, val))         
-        
+        if not isinstance(screen.blocks, list):
+            screen.blocks = [screen.blocks]
         if screen.toolbar:
             screen.toolbar += User.toolbar
         else: 
@@ -210,16 +211,22 @@ class User:
             raw.reload = raw == Redesign                              
         else:
             match raw:
+                case None: 
+                    raw = Message(*self.changed_units, user = self) 
                 case Message():
-                    raw.fill_paths4(self)                
+                    if self.changed_units:
+                        message_units = [x['data'] for x in raw.updates]
+                        self.changed_units.update(message_units)
+                        raw.set_updates(self.changed_units)
+                    raw.fill_paths4(self)                                    
                 case Unit():
                     self.changed_units.add(raw)
                     raw = Message(*self.changed_units, user = self) 
                 case Iterable(): #raw is *unit
                     self.changed_units.update(raw)
                     raw = Message(*self.changed_units, user = self) 
-                case _:
-                    pass
+                case _: ...
+                    
         self.changed_units.clear()           
         return raw
 

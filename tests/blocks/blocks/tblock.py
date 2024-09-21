@@ -97,8 +97,7 @@ def add_tree_elem(_, val):
     if txt in ld:
         return Warning('Cannot add doubles!')    
     ld[txt] = tree.value if tree.value else None
-    tree.value = txt
-    return tree
+    tree.value = txt    
 
 treeblock = Block('Tree block',[simple_enter, Button('_Add to tree', add_tree_elem, icon='add_circle')], tree, icon = 'account_tree')
 

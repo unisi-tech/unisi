@@ -5,7 +5,8 @@ UNified System Interface, GUI and Remote API
 UNISI technology provides a unified system interface and advanced program functionality, eliminating the need for front-end and most back-end programming. It automates common tasks, as well as unique ones, significantly reducing the necessity for manual programming and effort.
 
 ### Provided functionality without programming ###
- - Automatic WEB GUI
+ - Automatic WEB GUI Client
+ - Client-server data synchronization
  - Unified Remote API
  - Automatic configuring
  - Auto logging
@@ -79,10 +80,10 @@ Connect a browser to localhast:8000 which are by default and will see:
 ### Handling events ###
 All handlers are functions which have a signature
 ```
-def handler_x(gui_object, value_x) #or
-async def handler_x(gui_object, value_x)
+def handler_x(unit : Unit, value_x) #or
+async def handler_x(unit : Unit, value_x)
 ```
-where gui_object is a Python object the user interacted with and value for the event.
+where unit is a Python object the user interacted with and value for the event.
 
 #### UNISI supports synchronous and asynchronous handlers automatically adopting them for using. ####
 
@@ -93,23 +94,21 @@ When a user changes the value of the Unit object or presses Button, the server c
 ```
 def clean_table(_, value):
     table.rows = []
-    return table
+    
 clean_button = Button('Clean the table’, clean_table)
 ```
 
 | Handler returns |	Description |
 | :---: | :---: | 
-| Unit object |  Object to update |
-| Unit object array or tuple |  Objects to update |
-| None | Nothing to update, Ok |
+| None | Automatically update, Ok |
 | Error(...), Warning(...), Info(...) | Show to user info about a state. |
 | True | Update whole screen |
 | Redesign | Update and redesign whole screen |
 | Dialog(..) | Open a dialog with parameters |
 
-Unisi synchronizes GUI state on frontend-end automatically after calling a handler.
+Unisi synchronizes units on frontend-end automatically after calling a handler.
 
-If a Unit object doesn't have 'changed' handler the object accepts incoming value automatically to the 'value' variable of gui object.
+If a Unit object doesn't have 'changed' handler the object accepts incoming value automatically to the 'value' variable of a unit.
 
 If 'value' is not acceptable instead of returning an object possible to return Error or Warning or Info. That functions can update a object list passed after the message argument.
 

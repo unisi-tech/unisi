@@ -20,7 +20,9 @@ class ChangedProxy:
         value = getattr(obj, name)  
         if isinstance(value, ChangedProxy):
             value = value._obj
-        if not callable(value) and not isinstance(value, atomics):
+        if name in ChangedProxy.MODIFYING_METHODS:
+            super().__getattribute__('_unit').__changed__()
+        elif not callable(value) and not isinstance(value, atomics):
             return ChangedProxy(value, self)
         return value
 
@@ -48,7 +50,7 @@ class ChangedProxy:
         
 class Unit:    
     def __init__(self, name, *args, **kwargs):                
-        self.set_reactivity()
+        self.set_reactivity(kwargs)
         self.name = name
         la = len(args)
         if la:
@@ -57,12 +59,10 @@ class Unit:
             self.changed = args[1]                    
         self.add(kwargs)
 
-    def set_reactivity(self):
-        if not hasattr(self, 'id') and (user := getattr(globals(), 'user', None)):
-            add_changed_unit = lambda: user.add_changed_unit(self)
-        else:
-            add_changed_unit = self.nothing
-        super().__setattr__('__changed__', add_changed_unit)
+    def set_reactivity(self, kwargs):
+        changed_call = lambda: user.changed_units.add(self) if 'id' not in kwargs and\
+              (user := Unishare.context_user()) else None
+        super().__setattr__('__changed__', changed_call)
 
     def add(self, kwargs):              
         for key, value in kwargs.items():
@@ -70,23 +70,22 @@ class Unit:
 
     def mutate(self, obj):
         self.__dict__ = obj.__dict__ 
-        self.__changed__()
+        if self.__changed__:
+            self.__changed__()
 
     def __setattr__(self, name, value):
-        setattr = super().__setattr__
-        if name == "__changed__":
-            setattr(name, value)
-        else:
+        setattr = super().__setattr__(name, value)
+        if self.__changed__ and name != "__changed__":
             if name != "__dict__" and not isinstance(value, atomics) and not callable(value):
-              value = ChangedProxy(value, self)            
-            setattr(name, value)      
+              value = ChangedProxy(value, self)                                    
             self.__changed__()
 
     def mutate(self, obj):
         for key, value in obj.__dict__.items():
             if not key.startswith('__'):
                 setattr(self, key, value)
-        self.__changed__()
+        if self.__changed__:
+            self.__changed__()
     
     def accept(self, value):
         if hasattr(self, 'changed'):
@@ -165,7 +164,7 @@ class Range(Unit):
 
 class Button(Unit):
     def __init__(self, name, handler = None, **kwargs):
-        self.set_reactivity()
+        self.set_reactivity(kwargs)
         self.name = name
         self.value = None
         self.add(kwargs)

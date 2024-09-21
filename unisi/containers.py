@@ -23,7 +23,7 @@ class ContentScaler(Range):
         
 class Block(Unit):    
     def __init__(self, name, *elems, **options):    
-        self.set_reactivity()    
+        self.set_reactivity(options)    
         self.name = name        
         self.type = 'block'
         self.value = list(elems)        

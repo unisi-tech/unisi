@@ -16,8 +16,7 @@ table = Table('Videos', 0, headers = ['Video', 'Duration',  'Links', 'Mine'], ro
 ], append = append_row, delete = delete_table_row)
 
 def clean_table(_, value):
-    table.rows = []
-    return table
+    table.rows = []    
 
 clean_button= Button('Clean table', clean_table, icon='swipe')
 
@@ -36,7 +35,7 @@ block = Block('X Block',
     [           
         clean_button,
         selector
-    ], [tarea, table], icon = 'api')
+    ],[ tarea, table], icon = 'api')
 
 import random
 
@@ -47,8 +46,7 @@ def add_node(_, v):
     if graph.nodes[source] is None:
         source = 1
     graph.edges.append(Edge(source, i ))
-    graph.nodes.append(Node(name))
-    return graph
+    graph.nodes.append(Node(name))    
 
 def graph_selection(_, val):
     _.value = val    
