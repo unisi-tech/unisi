@@ -71,8 +71,9 @@ class Unit:
         if self._mark_changed:
             self._mark_changed()
 
-    def __setattr__(self, name, value):        
-        if self._mark_changed and name != "_mark_changed":
+    def __setattr__(self, name, value):      
+        #it is correct condition order 
+        if name != "_mark_changed" and self._mark_changed:
             if name != "__dict__" and not isinstance(value, atomics) and not callable(value):
               value = ChangedProxy(value, self)                                    
             self._mark_changed(name, value)
