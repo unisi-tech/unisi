@@ -23,7 +23,7 @@ class ContentScaler(Range):
         
 class Block(Unit):    
     def __init__(self, name, *elems, **options):    
-        self.set_reactivity(options)    
+        self._mark_changed = None        
         self.name = name        
         self.type = 'block'
         self.value = list(elems)        
@@ -36,9 +36,9 @@ class Block(Unit):
             elif isinstance(self.value[0], list):
                 self.value[0].append(scaler)
             else:
-                self.value[0] = [self.value, scaler]        
-        
-        for elem in flatten(self.value):            
+                self.value[0] = [self.value, scaler]     
+
+        for elem in flatten(self.value):                        
             if hasattr(elem, 'llm'): 
                 if elem.llm is True:
                    dependencies = [obj for obj in flatten(self.value) if elem is not obj and obj.type != 'command'] 
@@ -65,6 +65,14 @@ class Block(Unit):
                 else:
                     elem.llm = None
                     print(f'Empty dependency list for llm calculation for {elem.name} {elem.type}!')
+        
+        self.set_reactivity(Unishare.context_user())
+
+    def set_reactivity(self, user, override = False):
+        if user:            
+            super().set_reactivity(user, override)
+            for elem in flatten(self.value):
+                elem.set_reactivity(user)
                 
     @property
     def compact_view(self) -> str:
@@ -81,14 +89,19 @@ class Block(Unit):
             sval = self.scaler.value
             if sval != 1:
                 self.scaler.value = 1
-                self.scaler.changed(self.scaler, sval)
+                self.scaler.changed(self.scaler, sval)        
+        self.set_reactivity(Unishare.context_user())
 
 class ParamBlock(Block):
     def __init__(self, name, *args, row = 3, **params):
-        self.set_reactivity()
+        """ does not need reactivity so Block init is not used"""
+        self._mark_changed = None
         if not args:
             args = [[]]
-        super().__init__(name, *args)
+        self._mark_changed = None        
+        self.name = name        
+        self.type = 'block'
+        self.value = list(args)
         self.name2elem = {}
         cnt = 0        
 

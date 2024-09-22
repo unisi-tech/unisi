@@ -81,7 +81,7 @@ class Dblist:
             if chunk:
                 chunk[index - delta_list] = value            
             self.dbtable.assign_row(value)
-            update = dict(update = 'update', index = index, data = value)
+            update = dict(type = 'action', update = 'update', index = index, data = value)
             dbupdates[self.dbtable.id].append(update)            
 
     def clean_cache_from(self, delta_list):
@@ -92,7 +92,7 @@ class Dblist:
         delta_list, chunk = self.get_delta_chunk(index)
         if chunk:
             self.dbtable.delete_row(index)
-            update = dict(update ='delete', index = index, exclude = True)            
+            update = dict(type = 'action',update ='delete', index = index, exclude = True)            
             dbupdates[self.dbtable.id].append(update)
             del chunk[index - delta_list] 
             limit = self.dbtable.limit
@@ -126,7 +126,7 @@ class Dblist:
         self.dbtable.db.update_row(table_id, row_id, {field: value}, in_node) 
         self[delta][cell] = value
         if self.cache is None: 
-            update = dict(update = 'update', index = delta, data = self[delta])
+            update = dict(type = 'action', update = 'update', index = delta, data = self[delta])
             dbupdates[self.dbtable.id].append(update)        
             return update
 
@@ -140,7 +140,7 @@ class Dblist:
         delta_chunk,list = self.get_delta_chunk(index)
         if list:
             list.append(row)
-            update = dict(update = 'add', index = index, data = row) 
+            update = dict(type = 'action', update = 'add', index = index, data = row) 
             dbupdates[self.dbtable.id].append(update)
             return row
         
@@ -167,7 +167,7 @@ class Dblist:
             start += can_fill
             len_rows -= can_fill        
         delta, data = self.get_delta_chunk(delta_start)        
-        update = dict(update = 'updates', index = delta, data = data, length = length)
+        update = dict(type = 'action', update = 'updates', index = delta, data = data, length = length)
         dbupdates[self.dbtable.id].append(update)        
     
     def insert(self, index, value):
@@ -185,4 +185,4 @@ class Dblist:
     def clear(self, detach = False):
         self.dbtable.clear(detach)
         self.delta_list = {0: None}
-        dbupdates[self.dbtable.id].append(dict(update = 'updates', length = 0))        
+        dbupdates[self.dbtable.id].append(dict(type = 'action', update = 'updates', length = 0))        

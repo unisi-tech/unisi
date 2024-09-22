@@ -174,6 +174,14 @@ class User:
         if notify_monitor:
             await notify_monitor('-', self.session, None)        
         return result
+    
+    def register_changed_unit(self, unit, property = None, value = None):
+        """add unit to changed_units if it is changed outside of message"""
+        if property == 'value':
+            property = 'changed'
+        m = self.last_message
+        if unit.name != m.element or property != m.event or value != m.value:
+            self.changed_units.add(unit)            
 
     @property
     def blocks(self):
@@ -212,7 +220,8 @@ class User:
         else:
             match raw:
                 case None: 
-                    raw = Message(*self.changed_units, user = self) 
+                    if self.changed_units:
+                        raw = Message(*self.changed_units, user = self) 
                 case Message():
                     if self.changed_units:
                         message_units = [x['data'] for x in raw.updates]
@@ -222,7 +231,7 @@ class User:
                 case Unit():
                     self.changed_units.add(raw)
                     raw = Message(*self.changed_units, user = self) 
-                case Iterable(): #raw is *unit
+                case list() | tuple(): #raw is *unit
                     self.changed_units.update(raw)
                     raw = Message(*self.changed_units, user = self) 
                 case _: ...
