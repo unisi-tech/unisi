@@ -57,9 +57,12 @@ class Unit:
         self.add(kwargs)
 
     def set_reactivity(self, user, override = False):        
-        if not hasattr(self, 'id') and (override or not self._mark_changed): 
-            def changed_call(property = None, value = None):
-                user.register_changed_unit(self, property, value)
+        if user:
+            if not hasattr(self, 'id') and (override or not self._mark_changed): 
+                def changed_call(property = None, value = None):
+                    user.register_changed_unit(self, property, value)
+        else:
+            changed_call = None
             super().__setattr__('_mark_changed', changed_call)
 
     def add(self, kwargs):              
@@ -80,9 +83,9 @@ class Unit:
         super().__setattr__(name, value)
 
     def mutate(self, obj):
+        self.__dict__.clear()
         for key, value in obj.__dict__.items():
-            if not key.startswith('__'):
-                setattr(self, key, value)
+            setattr(self, key, value)
         if self._mark_changed:
             self._mark_changed()
     

@@ -13,7 +13,7 @@ def get_chunk(obj, start_index):
     delta, data = obj.rows.get_delta_chunk(start_index)
     return {'update': 'updates', 'index': delta, 'data': data}
 
-def accept_cell_value(table, dval):            
+def accept_cell_value(table, dval: dict):            
     value = dval['value']
     if not isinstance(value, bool):
         try:
@@ -48,7 +48,7 @@ def delete_table_row(table, value):
 
 def append_table_row(table, search_str = ''):
     ''' append has to return new row, value is the search string value in the table'''    
-    new_row = [None] * len(table.rows.dbtable.table_fields)           
+    new_row = [None] * len(table.headers)           
     if getattr(table,'id', None):          
         new_row = table.rows.dbtable.list.append(new_row)        
         if hasattr(table, 'link') and table.filter:
@@ -57,8 +57,9 @@ def append_table_row(table, search_str = ''):
                 relation = table.rows.dbtable.add_link(new_row[-1], link_table.id,
                      linked_id, link_index_name = rel_name) 
                 new_row.extend(relation)                     
-                break                 
-    table.rows.append(new_row)
+                break      
+    else:           
+        table.rows.append(new_row)
     return new_row
 
 class Table(Unit):
@@ -172,6 +173,11 @@ class Table(Unit):
         self.value = [] if isinstance(self.value,tuple | list) else None
         return self    
     
+    @property
+    def panda(self):
+        if gp := getattr(self,'__panda__',None):
+            return gp() 
+    
     def calc_headers(self):        
         """only for persistent"""
         table_fields = self.rows.dbtable.table_fields
@@ -226,43 +232,56 @@ class Table(Unit):
             dbtable = self.rows.dbtable
             return dbtable.list is self.rows
         
-def delete_panda_row(table, row_num):    
-    df = table.__panda__
-    if row_num < 0 or row_num >= len(df):
-        raise ValueError("Row number is out of range")
-    pt = table.__panda__
-    pt.drop(index = row_num,  inplace=True)
-    pt.reset_index(inplace=True) 
-    delete_table_row(table, row_num)    
+def delete_panda_row(table, value):    
+    pt = table.panda
+    def delete_in_panda(row_index):
+        if row_index < 0 or row_index >= len(pt):
+            raise ValueError("Row number is out of range")
+        pt.drop(index = row_index,  inplace=True)
 
-def accept_panda_cell(table, value_pos):
-    value, position = value_pos
-    row_num, col_num = position
-    table.__panda__.iloc[row_num,col_num] = value
+    if isinstance(value, list | tuple):                    
+        value.sort(reverse=True)
+        for row_index in value:            
+            delete_in_panda(row_index)        
+    else:            
+        delete_in_panda(value)        
+    
+    #pt.reset_index(inplace=True) 
+    delete_table_row(table, value)    
+
+def accept_panda_cell(table, value_pos: dict):
+    value = value_pos['value']
+    if not isinstance(value, bool):
+        try:
+            value = float(value)        
+        except:
+            pass                
+    row_index, col_index = value_pos['delta'], value_pos['cell']
+    table.panda.iat[row_index,col_index] = value
     accept_cell_value(table, value_pos)
 
-def append_panda_row(table, row_num):    
-    df = table.__panda__
-    new_row = append_table_row(table, row_num)
+def append_panda_row(table, row_index):    
+    df = table.panda
+    new_row = append_table_row(table, row_index)
     df.loc[len(df), df.columns] = new_row
     return new_row    
 
 class PandaTable(Table):
     """ panda = opened panda table"""
-    def __init__(self, *args, panda = None, fix_headers = True, **kwargs):
-        super().__init__(*args, **kwargs)                
+    def __init__(self, name, *args, panda = None, fix_headers = True, **kwargs):
+        Unit.__init__(self, name, *args, **kwargs)          
+        self.set_reactivity(None)
+        set_defaults(self, dict(type = 'table', value = None, editing = False, dense = True))        
         if panda is None:
             raise Exception('PandaTable has to get panda = pandaTable as an argument.')
         self.headers = panda.columns.tolist()
         if fix_headers:
             self.headers = [pretty4(header) for header in self.headers]        
         self.rows = panda.values.tolist()
-        self.__panda__ = panda
+        self.__panda__ = lambda: panda
 
         if getattr(self,'edit', True): 
             set_defaults(self,{'delete': delete_panda_row, 'append': append_panda_row,
                 'modify': accept_panda_cell})
-    @property
-    def panda(self):
-        return getattr(self,'__panda__',None) 
+    
     

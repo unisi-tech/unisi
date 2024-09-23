@@ -58,7 +58,7 @@ class Dblist:
             return delta_list, self.cache[delta_list:delta_list + self.limit]
         
         lst = self.delta_list.get(delta_list)
-        if lst:
+        if lst is not None:
             return delta_list, lst
         lst = self.dbtable.read_rows(skip = delta_list)
         self.delta_list[delta_list] = lst        
@@ -138,7 +138,7 @@ class Dblist:
         index = len(self)
         row = self.dbtable.append_row(arr)                    
         delta_chunk,list = self.get_delta_chunk(index)
-        if list:
+        if list is not None:
             list.append(row)
             update = dict(type = 'action', update = 'add', index = index, data = row) 
             dbupdates[self.dbtable.id].append(update)
