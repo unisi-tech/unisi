@@ -46,7 +46,7 @@ def add_node(_, v):
     if graph.nodes[source] is None:
         source = 1
     graph.edges.append(Edge(source, i ))
-    graph.nodes.append(Node(name))    
+    graph.nodes.append(Node(name))       
 
 def graph_selection(_, val):
     _.value = val    
