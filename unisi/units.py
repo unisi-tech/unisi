@@ -72,12 +72,7 @@ class Unit:
 
     def add(self, kwargs):              
         for key, value in kwargs.items():
-            setattr(self, key, value)
-
-    def mutate(self, obj):
-        self.__dict__ = obj.__dict__ 
-        if self._mark_changed:
-            self._mark_changed()
+            setattr(self, key, value)   
 
     def __setattr__(self, name, value):      
         #it is correct condition order 
