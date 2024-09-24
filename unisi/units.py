@@ -40,8 +40,11 @@ class ChangedProxy:
         return iter(self._obj)
 
     def __len__(self):
-        return len(self._obj)
-    
+        try:
+            return len(self._obj)
+        except TypeError:        
+            return 0  
+            
     def __getstate__(self):     
         return self._obj
            
@@ -238,8 +241,7 @@ class Graph(Unit):
     '''has to contain nodes, edges, see Readme'''
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
-        self.type='graph'
-        set_defaults(self,{'value': graph_default_value, 'nodes': [], 'edges': []})
+        set_defaults(self, dict(type ='graph', value = graph_default_value, nodes = [], edges = []))
         
 class Switch(Unit):
     def __init__(self,name, *args, **kwargs):
@@ -255,9 +257,8 @@ class Select(Unit):
 
 class Tree(Unit):
     def __init__(self,name, *args, **kwargs):
-        super().__init__(name, *args, **kwargs)         
-        self.type = 'tree' 
-        set_defaults(self,{'options': [], 'value': None})
+        super().__init__(name, *args, **kwargs)                 
+        set_defaults(self,dict(options = [], value = None, type = 'tree'))
         
 class TextArea(Unit):
     def __init__(self,name, *args, **kwargs):

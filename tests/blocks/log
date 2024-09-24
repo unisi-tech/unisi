@@ -34,3 +34,33 @@
   User is connected, session: ::1-0, share: None
 2024-09-24 07:52:57,837 - INFO - session: ::1-1, screen: void, message: None
   User is connected, session: ::1-1, share: None
+2024-09-24 22:27:35,166 - INFO - session: ::1-0, screen: void, message: None
+  User is connected, session: ::1-0, share: None
+2024-09-24 22:29:21,325 - ERROR - session: ::1-0, screen: Zoo, message: Csv table/Zoo Table->modify({'value': 'e', 'delta': 99, 'id': 0.1732807420057667, 'cell': 0})
+  Traceback (most recent call last):
+  File "/home/george/Projects/unisi/unisi/server.py", line 78, in websocket_handler
+    result = await user.result4message(message)
+  File "/home/george/Projects/unisi/unisi/users.py", line 164, in result4message
+    result = await self.process(message)
+  File "/home/george/Projects/unisi/unisi/users.py", line 260, in process
+    return await self.process_element(elem, message)
+  File "/home/george/Projects/unisi/unisi/users.py", line 276, in process_element
+    result = await self.eval_handler(attr, elem, message.value)
+  File "/home/george/Projects/unisi/unisi/users.py", line 173, in eval_handler
+    else handler(gui, value)
+  File "/home/george/Projects/unisi/unisi/tables.py", line 260, in accept_panda_cell
+    table.panda.iat[row_index,col_index] = value
+  File "/home/george/.local/lib/python3.10/site-packages/pandas/core/indexing.py", line 2397, in __setitem__
+    self.obj._set_value(*key, value=value, takeable=self._takeable)
+  File "/home/george/.local/lib/python3.10/site-packages/pandas/core/frame.py", line 4212, in _set_value
+    self._mgr.column_setitem(icol, iindex, value, inplace=True)
+  File "/home/george/.local/lib/python3.10/site-packages/pandas/core/internals/managers.py", line 1389, in column_setitem
+    col_mgr.setitem_inplace(idx, value)
+  File "/home/george/.local/lib/python3.10/site-packages/pandas/core/internals/managers.py", line 2102, in setitem_inplace
+    super().setitem_inplace(indexer, value)
+  File "/home/george/.local/lib/python3.10/site-packages/pandas/core/internals/base.py", line 190, in setitem_inplace
+    arr[indexer] = value
+IndexError: index 99 is out of bounds for axis 0 with size 99
+
+2024-09-24 22:34:29,849 - INFO - session: ::1-0, screen: void, message: None
+  User is connected, session: ::1-0, share: None

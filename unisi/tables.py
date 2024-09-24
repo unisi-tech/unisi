@@ -263,7 +263,8 @@ def accept_panda_cell(table, value_pos: dict):
 def append_panda_row(table, row_index):    
     df = table.panda
     new_row = append_table_row(table, row_index)
-    df.loc[len(df), df.columns] = new_row
+    df.loc[len(df)] = new_row 
+    #df.loc[len(df), df.columns] = new_row
     return new_row    
 
 class PandaTable(Table):
