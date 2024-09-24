@@ -61,9 +61,7 @@ class Unit:
             if not hasattr(self, 'id') and (override or not self._mark_changed): 
                 def changed_call(property = None, value = None):
                     user.register_changed_unit(self, property, value)
-        else:
-            changed_call = None
-            super().__setattr__('_mark_changed', changed_call)
+                super().__setattr__('_mark_changed', changed_call)                    
 
     def add(self, kwargs):              
         for key, value in kwargs.items():
