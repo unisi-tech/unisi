@@ -57,11 +57,15 @@ class Unit:
         self.add(kwargs)
 
     def set_reactivity(self, user, override = False):        
+        changed_call = None
         if user:
             if not hasattr(self, 'id') and (override or not self._mark_changed): 
+                self.__dict__.update({property : ChangedProxy(value, self)  for property, value in self.__dict__.items() 
+                    if not isinstance(value, atomics) and not callable(value)})                    
+                        
                 def changed_call(property = None, value = None):
-                    user.register_changed_unit(self, property, value)
-                super().__setattr__('_mark_changed', changed_call)                    
+                    user.register_changed_unit(self, property, value)            
+        super().__setattr__('_mark_changed', changed_call)                    
 
     def add(self, kwargs):              
         for key, value in kwargs.items():
