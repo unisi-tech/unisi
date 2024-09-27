@@ -168,7 +168,7 @@ If the blocks are simply listed Unisi draws them from left to right or from top 
 #### Example ####
 blocks = [ [b1,b2], [b3, [b4, b5]]]
 #[b1,b2] - the first vertical area, [b3, [b4, b5]] - the second one.
-![image](https://github.com/user-attachments/assets/2e4907c4-f161-4288-8006-64631607f33a)
+![image](https://github.com/user-attachments/assets/16ab9909-08b3-429e-9205-9b388b10aba7)
 
 ### ParamBlock ###
 ParamBlock(name, *gui_elements, row = 3, **parameters)
