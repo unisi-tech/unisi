@@ -10,6 +10,12 @@ def flatten(*arr):
         else:
             yield a
 
+def index_of(lst, target):  
+  try:
+    return lst.index(target)
+  except ValueError:
+    return -1
+
 def compose_handlers(*handlers):
     async def compose(obj, value):
         objs = set()        

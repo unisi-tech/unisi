@@ -1,6 +1,6 @@
 from data import table
 from unisi import *
-name = 'Zoo'
+name = 'Pandas table'
 order = 1
 
 zoo_table = Table('Zoo Table', panda = table)

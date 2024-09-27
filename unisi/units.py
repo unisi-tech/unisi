@@ -1,8 +1,6 @@
 from .common import *
 from .llmrag import get_property
 
-atomics = (int, float, complex, bool, str, bytes, type(None))
-
 class ChangedProxy:
     MODIFYING_METHODS = {
         'append', 'extend', 'insert', 'remove', 'pop', 'clear', 'sort', 'reverse',
@@ -47,6 +45,8 @@ class ChangedProxy:
             
     def __getstate__(self):     
         return self._obj
+    
+atomics = (int, float, complex, bool, str, bytes, ChangedProxy, type(None))
            
 class Unit:    
     def __init__(self, name, *args, **kwargs):                
@@ -59,6 +59,10 @@ class Unit:
             self.changed = args[1]                    
         self.add(kwargs)
 
+    def specific_changed_register(self, property, value) -> bool:
+        """ addtional actions when changed, return False if not changed"""
+        return not property or not property.startswith('_')
+        
     def set_reactivity(self, user, override = False):        
         changed_call = None
         if user:
@@ -67,7 +71,8 @@ class Unit:
                     if not isinstance(value, atomics) and not callable(value)})                    
                         
                 def changed_call(property = None, value = None):
-                    user.register_changed_unit(self, property, value)            
+                    if self.specific_changed_register(property, value):
+                        user.register_changed_unit(self, property, value)            
         super().__setattr__('_mark_changed', changed_call)                    
 
     def add(self, kwargs):              
@@ -95,6 +100,10 @@ class Unit:
         else:
             self.value = value
 
+    def delattr(self, attr):
+        if hasattr(self, attr): 
+            delattr(self, attr)
+        
     @property
     def compact_view(self) -> str:
         """reduce for external (llm) using if required"""
@@ -204,39 +213,7 @@ class Video(Unit):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         self.type = 'video'        
-        set_defaults(self, {'url': self.name, 'ratio' : None})            
-
-class Node:
-    def __init__(self, name = '',id = '', color = '', size = 0):
-        if name:
-            self.name = name
-        if color:
-            self.color = color
-        if size:
-            self.size = size
-        if id:
-            self.id = id        
-
-class Edge:
-    def __init__(self, source, target, name = '', id = '', color = '', size = 0):
-        self.source = source
-        self.target = target
-        if name:
-            self.name = name
-        if color:
-            self.color = color
-        if size:
-            self.size = size
-        if id:
-            self.id = id        
-
-graph_default_value = {'nodes' : [], 'edges' : []}
-
-class Graph(Unit):
-    '''has to contain nodes, edges, see Readme'''
-    def __init__(self, name, *args, **kwargs):
-        super().__init__(name, *args, **kwargs)
-        set_defaults(self, dict(type ='graph', value = graph_default_value, nodes = [], edges = []))
+        set_defaults(self, {'url': self.name, 'ratio' : None})                    
         
 class Switch(Unit):
     def __init__(self,name, *args, **kwargs):

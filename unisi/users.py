@@ -6,7 +6,6 @@ from .multimon import notify_monitor, logging_lock, run_external_process
 from .kdb import Database
 from .dbunits import dbshare, dbupdates
 import sys, asyncio, logging, importlib
-from collections.abc import Iterable
 
 class User:          
     last_user = None
@@ -124,9 +123,9 @@ class User:
         if self.screens:                        
             self.screens.sort(key=lambda s: s.screen.order)            
             main = self.screens[0]
-            if hasattr(main, 'prepare'):  
-                main.prepare()
             self.screen_module = main
+            if hasattr(main, 'prepare'):  
+                main.prepare()            
             self.update_menu()
             self.set_clean()                               
             return True                 

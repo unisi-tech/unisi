@@ -1,5 +1,5 @@
 from unisi import *
-from blocks.tblock import config_area, tarea
+from blocks.tblock import config_area, tarea, changed
 
 name = "Main"
 order = 1
@@ -35,35 +35,19 @@ block = Block('X Block',
     [           
         clean_button,
         selector
-    ],[ tarea, table], icon = 'api')
-
-import random
-
-def add_node(_, v):
-    i = len(graph.nodes)
-    name = f'node{i}'    
-    source = random.randrange(i)
-    if graph.nodes[source] is None:
-        source = 1
-    graph.edges.append(Edge(source, i ))
-    graph.nodes.append(Node(name))       
-
-def graph_selection(_, val):
-    _.value = val    
-    return Info(f'Nodes {val["nodes"]}, Edges {val["edges"]}') 
-
-#graph can handle invalid edges and null nodes in the array    
-graph = Graph('test graph', changed = graph_selection, 
-    nodes = [Node("Node 1"),Node("Node 2", size = 20),None, Node("Node 3", color = "green"), Node("Node 4")],
-    edges = [Edge(0,1, color = "#3CA072"), Edge(1,3,'extending', size = 6),Edge(3,4, size = 2), Edge(2,4)])
+    ],
+    [
+        tarea, table
+    ], icon = 'api')
 
 def delblock(elem, value):
     context_screen().blocks = [block, config_area]
     return Redesign
 
-bottom_block = Block('Graph, press Shift for multi (de)select', 
-    [Button('Add node', add_node),  Button('Delete block', delblock)], 
-    graph)
+toposcreen = Net('Net', changed = changed )
+
+bottom_block = Block('Screen topology: Press Shift for multi (de)select', 
+     Button('Delete block', delblock), toposcreen)
 
 blocks= [[block,bottom_block],config_area]
 
@@ -74,3 +58,7 @@ async def log(x,y):
     
 toolbar = [Button('_Save', log, icon = 'save', tooltip = 'Save info'),
         Button('_Ignored', lambda *_: Info('ignored!'), icon = 'delete_forever', tooltip = 'Ignore info!')]
+
+def prepare():
+    if not toposcreen.topology:
+        toposcreen.make_topology(blocks)
