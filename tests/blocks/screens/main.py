@@ -46,7 +46,7 @@ def delblock(elem, value):
 
 toposcreen = Net('Net', changed = changed )
 
-bottom_block = Block('Screen topology: Press Shift for multi (de)select', 
+bottom_block = Block('Screen topology: Press Shift for multi (de)select nodes and links', 
      Button('Delete block', delblock), toposcreen)
 
 blocks= [[block,bottom_block],config_area]

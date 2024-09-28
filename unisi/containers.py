@@ -17,7 +17,7 @@ class Node:
         if color:
             self.color = color
         if size:
-            self.size = size                
+            self.size = size        
 
 class Edge:
     def __init__(self, source, target, name = '', color = '', size = 0, property = None):
@@ -30,7 +30,11 @@ class Edge:
         if size:
             self.size = size
         if property is not None:
-            self.property = property        
+            self.property = property     
+    def __str__(self):
+        return f"Edge({self.source}->{self.target})"   
+    def __repr__(self):
+        return f"Edge({self.source}->{self.target})"   
 
 graph_default_value = {'nodes' : [], 'edges' : []}
 
@@ -43,33 +47,33 @@ class Graph(Unit):
 Topology = lambda: defaultdict(lambda: defaultdict(lambda: {}))
 
 def unit2image(unit):
-        match unit:
-            case Block():
-                return 'https://img.icons8.com/fluency/48/object.png'
-            case Button():
-                return 'https://img.icons8.com/ios-filled/50/doorbell.png'
-            case Edit() | Text():
-                return 'https://img.icons8.com/fluency-systems-filled/50/123.png' if unit.type == 'number'\
-                 else 'https://img.icons8.com/sf-regular/48/abc.png'
-            case Switch():
-                return 'https://img.icons8.com/ios/50/toggle-on--v1.png'
-            case TextArea():
-                return 'https://img.icons8.com/color/48/align-cell-content-left.png'
-            case Table():
-                return 'https://img.icons8.com/color/48/day-view.png' if unit.type == 'table'\
-                    else 'https://img.icons8.com/ultraviolet/40/combo-chart.png'
-            case Tree():
-                return 'https://img.icons8.com/external-flatart-icons-outline-flatarticons/64/external-tree-nature-flatart-icons-outline-flatarticons-3.png'
-            case Select():
-                return 'https://img.icons8.com/cotton/64/list--v2.png'
-            case Graph():
-                return 'https://img.icons8.com/external-vitaliy-gorbachev-blue-vitaly-gorbachev/50/external-nodes-cryptocurrency-vitaliy-gorbachev-blue-vitaly-gorbachev.png'
-            case Range():
-                return 'https://img.icons8.com/ios/50/slider-control.png'
-            case Unit():
-                return 'https://img.icons8.com/ios-filled/50/link--v1.png'
-            case _: 
-                return ''
+    match unit:
+        case Block():
+            return 'https://img.icons8.com/fluency/48/object.png'
+        case Button():
+            return 'https://img.icons8.com/ios-filled/50/doorbell.png'
+        case Edit() | Text():
+            return 'https://img.icons8.com/fluency-systems-filled/50/123.png' if unit.type == 'number'\
+                else 'https://img.icons8.com/sf-regular/48/abc.png'
+        case Switch():
+            return 'https://img.icons8.com/ios/50/toggle-on--v1.png'
+        case TextArea():
+            return 'https://img.icons8.com/color/48/align-cell-content-left.png'
+        case Table():
+            return 'https://img.icons8.com/color/48/day-view.png' if unit.type == 'table'\
+                else 'https://img.icons8.com/ultraviolet/40/combo-chart.png'
+        case Tree():
+            return 'https://img.icons8.com/external-flatart-icons-outline-flatarticons/64/external-tree-nature-flatart-icons-outline-flatarticons-3.png'
+        case Select():
+            return 'https://img.icons8.com/cotton/64/list--v2.png'
+        case Graph():
+            return 'https://img.icons8.com/external-vitaliy-gorbachev-blue-vitaly-gorbachev/50/external-nodes-cryptocurrency-vitaliy-gorbachev-blue-vitaly-gorbachev.png'
+        case Range():
+            return 'https://img.icons8.com/ios/50/slider-control.png'
+        case Unit():
+            return 'https://img.icons8.com/ios-filled/50/link--v1.png'
+        case _: 
+            return ''
 
 class Net(Graph):    
     """Graph of Units"""
@@ -83,8 +87,9 @@ class Net(Graph):
             mark_changed = self._mark_changed 
             self._mark_changed = None #turn off for 'value' diff  reaction
             self._value = value
-            value = dict(nodes = [self._narray[i] for i in value['nodes']],
-                    edges = [self._edges[i] for i in value['edges']])
+            narray = self._narray
+            value = dict(nodes = [self._narray[i] for i in value['nodes']], edges = 
+                [Edge(narray[self._edges[i].source], narray[self._edges[i].target]) for i in value['edges']])
             if changed_handler:
                 result = changed_handler(_, value)
             else:

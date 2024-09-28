@@ -201,7 +201,7 @@ class User:
                         if c.name == elname:
                             return c
         
-    def find_path(self, elem):        
+    def find_path(self, elem) -> list:        
         for bl in flatten(self.blocks):        
             if bl == elem:
                 return [bl.name]
