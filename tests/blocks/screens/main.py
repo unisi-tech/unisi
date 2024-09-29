@@ -4,7 +4,7 @@ from blocks.tblock import config_area, tarea, changed
 name = "Main"
 order = 1
 
-def append_row(table, value):
+def append_row(table, search: str):
     row = [''] * 4
     row[-1] = False
     table.rows.append(row)
@@ -31,10 +31,15 @@ def selchanged(_, val):
 def replace_image(_, iname):
     print(iname)    
 
+def handler(*_):
+    tarea.value = ''
+clean_text = Button('Clean text', handler, icon='delete')
+
 block = Block('X Block',
     [           
-        clean_button,
-        selector
+        clean_text,
+        selector,
+        clean_button
     ],
     [
         tarea, table
@@ -46,8 +51,16 @@ def delblock(elem, value):
 
 toposcreen = Net('Net', changed = changed )
 
+#graph can handle invalid edges and null nodes in the array    
+graph = Graph('Random graph', 
+    nodes = [Node("Node 1"),Node("Node 2", size = 20),None, Node("Node 3", color = "green"), Node("Node 4")],
+    edges = [Edge(0,1, color = "#3CA072"), Edge(1,3,'extending', size = 6),Edge(3,4, size = 2), Edge(2,4)])
+
+def switch_graph(*_):    
+    bottom_block.value[1] = toposcreen if bottom_block.value[1] is graph else graph
+
 bottom_block = Block('Screen topology: Press Shift for multi (de)select nodes and links', 
-     Button('Delete block', delblock), toposcreen)
+     [Button('Delete block', delblock), Button('Switch graph', switch_graph)], toposcreen)
 
 blocks= [[block,bottom_block],config_area]
 
