@@ -285,7 +285,7 @@ class User:
             self.log(error)                     
             return Error(error)
         
-    def monitor(self, session, share):
+    def monitor(self, session, share = None):
         if config.share and session != testdir:
             self.log(f'User is connected, session: {session}, share: {share.session if share else None}', type = 'info')            
 
@@ -305,6 +305,14 @@ class User:
                 func(level = logging.INFO)
                 logging.info(str)
                 func(level = logging.WARNING)
+
+    def init_user():
+        """make initial user for autotest and evaluating dbsharing"""
+        user = User.type(testdir)
+        user.load()    
+        #register shared db map once
+        user.calc_dbsharing()
+        return user
 
     def calc_dbsharing(self):
         """calc connections db and units"""
@@ -362,15 +370,18 @@ def make_user(request):
             return None, Error(error)
         user = User.type(session, user)
         ok = user.screens
-    elif config.mirror and User.last_user:
+    elif config.mirror and User.count:
         user = User.type(session, User.last_user)
         ok = user.screens
+    elif not User.count:
+        user = User.last_user        
+        user.session = session
+        user.monitor(session)
+        ok = True
     else:
         user = User.type(session)
         ok = user.load()  
-        #register shared db map once
-        if not user.count:
-            user.calc_dbsharing()            
+                
     User.count += 1
     Unishare.sessions[session] = user 
     return user, ok

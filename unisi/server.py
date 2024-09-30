@@ -105,10 +105,8 @@ def start(appname = None, user_type = User, http_handlers = []):
     if appname:
         config.appname = appname
 
-    User.type = user_type    
-
-    if config.autotest:
-        run_tests()
+    User.type = user_type        
+    run_tests(User.init_user())
 
     http_handlers.insert(0, web.get('/ws', websocket_handler))        
     http_handlers += [web.static(f'/{config.upload_dir}', upload_dir), 

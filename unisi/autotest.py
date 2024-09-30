@@ -96,6 +96,8 @@ test_name = Edit('Name test file', '', focus = True)
 rewrite = Switch('Overwrite existing', False, type = 'check')
 
 def button_clicked(_,__):
+    if not os.path.exists(testdir):
+        os.makedirs(testdir)        
     test_name.value = User.last_user.screen.name
     test_name.complete = smart_complete(os.listdir(testdir))
     return Dialog('Create autotest..', ask_create_test, test_name, rewrite)
@@ -176,11 +178,7 @@ def check_module(module):
         errors.insert(0, f"\nErrors in screen {screen.name}, file name {module.__file__}:")
     return errors
     
-def run_tests():
-    if not os.path.exists(testdir):
-        os.makedirs(testdir)
-    user = User.type(testdir)
-    user.load()    
+def run_tests(user):
     errors = []
     for module in user.screens:
         errors += check_module(module)
@@ -200,8 +198,7 @@ def run_tests():
                 if not test(file,user):
                     ok = False
     if process and ok:
-        print('\n-----Autotests successfully passed.-----\n')
-    User.last_user = None
+        print('\n-----Autotests successfully passed.-----\n')    
     User.toolbar.append(button)
     
         
