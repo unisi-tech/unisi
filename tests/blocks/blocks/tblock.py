@@ -50,9 +50,6 @@ tarea = TextArea('Area', "Alpha Centauri A, also known as Rigil Kentaurus, is th
 classification is spectral type G2-V; it is about 10% more massive than the Sun, with a radius about 22% larger.",
     update = updated)
 
-cloned_table_typed = copy.copy(table)
-cloned_table_typed.type = 'table'
-
 ld = { 
     'Animals' : None,
     'Brushtail Possum' : 'Animals',

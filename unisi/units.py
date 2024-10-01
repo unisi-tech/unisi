@@ -125,6 +125,9 @@ class Unit:
             def changed_handler(obj, value):
                 obj.value = value
         self.changed = compose_handlers(changed_handler, handler) 
+    
+    def __getstate__(self):     
+        return {n: v for n, v in self.__dict__.items() if n[0] != '_'}
 
     def __str__(self):
         return f'{type(self).__name__}({self.name})'
@@ -176,6 +179,25 @@ class Range(Unit):
         self.type = 'range'                
         if 'options' not in kwargs:
             self.options = [self.value - 10, self.value + 10, 1]
+
+class ContentScaler(Range):
+    def __init__(self, *args, **kwargs):
+        name = args[0] if args else 'Scale content'        
+        super().__init__(name, *args, **kwargs)                
+        if 'options' not in kwargs:
+            self.options = [0.25, 3.0, 0.25]
+        self.changed = self.scaler
+        
+    def scaler(self, _, val):
+        prev = self.value
+        elements = self.elements() 
+        self.value = val
+        if elements:
+            prev /= val
+            for element in elements:
+                element.width /= prev
+                element.height /= prev            
+            return elements
 
 class Button(Unit):
     def __init__(self, name, handler = None, **kwargs):
