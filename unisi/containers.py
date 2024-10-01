@@ -81,11 +81,12 @@ class Net(Graph):
         super().__init__(name, *args, **kwargs)
         self.type = 'graph' 
         self.topology = topology       
+        self._inside_changed = False
         changed_handler = getattr(self, 'changed', None)
         
         def changed_converter(_, value):            
             mark_changed = self._mark_changed 
-            self._mark_changed = None #turn off for 'value' diff  reaction
+            self._inside_changed = True
             self._value = value
             narray = self._narray
             value = dict(nodes = [self._narray[i] for i in value['nodes']], edges = 
@@ -95,7 +96,7 @@ class Net(Graph):
             else:
                 result = None
                 self.value = value
-            self._mark_changed = mark_changed #turn on
+            self._inside_changed = False
             return result
         self.changed = changed_converter
 
@@ -103,6 +104,8 @@ class Net(Graph):
         """ mark serial info as invalid """
         if property:
             if property.startswith('_'):
+                return False
+            elif property == 'value' and self._inside_changed:
                 return False
             else:
                 self.delattr('_nodes')
@@ -137,11 +140,11 @@ class Net(Graph):
             self._nodes = nodes
             self._edges = earray
             self._narray = narray            
-
+        replacement = dict(nodes = '_nodes', edges = '_edges', value = '_value')
         if not hasattr(self, '_value'):
             self._value = dict(nodes = [index_of(self._narray,unit) for unit in self.value['nodes']], 
-            edges = [Edge(index_of(self._narray, e.source), index_of(self._narray, e.target)) for e in self.value['edges']])
-        return dict(name = self.name, type = self.type, nodes = self._nodes, edges = self._edges, value = self._value)
+            edges = [Edge(index_of(self._narray, e.source), index_of(self._narray, e.target)) for e in self.value['edges']])            
+        return {name: getattr(self,replacement.get(name, name)) for name in ['nodes', 'edges', *self.__dict__.keys()]}    
 
     def make_topology(self, unit: Unit | Iterable):
         topo = Topology()
