@@ -41,7 +41,8 @@ set_defaults(config,  dict(
     froze_time= None,
     monitor_tick = 0.005,
     pool = None,
-    db_dir = None
+    db_dir = None,
+    lang = 'en-US'
 ))
 
 Screen.defaults = dict(
@@ -51,7 +52,8 @@ Screen.defaults = dict(
     header = config.appname,                        
     toolbar = [], 
     order = 0,
-    reload = config.hot_reload 
+    reload = config.hot_reload, 
+    lang = config.lang
 )
 
 if config.froze_time == 0:

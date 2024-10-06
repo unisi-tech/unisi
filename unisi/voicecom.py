@@ -10,14 +10,10 @@ def word_to_number(sn):
     except:
         return None
     
-commands = dict( #-> words    
+command_synonyms = dict( #-> words    
     value = ['value', 'is', 'equals'],
     select = ['select','choose','set'],
-    backspace = ['backspace', 'back'],
-    left = ['left'],
-    right = ['right'],
-    up = ['up'],
-    down = ['down'],
+    backspace = ['backspace', 'back'],    
     enter = ['enter', 'push', 'execute','run'],
     clean = ['clean', 'empty','erase'],      
     screen = ['screen']
