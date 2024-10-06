@@ -199,7 +199,7 @@ class Table(Unit):
             tasks = []
             for index in self.selected_list:
                 values = {field: value for field, value in zip(self.headers, self.rows[index]) if value}
-                for fld, deps in self.__llm_dependencies__.items():                    
+                for fld, deps in self._llm_dependencies.items():                    
                     if fld not in values:                        
                         if deps is True:
                             context = values

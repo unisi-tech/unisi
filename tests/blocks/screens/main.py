@@ -46,10 +46,13 @@ def delblock(elem, value):
 
 def change_seletion(elem, value):
     for unit in elem.value['nodes']:
-        unit.active = False
-    elem.value = value
+        if unit not in value['nodes']:
+            unit.active = False
+    
     for unit in value['nodes']:
-        unit.active = True
+        if unit not in elem.value['nodes']:
+            unit.active = True
+    elem.value = value
 
 toposcreen = Net('Net', changed = change_seletion )
 
@@ -62,7 +65,7 @@ def switch_graph(*_):
     bottom_block.value[1] = toposcreen if bottom_block.value[1] is graph else graph
 
 bottom_block = Block('Screen topology: Press Shift for multi (de)select nodes and links', 
-     [Button('Delete block', delblock), Button('Switch graph', switch_graph)], toposcreen)
+     Button('Switch graph', switch_graph), toposcreen, closable = True)
 
 blocks= [[block,bottom_block],config_area]
 

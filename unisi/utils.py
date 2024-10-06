@@ -58,9 +58,6 @@ if config.froze_time == 0:
     print('froze_time in config.py can not be 0!')
     config.froze_time = None
 
-def is_screen_switch(message):
-    return message and message.block == 'root' and message.element is None
-
 def filename2url(fn):   
     if fn[0] == '/' or fn[1] == ':': #if full path
         fn = fn[len(app_dir):]   

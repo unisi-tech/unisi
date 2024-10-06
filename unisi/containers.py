@@ -1,5 +1,5 @@
 from .units import *
-from .common import pretty4, flatten
+from .common import pretty4, flatten, delete_unit
 from numbers import Number
         
 class Block(Unit):    
@@ -33,7 +33,7 @@ class Block(Unit):
                 elif isinstance(elem.llm, dict):
                     if elem.type != 'table':                        
                         raise AttributeError(f'{elem.name} llm parameter is a dictionary only for tables, not for {elem.type}!')                                                                
-                    elem.__llm_dependencies__ = {fld: (deps if isinstance(deps, list | bool) else [deps]) for fld, deps in elem.llm.items()} 
+                    elem._llm_dependencies = {fld: (deps if isinstance(deps, list | bool) else [deps]) for fld, deps in elem.llm.items()} 
                     elem.llm = True
                     continue
                 else:
@@ -42,12 +42,19 @@ class Block(Unit):
                     elem.llm = exactly                
                     for dependency in dependencies:
                         dependency.add_changed_handler(elem.emit)    
-                    elem.__llm_dependencies__ = dependencies
+                    elem._llm_dependencies = dependencies
                 else:
                     elem.llm = None
                     print(f'Empty dependency list for llm calculation for {elem.name} {elem.type}!')
-        
-        self.set_reactivity(Unishare.context_user())
+
+        user = Unishare.context_user()
+        if hasattr(self,'closable'):        
+            def close(*_):
+                delete_unit(user.screen.blocks, self.name)
+                return Redesign
+            self.close = close
+
+        self.set_reactivity(user)
 
     def set_reactivity(self, user, override = False):
         if user:            

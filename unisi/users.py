@@ -1,6 +1,7 @@
 from .utils import *
 from .units import *
 from .common import *
+from .voicecom import VoiceCom
 from .containers import Dialog, Screen
 from .multimon import notify_monitor, logging_lock, run_external_process
 from .kdb import Database
@@ -17,6 +18,7 @@ class User:
         self.active_dialog = None        
         self.last_message = None                               
         self.changed_units = set()
+        self.voice = None
 
         if share:            
             self.screens = share.screens            
@@ -53,7 +55,7 @@ class User:
                 if user is not self and screen is user.screen_module])        
         
     async def reflect(self, message, result):
-        if self.reflections and not is_screen_switch(message):                        
+        if self.reflections and not message.screen_type:                        
             if result:
                 await self.broadcast(result)        
             if message:                    
@@ -197,6 +199,8 @@ class User:
         else:
             for bl in flatten(self.blocks):
                 if bl.name == blname:
+                    if not elname:
+                        return bl
                     for c in flatten(bl.value):
                         if c.name == elname:
                             return c
@@ -214,8 +218,9 @@ class User:
 
     def prepare_result(self, raw):
         if raw is True or raw == Redesign:
-            raw = self.screen      
-            raw.reload = raw == Redesign                              
+            out = self.screen      
+            out.reload = raw == Redesign                              
+            raw = out
         else:
             match raw:
                 case None: 
@@ -240,12 +245,15 @@ class User:
 
     async def process(self, message):        
         screen_change_message = message.screen and self.screen.name != message.screen
-        if screen_change_message or is_screen_switch(message):
+        if screen_change_message or message.screen_type:
             for s in self.screens:
                 if s.name == message.value:
-                    self.screen_module = s                    
+                    self.screen_module = s   
                     if screen_change_message:
                         break                    
+                    if self.voice:
+                        self.voice.set_screen(s)       
+                        self.voice.start()                              
                     if getattr(s.screen,'prepare', None):
                         s.screen.prepare()
                     return True 
@@ -253,14 +261,24 @@ class User:
                 error = f'Unknown screen name: {message.value}'   
                 self.log(error)
                 return Error(error)
-        
-        elem = self.find_element(message)          
-        if elem:                          
-            return await self.process_element(elem, message)  
-        
-        error = f'Element {message.block}/{message.element} does not exist!'
-        self.log(error)
-        return Error(error)
+        elif message.voice_type:
+            created = False
+            if not self.voice:
+                self.voice = VoiceCom(self)
+                created = True
+            if message.event == 'listen':                
+                return self.voice.start() if message.value else self.voice.stop()
+            else:
+                self.voice.input_word(message.value)
+            if created:
+                return Redesign
+        else:        
+            elem = self.find_element(message)          
+            if elem:                          
+                return await self.process_element(elem, message)              
+            error = f'Element {message.block}/{message.element} does not exist!'
+            self.log(error)
+            return Error(error)
         
     async def process_element(self, elem, message):                
         event = message.event 

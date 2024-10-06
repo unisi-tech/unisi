@@ -77,11 +77,10 @@ def unit2image(unit):
 class Net(Graph):    
     """Graph of Units"""
     replace4state = dict(nodes = '_nodes', edges = '_edges', value = '_value')
-    def __init__(self, name, topology = Topology(),  **kwargs):        
-        Unit.__init__(self, name, **kwargs)
-        if not hasattr(self, 'value'):
-            self.value = graph_default_value
+    def __init__(self, name, value = graph_default_value, topology = Topology(),  **kwargs):        
+        Unit.__init__(self, name, **kwargs)        
         self.type = 'graph'         
+        self.value = value
         self.topology = topology       
         self._inside_converter = False
         changed_handler = getattr(self, 'changed', None)

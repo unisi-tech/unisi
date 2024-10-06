@@ -112,9 +112,9 @@ class Unit:
     async def emit(self, *_ ):        
         """calcute value by system llm, can be used as a handler"""
         if Unishare.llm_model and (exactly := getattr(self, 'llm', None)) is not None:        
-            elems = [e.compact_view for e in self.__llm_dependencies__ if e.value != '' and e.value is not None]
+            elems = [e.compact_view for e in self._llm_dependencies if e.value != '' and e.value is not None]
             #exactly is requirment that all elements have to have valid value
-            if not exactly or len(elems) == len(self.__llm_dependencies__):
+            if not exactly or len(elems) == len(self._llm_dependencies):
                 context = ','.join(elems)    
                 self.value = await get_property(self.name, context, self.type, options = getattr(self, 'options', None))
                 return self

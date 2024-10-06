@@ -48,6 +48,12 @@ class ReceivedMessage(ArgObject):
         self.__dict__.update(kwargs)
     def __str__(self):
         return f'{self.block}/{self.element}->{self.event}({self.value})'
+    @property
+    def screen_type(self):
+        return self.block == 'root' and self.element is None
+    @property
+    def voice_type(self):
+        return self.block == 'voice' and self.element is None
 
 def toJson(obj):
     return jsonpickle.encode(obj,unpicklable = False)
@@ -146,6 +152,21 @@ def Answer(type, message, result):
     ms = TypeMessage(type, result)
     ms.message = message
     return ms
+
+def delete_unit(units, name):
+    """Deletes a unit with the given name from a nested list of units.
+        Returns True if the unit was found and deleted, False otherwise.
+    """
+    for i in range(len(units)):
+        if isinstance(units[i], list | tuple):
+            if delete_unit(units[i], name):
+                if not units[i]: # if the sublist became empty after deletion
+                    units.pop(i) # remove sublist also
+                return True
+        elif units[i].name == name:
+            units.pop(i) 
+            return True
+    return False
 
 
 
