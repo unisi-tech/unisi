@@ -153,6 +153,7 @@ def smart_complete(lst, min_input_length = 0, max_output_length = 20):
 class Edit(Unit):
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)        
+        self.x = 0
         has_value = hasattr(self,'value')
         if 'type' not in kwargs:            
             if has_value:
@@ -263,6 +264,7 @@ class Tree(Unit):
 class TextArea(Unit):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
+        self.x = 0
         self.type = 'text' 
                      
         

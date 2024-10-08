@@ -11,22 +11,27 @@ def word_to_number(sn):
         return None
     
 command_synonyms = dict( #-> words    
-    value = ['value', 'is', 'equals'],
-    select = ['select','choose','set'],
-    backspace = ['backspace', 'back'],    
-    enter = ['enter', 'push', 'execute','run'],
-    clean = ['clean', 'empty','erase'],      
-    screen = ['screen']
+    value = ['is', 'equals'],
+    select = ['choose','set'],
+    backspace = ['back'],    
+    enter = ['push', 'execute','run'],
+    clean = ['empty','erase'],
+    screen = ['top']          
 )
 
-modes = dict( #-> actions
-    none = ['select', 'name'],
+root_commands = ['select', 'screen', 'stop']   
+
+modes = dict( #-> actions    
     text = ['text', 'left', 'right', 'up', 'down','backspace','delete', 'space', 'tab', 'enter'],
-    number = ['number', 'backspace','delete'],
-    select = ['select'],
-    graph = ['select', 'node', 'edge'],
+    number = ['number', 'backspace','delete'],    
+    graph = ['node', 'edge'],
     table = ['page','row', 'column', 'left', 'right', 'up', 'down','backspace','delete'],    
 )
+
+word2command = {v:k for k,v in command_synonyms.items()}
+word2command.update({command: command for command in root_commands})
+for mode, commands in modes.items():
+    word2command.update({c:c for c in commands})
 
 select_str = 'Select element ..'
 screen_str = 'Screen ..'
@@ -80,26 +85,41 @@ class VoiceCom:
 
     def assist_block(self) -> Block:
         self.input = Edit('Input', '')
+        self.message = Text('System message')
         self.context_state = Select('Context', value = select_str, options = self.unit_names)
         self.commands = Select('Commands', value = select_str, options = [select_str])
         
         return Block("Voice Assistant", 
             self.input,
+            self.message,
             self.context_state,
             closable = True, width = 390                                    
         )        
 
     def input_word(self, word: str):  
+        self.input.value = word
         if word:      
-            self.buffer.append(word)
-            match self.mode:
-                case  'none':
-                    if unit := self.buffer_suits_name():
-                        self.activate_unit(unit)
-                    else:
-                        self.process()
-                case _:
-                    self.process()        
+            if self.mode == 'number' or self.mode == 'text':
+                #double repeat command word cause execution
+                if self.buffer and self.buffer[-1] == word and word in word2command:
+                    self.buffer.pop(-1)
+                    self.exec_command(word)
+                else:                    
+                    self.process(word)
+            else:
+                self.exec_command(word)
+
+    def exec_command(self, word: str):  
+        self.message.value = ''            
+        command = word2command.get(word)
+        match command:
+            case  'select':
+                if unit := self.buffer_suits_name():
+                    self.activate_unit(unit)
+                else:
+                    self.process()
+            case _:
+                self.process()        
 
     def buffer_suits_name(self):
         name = ' '.join(self.buffer) 

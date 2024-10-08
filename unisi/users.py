@@ -95,16 +95,16 @@ class User:
     async def delete(self):
         uss = Unishare.sessions
         if uss and uss.get(self.session):
-            del uss[self.session]
-        
+            del uss[self.session]        
         if self.reflections: #reflections is common array
             if len(self.reflections) == 2: 
                 self.reflections.clear() #1 element in user.reflections has no sense
             else:
                 self.reflections.remove(self)  
-
         if notify_monitor:
             await notify_monitor('-', self.session, self.last_message)   
+        if config.share:
+            self.log(f'User is disconnected, session: {self.session}', type = 'info')            
 
     def set_clean(self):
         #remove user modules from sys 
