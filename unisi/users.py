@@ -269,7 +269,7 @@ class User:
             if message.event == 'listen':                
                 return self.voice.start() if message.value else self.voice.stop()
             else:
-                self.voice.input_word(message.value)
+                self.voice.process_word(message.value)
             if created:
                 return Redesign
         else:        

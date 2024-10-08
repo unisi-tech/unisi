@@ -64,6 +64,8 @@ def set_defaults(self, param_defaults : dict):
             setattr(self, param, value)
 
 def pretty4(name):
+    if name.startswith('_'):
+        name = name[1:]
     pretty_name = name.replace('_',' ')
     return pretty_name[0].upper() + pretty_name[1:]
 

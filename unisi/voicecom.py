@@ -1,8 +1,12 @@
-from difflib import get_close_matches
+from difflib import get_close_matches, SequenceMatcher
 from word2number import w2n 
 from .users import *
 from .units import *
+from .tables import Table
 from .containers import *
+
+def similarity(string1, string2):
+    return SequenceMatcher(None, string1, string2).ratio()
 
 def word_to_number(sn):
     try: 
@@ -28,27 +32,67 @@ modes = dict( #-> actions
     table = ['page','row', 'column', 'left', 'right', 'up', 'down','backspace','delete'],    
 )
 
-word2command = {v:k for k,v in command_synonyms.items()}
+word2command = {}
+for command, syns in command_synonyms.items():
+    for syn in syns:
+        word2command[syn] = command        
 word2command.update({command: command for command in root_commands})
 for mode, commands in modes.items():
     word2command.update({c:c for c in commands})
 
-select_str = 'Select element ..'
-screen_str = 'Screen ..'
 class VoiceCom:
     def __init__(self, user):
         self.user = user
         self.block = None
         self.set_screen(user.screen)
 
+    def assist_block(self) -> Block:
+        self.input = Edit('Input', '')
+        self.message = Edit('System message', '', edit = False)
+        self.context_list = Select('Elements', type = 'list')
+        self.command_list = Select('Commands', type = 'list')
+        
+        return Block("Voice Assistant", 
+            self.input,
+            self.message,
+            self.context_list,
+            self.commands,
+            closable = True, width = 390                                    
+        )        
     def set_screen(self, screen):
         self.buffer = []
-        self.mode = 'none'
+        self.mode = 'select'
         self.unit = None
-        self.calc_interactive_units()
-        self.screen = screen
         if not self.block:
             self.block = self.assist_block()        
+        self.calc_interactive_units()
+        self.screen = screen
+
+    @property
+    def  unit_names(self):
+        return self.context_list.options
+
+    @unit_names.setter
+    def unit_names(self, names):
+        self.context_list.options = names       
+
+    @property
+    def commands(self):
+        return self.command_list.options
+        
+    @commands.setter
+    def commands(self, commands):
+        self.command_list.options = commands
+
+    @property
+    def context(self):
+        return self.context_list.value
+    
+    @context.setter
+    def context(self, context):
+        self.context_list.value = context
+        unit = self.name2unit[context]
+        self.activate_unit(unit)
                 
     def calc_interactive_units(self):
         interactive_names = []
@@ -58,8 +102,9 @@ class VoiceCom:
             name2unit[block.name] = block            
             for elem in flatten(block.value):
                 if getattr(elem, 'edit', True):
-                    name2unit[elem.name] = elem
-                    interactive_names.append(elem)
+                    pretty_name = pretty4(elem.name)
+                    name2unit[pretty_name] = elem
+                    interactive_names.append(pretty_name)
         self.unit_names = interactive_names
         self.name2unit = name2unit
     
@@ -71,7 +116,10 @@ class VoiceCom:
                 self.mode = 'number'
             case _: 
                 self.mode = unit.type
+        if self.unit:
+            self.unit.active = False
         self.unit = unit
+        unit.active = True
         self.buffer = []
 
     def start(self):
@@ -83,54 +131,76 @@ class VoiceCom:
             self.screen.blocks.remove(self.block)
             return Redesign
 
-    def assist_block(self) -> Block:
-        self.input = Edit('Input', '')
-        self.message = Text('System message')
-        self.context_state = Select('Context', value = select_str, options = self.unit_names)
-        self.commands = Select('Commands', value = select_str, options = [select_str])
-        
-        return Block("Voice Assistant", 
-            self.input,
-            self.message,
-            self.context_state,
-            closable = True, width = 390                                    
-        )        
-
-    def input_word(self, word: str):  
+    def process_word(self, word: str):  
         self.input.value = word
+        self.message.value = ''
+        result = None
         if word:      
             if self.mode == 'number' or self.mode == 'text':
                 #double repeat command word cause execution
                 if self.buffer and self.buffer[-1] == word and word in word2command:
-                    self.buffer.pop(-1)
-                    self.exec_command(word)
+                    self.buffer.pop()
+                    result = self.exec_command(word)
                 else:                    
-                    self.process(word)
+                    result = self.process_context(word)
             else:
-                self.exec_command(word)
+                result = self.exec_command(word)
+        return result
 
     def exec_command(self, word: str):  
+        """word is a command or a unit name or a name part"""
         self.message.value = ''            
-        command = word2command.get(word)
+        command = word2command.get(word, None)
+        result = None
         match command:
-            case  'select':
+            case 'select':            
                 if unit := self.buffer_suits_name():
                     self.activate_unit(unit)
+                    self.buffer = []
                 else:
-                    self.process()
+                    result = self.process_context(word)
+            case 'screen':
+                clist = self.context_list
+                clist.options = [getattr(s, 'name')for s in self.user.screens 
+                    if hasattr(s, 'name') and s.name != self.user.sreen.name]
+                clist.value = None
+                self.mode = command
+                self.buffer = []
+            case 'stop':
+                result = self.stop()
             case _:
-                self.process()        
+                result = self.process_context(word)
+        return result
 
-    def buffer_suits_name(self):
+    def buffer_suits_name(self, word: str):
+        self.buffer.append(word)
         name = ' '.join(self.buffer) 
-        recon = get_close_matches(name, self.unit_names, n=1)
-        if recon:
-           self.context_state 
-            
-    def process(self):
-        u = self.unit        
-        word = self.buffer[0]
-        match self.mode:
+        recon = get_close_matches(name, self.unit_names, n=1)        
+        return  recon[0], similarity(name, recon[0])  if recon else '', 0
+                    
+    def process_context(self, word):
+        u = self.unit                
+        match self.mode:            
+            case 'screen':
+                if word == 'ok' and self.context:
+                    self.user.set_screen(self.context)
+                else:
+                    screen_name, similarity = self.buffer_suits_name(word)
+                    if similarity > 0.9:
+                        self.user.set_screen(screen_name)
+                    else:
+                        self.context_list.value = screen_name
+                        self.message.value = '"Ok" to confirm'
+            case 'select':
+                if word == 'ok' and self.context:
+                    self.activate_unit(self.name2unit[self.context])
+                else:
+                    unit_name, similarity = self.buffer_suits_name(word)
+                    if similarity > 0.9:
+                        self.activate_unit(self.name2unit[unit_name])
+                    else:
+                        self.command_list.value = unit_name
+                        self.message.value = '"Ok" to confirm'
             case 'text':
                 match word:
                     case 'left' :
