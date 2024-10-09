@@ -57,7 +57,7 @@ class VoiceCom:
             self.input,
             self.message,
             self.context_list,
-            self.commands,
+            self.command_list,
             closable = True, width = 390                                    
         )        
     def set_screen(self, screen):
@@ -127,7 +127,7 @@ class VoiceCom:
         if self.screen.blocks[-1] != self.block:
             self.screen.blocks.append(self.block)            
     def stop(self):
-        if self.screen.blocks[-1] is self.block:
+        if self.screen.blocks[-1] == self.block:
             self.screen.blocks.remove(self.block)            
 
     def process_word(self, word: str):  
@@ -175,7 +175,7 @@ class VoiceCom:
         self.buffer.append(word)
         name = ' '.join(self.buffer) 
         recon = get_close_matches(name, self.unit_names, n=1)        
-        return  recon[0], similarity(name, recon[0])  if recon else '', 0
+        return  (recon[0],  similarity(name, recon[0]))  if recon else '', 0
                     
     def process_context(self, word):
         u = self.unit           

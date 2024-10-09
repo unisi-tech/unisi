@@ -40,6 +40,9 @@ class ChangedProxy:
         if not callable(value) and not isinstance(value, atomics):
             value = ChangedProxy(value, self._unit)
         return value
+    
+    def __eq__(self, other):
+        return self._obj.__eq__(other._obj) if isinstance(other, ChangedProxy) else self._obj.__eq__(other)
 
     def __delitem__(self, key):
         del self._obj[key]
@@ -53,6 +56,9 @@ class ChangedProxy:
             return len(self._obj)
         except TypeError:        
             return 0  
+        
+    def __hash__(self):
+        return hash(self._obj)
         
     def __iadd__(self, other):  
         if isinstance(self._obj, list):
@@ -119,7 +125,13 @@ class Unit:
     def delattr(self, attr):
         if hasattr(self, attr): 
             delattr(self, attr)
-        
+
+    def __eq__(self, other):
+        return super().__eq__(other._obj) if isinstance(other, ChangedProxy) else super().__eq__(other)
+    
+    def __hash__(self):
+        return super().__hash__()
+    
     @property
     def compact_view(self) -> str:
         """reduce for external (llm) using if required"""

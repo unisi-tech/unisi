@@ -60,7 +60,7 @@ block = Block('X Block',
 | toolbar | Optional | list | Unit elements to show in the screen toolbar |
 | order | Optional | int | order in the program menu |
 | icon  | Optional | str | MD icon of screen to show in the screen menu |
-| prepare | Optional | def prepare() | Syncronizes GUI elements one to another and with the program/system data. If defined then is called before screen appearing. |
+| prepare | Optional | def prepare() | Syncronizes GUI elements one to another and with the program/system data. It is called before screen appearing if defined. |
 
 
 ### Server start ###
@@ -102,8 +102,6 @@ clean_button = Button('Clean the table’, clean_table)
 | :---: | :---: | 
 | None | Automatically update, Ok |
 | Error(...), Warning(...), Info(...) | Show to user info about a state. |
-| True | Update whole screen |
-| Redesign | Update and redesign whole screen |
 | Dialog(..) | Open a dialog with parameters |
 
 Unisi synchronizes units on frontend-end automatically after calling a handler.

@@ -90,7 +90,7 @@ class User:
         else: 
             screen.toolbar = User.toolbar  
         screen.set_reactivity(self)        
-        module.screen = ChangedProxy(screen, screen)                                 
+        module.screen = screen#ChangedProxy(screen, screen)                                 
         return module
     
     async def delete(self):
@@ -218,7 +218,7 @@ class User:
                 return ['toolbar', e.name]
 
     def prepare_result(self, raw):
-        reload_screen = any(unit.type == 'screen' for unit in self.changed_units) 
+        reload_screen = self.screen in self.changed_units
         if reload_screen or raw is True or raw == Redesign:            
             self.screen.reload = reload_screen or raw == Redesign                              
             raw = self.screen
@@ -262,17 +262,16 @@ class User:
                 error = f'Unknown screen name: {message.value}'   
                 self.log(error)
                 return Error(error)
-        elif message.voice_type:
-            created = False
+        elif message.voice_type:            
             if not self.voice:
-                self.voice = VoiceCom(self)
-                created = True
+                self.voice = VoiceCom(self)                
             if message.event == 'listen':                
-                return self.voice.start() if message.value else self.voice.stop()
+                if message.value:
+                    self.voice.start()  
+                else:
+                    self.voice.stop()
             else:
-                self.voice.process_word(message.value)
-            if created:
-                return Redesign
+                self.voice.process_word(message.value)            
         else:        
             elem = self.find_element(message)          
             if elem:                          
