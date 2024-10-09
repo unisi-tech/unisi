@@ -64,3 +64,330 @@ IndexError: index 99 is out of bounds for axis 0 with size 99
 
 2024-09-24 22:34:29,849 - INFO - session: ::1-0, screen: void, message: None
   User is connected, session: ::1-0, share: None
+2024-10-09 16:40:27,067 - INFO - session: ::1-0, screen: Main, message: None
+  User is connected, session: ::1-0, share: None
+2024-10-09 16:58:17,228 - INFO - session: ::1-0, screen: Main, message: None
+  User is connected, session: ::1-0, share: None
+2024-10-09 17:02:49,792 - INFO - session: ::1-0, screen: Parameters, message: root/None->changed(Parameters)
+  User is disconnected, session: ::1-0
+2024-10-09 17:02:49,973 - INFO - session: ::1-1, screen: void, message: None
+  User is connected, session: ::1-1, share: None
+2024-10-09 17:03:48,847 - INFO - session: ::1-1, screen: Parameters, message: root/None->changed(Parameters)
+  User is disconnected, session: ::1-1
+2024-10-09 17:03:48,965 - INFO - session: ::1-2, screen: void, message: None
+  User is connected, session: ::1-2, share: None
+2024-10-09 17:04:03,513 - INFO - session: ::1-2, screen: Main, message: None
+  User is disconnected, session: ::1-2
+2024-10-09 17:04:03,670 - INFO - session: ::1-3, screen: void, message: None
+  User is connected, session: ::1-3, share: None
+2024-10-09 17:04:59,406 - INFO - session: ::1-3, screen: Parameters, message: root/None->changed(Parameters)
+  User is disconnected, session: ::1-3
+2024-10-09 17:04:59,514 - INFO - session: ::1-4, screen: void, message: None
+  User is connected, session: ::1-4, share: None
+2024-10-09 17:06:42,428 - INFO - session: ::1-0, screen: Main, message: None
+  User is connected, session: ::1-0, share: None
+2024-10-09 17:13:45,842 - INFO - session: ::1-0, screen: Main, message: None
+  User is connected, session: ::1-0, share: None
+2024-10-09 17:21:03,991 - INFO - session: ::1-0, screen: Main, message: None
+  User is connected, session: ::1-0, share: None
+2024-10-09 17:21:49,821 - INFO - session: ::1-0, screen: Main, message: Screen topology: Press Shift for multi (de)select nodes and links/None->close(True)
+  User is disconnected, session: ::1-0
+2024-10-09 17:21:50,066 - INFO - session: ::1-1, screen: void, message: None
+  User is connected, session: ::1-1, share: None
+2024-10-09 17:37:36,068 - INFO - session: ::1-0, screen: Main, message: None
+  User is connected, session: ::1-0, share: None
+2024-10-09 17:51:23,936 - INFO - session: ::1-0, screen: Main, message: None
+  User is connected, session: ::1-0, share: None
+2024-10-09 17:51:23,946 - ERROR - Error handling request
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 299, in _flatten
+    result = self._flattened[id(obj)]
+KeyError: 135739258924976
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 299, in _flatten
+    result = self._flattened[id(obj)]
+KeyError: 135739257183360
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 299, in _flatten
+    result = self._flattened[id(obj)]
+KeyError: 135739258924640
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 299, in _flatten
+    result = self._flattened[id(obj)]
+KeyError: 135739257110848
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 299, in _flatten
+    result = self._flattened[id(obj)]
+KeyError: 135739257110784
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 299, in _flatten
+    result = self._flattened[id(obj)]
+KeyError: 135739258923968
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 299, in _flatten
+    result = self._flattened[id(obj)]
+KeyError: 135739257656832
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 299, in _flatten
+    result = self._flattened[id(obj)]
+KeyError: 135739258924448
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 299, in _flatten
+    result = self._flattened[id(obj)]
+KeyError: 135739257094016
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 299, in _flatten
+    result = self._flattened[id(obj)]
+KeyError: 135739258921952
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.vscode/extensions/ms-python.debugpy-2024.8.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_trace_dispatch_regular.py", line 359, in __call__
+    is_stepping = pydev_step_cmd != -1
+RecursionError: maximum recursion depth exceeded in comparison
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/aiohttp/web_protocol.py", line 433, in _handle_request
+    resp = await request_handler(request)
+  File "/home/george/.local/lib/python3.10/site-packages/aiohttp/web_app.py", line 504, in _handle
+    resp = await handler(request)
+  File "/home/george/Projects/unisi/unisi/server.py", line 121, in websocket_handler
+    await send(True if status else empty_app)
+  File "/home/george/Projects/unisi/unisi/server.py", line 117, in send
+    res = toJson(user.prepare_result(res))
+  File "/home/george/Projects/unisi/unisi/common.py", line 60, in toJson
+    return jsonpickle.encode(obj,unpicklable = False)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 144, in encode
+    context.flatten(value, reset=reset), indent=indent, separators=separators
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 336, in flatten
+    return self._flatten(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 301, in _flatten
+    result = self._flattened[id(obj)] = self._flatten_impl(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 356, in _flatten_impl
+    return self._pop(self._flatten_obj(obj))
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 389, in _flatten_obj
+    raise e
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 383, in _flatten_obj
+    return flatten_func(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 688, in _ref_obj_instance
+    return self._flatten_obj_instance(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 628, in _flatten_obj_instance
+    return self._getstate(state, data)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 405, in _getstate
+    state = self._flatten(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 301, in _flatten
+    result = self._flattened[id(obj)] = self._flatten_impl(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 356, in _flatten_impl
+    return self._pop(self._flatten_obj(obj))
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 389, in _flatten_obj
+    raise e
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 383, in _flatten_obj
+    return flatten_func(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 754, in _flatten_dict_obj
+    flatten(k, v, data)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 428, in _flatten_key_value_pair
+    data[k] = self._flatten(v)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 301, in _flatten
+    result = self._flattened[id(obj)] = self._flatten_impl(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 356, in _flatten_impl
+    return self._pop(self._flatten_obj(obj))
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 389, in _flatten_obj
+    raise e
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 383, in _flatten_obj
+    return flatten_func(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 688, in _ref_obj_instance
+    return self._flatten_obj_instance(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 628, in _flatten_obj_instance
+    return self._getstate(state, data)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 405, in _getstate
+    state = self._flatten(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 301, in _flatten
+    result = self._flattened[id(obj)] = self._flatten_impl(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 356, in _flatten_impl
+    return self._pop(self._flatten_obj(obj))
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 389, in _flatten_obj
+    raise e
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 383, in _flatten_obj
+    return flatten_func(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 394, in _list_recurse
+    return [self._flatten(v) for v in obj]
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 394, in <listcomp>
+    return [self._flatten(v) for v in obj]
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 301, in _flatten
+    result = self._flattened[id(obj)] = self._flatten_impl(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 356, in _flatten_impl
+    return self._pop(self._flatten_obj(obj))
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 389, in _flatten_obj
+    raise e
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 383, in _flatten_obj
+    return flatten_func(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 394, in _list_recurse
+    return [self._flatten(v) for v in obj]
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 394, in <listcomp>
+    return [self._flatten(v) for v in obj]
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 301, in _flatten
+    result = self._flattened[id(obj)] = self._flatten_impl(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 356, in _flatten_impl
+    return self._pop(self._flatten_obj(obj))
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 389, in _flatten_obj
+    raise e
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 383, in _flatten_obj
+    return flatten_func(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 688, in _ref_obj_instance
+    return self._flatten_obj_instance(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 628, in _flatten_obj_instance
+    return self._getstate(state, data)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 405, in _getstate
+    state = self._flatten(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 301, in _flatten
+    result = self._flattened[id(obj)] = self._flatten_impl(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 356, in _flatten_impl
+    return self._pop(self._flatten_obj(obj))
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 389, in _flatten_obj
+    raise e
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 383, in _flatten_obj
+    return flatten_func(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 754, in _flatten_dict_obj
+    flatten(k, v, data)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 428, in _flatten_key_value_pair
+    data[k] = self._flatten(v)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 301, in _flatten
+    result = self._flattened[id(obj)] = self._flatten_impl(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 356, in _flatten_impl
+    return self._pop(self._flatten_obj(obj))
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 389, in _flatten_obj
+    raise e
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 383, in _flatten_obj
+    return flatten_func(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 688, in _ref_obj_instance
+    return self._flatten_obj_instance(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 628, in _flatten_obj_instance
+    return self._getstate(state, data)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 405, in _getstate
+    state = self._flatten(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 301, in _flatten
+    result = self._flattened[id(obj)] = self._flatten_impl(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 356, in _flatten_impl
+    return self._pop(self._flatten_obj(obj))
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 389, in _flatten_obj
+    raise e
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 383, in _flatten_obj
+    return flatten_func(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 394, in _list_recurse
+    return [self._flatten(v) for v in obj]
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 394, in <listcomp>
+    return [self._flatten(v) for v in obj]
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 301, in _flatten
+    result = self._flattened[id(obj)] = self._flatten_impl(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 356, in _flatten_impl
+    return self._pop(self._flatten_obj(obj))
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 389, in _flatten_obj
+    raise e
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 383, in _flatten_obj
+    return flatten_func(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 688, in _ref_obj_instance
+    return self._flatten_obj_instance(obj)
+  File "/home/george/.local/lib/python3.10/site-packages/jsonpickle/pickler.py", line 620, in _flatten_obj_instance
+    state = obj.__getstate__()
+  File "/home/george/Projects/unisi/unisi/graphs.py", line 146, in __getstate__
+    self._value = dict(nodes = [index_of(self._narray,unit) for unit in self.value['nodes']],
+  File "/home/george/Projects/unisi/unisi/units.py", line 32, in __getitem__
+    return self[key]
+  File "/home/george/Projects/unisi/unisi/units.py", line 32, in __getitem__
+    return self[key]
+  File "/home/george/Projects/unisi/unisi/units.py", line 32, in __getitem__
+    return self[key]
+  [Previous line repeated 2910 more times]
+  File "/home/george/Projects/unisi/unisi/units.py", line 31, in __getitem__
+    def __getitem__(self, key):
+  File "/home/george/.vscode/extensions/ms-python.debugpy-2024.8.0-linux-x64/bundled/libs/debugpy/_vendored/pydevd/_pydevd_bundle/pydevd_trace_dispatch_regular.py", line 469, in __call__
+    return None if event == 'call' else NO_FTRACE
+RecursionError: maximum recursion depth exceeded in comparison
+2024-10-09 17:54:09,709 - INFO - session: ::1-0, screen: Main, message: None
+  User is connected, session: ::1-0, share: None
+2024-10-09 17:54:19,195 - ERROR - session: ::1-0, screen: Main, message: Screen topology: Press Shift for multi (de)select nodes and links/None->close(True)
+  Traceback (most recent call last):
+  File "/home/george/Projects/unisi/unisi/server.py", line 139, in websocket_handler
+    result = await user.result4message(message)
+  File "/home/george/Projects/unisi/unisi/users.py", line 165, in result4message
+    result = await self.process(message)
+  File "/home/george/Projects/unisi/unisi/users.py", line 278, in process
+    return await self.process_element(elem, message)
+  File "/home/george/Projects/unisi/unisi/users.py", line 293, in process_element
+    result = await self.eval_handler(attr, elem, message.value)
+  File "/home/george/Projects/unisi/unisi/users.py", line 174, in eval_handler
+    else handler(gui, value)
+  File "/home/george/Projects/unisi/unisi/containers.py", line 54, in close
+    delete_unit(user.screen.blocks, self.name)
+  File "/home/george/Projects/unisi/unisi/common.py", line 165, in delete_unit
+    if delete_unit(units[i], name):
+  File "/home/george/Projects/unisi/unisi/common.py", line 170, in delete_unit
+    units.pop(i)
+  File "/home/george/Projects/unisi/unisi/units.py", line 22, in __getattribute__
+    super().__getattribute__('_unit')._mark_changed()
+  File "/home/george/Projects/unisi/unisi/units.py", line 18, in __getattribute__
+    value = getattr(obj, name)
+AttributeError: 'list' object has no attribute '_mark_changed'
+
+2024-10-09 17:54:19,195 - INFO - session: ::1-0, screen: Main, message: Screen topology: Press Shift for multi (de)select nodes and links/None->close(True)
+  User is disconnected, session: ::1-0
+2024-10-09 17:54:33,785 - INFO - session: ::1-1, screen: void, message: None
+  User is connected, session: ::1-1, share: None
+2024-10-09 17:54:35,572 - ERROR - session: ::1-1, screen: Main, message: Screen topology: Press Shift for multi (de)select nodes and links/None->close(True)
+  Traceback (most recent call last):
+  File "/home/george/Projects/unisi/unisi/server.py", line 139, in websocket_handler
+    result = await user.result4message(message)
+  File "/home/george/Projects/unisi/unisi/users.py", line 165, in result4message
+    result = await self.process(message)
+  File "/home/george/Projects/unisi/unisi/users.py", line 278, in process
+    return await self.process_element(elem, message)
+  File "/home/george/Projects/unisi/unisi/users.py", line 293, in process_element
+    result = await self.eval_handler(attr, elem, message.value)
+  File "/home/george/Projects/unisi/unisi/users.py", line 174, in eval_handler
+    else handler(gui, value)
+  File "/home/george/Projects/unisi/unisi/containers.py", line 54, in close
+    delete_unit(user.screen.blocks, self.name)
+  File "/home/george/Projects/unisi/unisi/common.py", line 165, in delete_unit
+    if delete_unit(units[i], name):
+  File "/home/george/Projects/unisi/unisi/common.py", line 170, in delete_unit
+    units.pop(i)
+  File "/home/george/Projects/unisi/unisi/units.py", line 22, in __getattribute__
+    super().__getattribute__('_unit')._mark_changed()
+  File "/home/george/Projects/unisi/unisi/units.py", line 18, in __getattribute__
+    value = getattr(obj, name)
+AttributeError: 'list' object has no attribute '_mark_changed'
+
+2024-10-09 17:54:35,572 - INFO - session: ::1-1, screen: Main, message: Screen topology: Press Shift for multi (de)select nodes and links/None->close(True)
+  User is disconnected, session: ::1-1
+2024-10-09 17:56:40,390 - INFO - session: ::1-0, screen: Main, message: None
+  User is connected, session: ::1-0, share: None

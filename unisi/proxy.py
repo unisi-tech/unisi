@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 from websocket import create_connection
 from enum import IntFlag
 import json, requests, os

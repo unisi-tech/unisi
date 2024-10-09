@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 import multiprocessing, time, asyncio, logging, inspect
 from .utils import start_logging
 from config import froze_time, monitor_tick, profile, pool

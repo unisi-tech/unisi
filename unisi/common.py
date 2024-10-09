@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 import jsonpickle, inspect, asyncio
 
 UpdateScreen = True

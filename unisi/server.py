@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 from aiohttp import web, WSMsgType
 from .users import *
 from pathlib import Path
@@ -6,8 +7,68 @@ from .autotest import recorder, run_tests
 from .common import  *
 from.llmrag import setup_llmrag
 from .dbunits import dbupdates
+from .kdb import Database
 from config import port, upload_dir
 import traceback, json
+
+def context_user():
+    return context_object(User)
+
+def context_screen():
+    user = context_user()
+    return user.screen if user else None
+
+def message_logger(str, type = 'error'):
+    user = context_user()
+    user.log(str, type)
+
+Unishare.context_user = context_user
+Unishare.message_logger = message_logger
+User.type = User    
+
+if config.db_dir:
+    Unishare.db = Database(config.db_dir, message_logger) 
+
+def make_user(request):
+    session = f'{request.remote}-{User.count}'        
+    if requested_connect := request.query_string if config.share else None:
+        user = Unishare.sessions.get(requested_connect, None)
+        if not user:
+            error = f'Session id "{requested_connect}" is unknown. Connection refused!'
+            with logging_lock:
+                logging.error(error)
+            return None, Error(error)
+        user = User.type(session, user)
+        ok = user.screens
+    elif config.mirror and User.count:
+        user = User.type(session, User.last_user)
+        ok = user.screens
+    elif not User.count:
+        user = User.last_user        
+        user.session = session
+        user.monitor(session)
+        ok = True
+    else:
+        user = User.type(session)
+        ok = user.load()  
+                
+    User.count += 1
+    Unishare.sessions[session] = user 
+    return user, ok
+
+def handle(elem, event):
+    def h(fn):
+        key = elem, event
+        handler_map = User.last_user.__handlers__        
+        func = handler_map.get(key, None)        
+        if func:
+            handler_map[key] =  compose_handlers(func, fn)  
+        else: 
+            handler_map[key] = fn
+        return fn
+    return h
+
+Unishare.handle = handle
 
 async def post_handler(request):
     reader = await request.multipart()

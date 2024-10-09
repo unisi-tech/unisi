@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 from .common import Unishare
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI

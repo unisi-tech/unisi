@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 from .common import Unishare
 from collections import defaultdict
 

@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 from .units import Unit
 from .common import *
 from .dbunits import Dblist, dbupdates

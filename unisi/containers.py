@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 from .units import *
 from .common import pretty4, flatten, delete_unit
 from numbers import Number
@@ -50,8 +51,7 @@ class Block(Unit):
         user = Unishare.context_user()
         if hasattr(self,'closable'):        
             def close(*_):
-                delete_unit(user.screen.blocks, self.name)
-                return Redesign
+                delete_unit(user.screen.blocks, self.name)                
             self.close = close
 
         self.set_reactivity(user)
@@ -95,26 +95,26 @@ class ParamBlock(Block):
 
         for param, val in params.items():                    
             pretty_name = pretty4(param)            
-            t = type(val)
-            if t == str or t == int or t == float:
-                el = Edit(pretty_name, val)
-            elif t == bool:
-                el = Switch(pretty_name, val)
-            elif t == tuple or t == list:
-                if len(val) != 2:
-                    raise ValueError('Composite value has to contain the current value and options value!')
-                options = val[1]
-                if not isinstance(options, list | tuple | dict):
-                    raise ValueError('Options value (the second parameter) has to be a list or tuple!')
-                if len(options) == 3 and all(map(lambda e: isinstance(e, Number), options)):
-                    el = Range(pretty_name, val[0], options = options)
-                elif isinstance(options, list | tuple):
-                    el = Select(pretty_name, val[0], options = options, type = 'select')
-                else: 
-                    el = Tree(pretty_name, val[0], options = options)
-            else:
-                raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')
-            
+            match val:
+                case True | False:
+                    el = Switch(pretty_name, val)
+                case str() | int() | float():
+                    el = Edit(pretty_name, val)                
+                case tuple() | list():
+                    if len(val) != 2:
+                        raise ValueError('Composite value has to contain the current value and options value!')
+                    options = val[1]
+                    if not isinstance(options, list | tuple | dict):
+                        raise ValueError('Options value (the second parameter) has to be a list or tuple!')
+                    if len(options) == 3 and all(map(lambda e: isinstance(e, Number), options)):
+                        el = Range(pretty_name, val[0], options = options)
+                    elif isinstance(options, list | tuple):
+                        el = Select(pretty_name, val[0], options = options, type = 'select')
+                    else: 
+                        el = Tree(pretty_name, val[0], options = options)
+                case _:
+                    raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')
+                            
             self.name2elem[param] = el
             
             if cnt % row == 0:
@@ -136,9 +136,10 @@ class Dialog:
         self.icon = icon
         self.value = [[], *content] if content else []        
 
-class Screen:
-    def __init__(self, name, **kwargs):
-        self.name = name        
-        self.__dict__.update(kwargs) 
-        self.type = 'screen'
+class Screen(Unit):
+    def __init__(self, name, user):
+        self._mark_changed = None        
+        self.name = name                
+        self.type = 'screen'                          
+        super().set_reactivity(user)        
 

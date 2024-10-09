@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 from difflib import get_close_matches, SequenceMatcher
 from word2number import w2n 
 from .users import *
@@ -179,15 +180,17 @@ class VoiceCom:
         return  recon[0], similarity(name, recon[0])  if recon else '', 0
                     
     def process_context(self, word):
-        u = self.unit                
+        u = self.unit           
+        result = None     
         match self.mode:            
             case 'screen':
                 if word == 'ok' and self.context:
-                    self.user.set_screen(self.context)
+                    result = self.user.set_screen(self.context)
+                    self.set_screen(self.user.screen)
                 else:
                     screen_name, similarity = self.buffer_suits_name(word)
                     if similarity > 0.9:
-                        self.user.set_screen(screen_name)
+                        result = self.user.set_screen(screen_name)
                     else:
                         self.context_list.value = screen_name
                         self.message.value = '"Ok" to confirm'

@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 import kuzu, shutil, os, re
 from datetime import date, datetime
 from cymple import QueryBuilder as qb

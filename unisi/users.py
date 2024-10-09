@@ -1,10 +1,10 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 from .utils import *
 from .units import *
 from .common import *
 from .voicecom import VoiceCom
 from .containers import Dialog, Screen
 from .multimon import notify_monitor, logging_lock, run_external_process
-from .kdb import Database
 from .dbunits import dbshare, dbupdates
 import sys, asyncio, logging, importlib
 
@@ -79,7 +79,7 @@ class User:
         module.user = self  
                 
         spec.loader.exec_module(module)            
-        screen = Screen(getattr(module, 'name', ''))
+        screen = Screen(getattr(module, 'name', ''), self)
         #set system vars
         for var, val in screen.defaults.items():                                            
             setattr(screen, var, getattr(module, var, val))         
@@ -145,7 +145,7 @@ class User:
     def screen(self):        
         return  self.screen_module.screen 
 
-    def set_screen(self,name):
+    def set_screen(self,name): 
         return asyncio.run(self.process(ArgObject(block = 'root', element = None, value = name)))
     
     async def result4message(self, message):
@@ -217,10 +217,10 @@ class User:
                 return ['toolbar', e.name]
 
     def prepare_result(self, raw):
-        if raw is True or raw == Redesign:
-            out = self.screen      
-            out.reload = raw == Redesign                              
-            raw = out
+        reload_screen = self.screen in self.changed_units
+        if reload_screen or raw is True or raw == Redesign:            
+            self.screen.reload = reload_screen or raw == Redesign                              
+            raw = self.screen
         else:
             match raw:
                 case None: 
@@ -358,62 +358,3 @@ class User:
                                     sync_calls.append(user.send(update4user))
         dbupdates.clear()
         await asyncio.gather(*sync_calls)
-
-def context_user():
-    return context_object(User)
-
-def context_screen():
-    user = context_user()
-    return user.screen if user else None
-
-def message_logger(str, type = 'error'):
-    user = context_user()
-    user.log(str, type)
-
-Unishare.context_user = context_user
-Unishare.message_logger = message_logger
-User.type = User    
-
-if config.db_dir:
-    Unishare.db = Database(config.db_dir, message_logger) 
-
-def make_user(request):
-    session = f'{request.remote}-{User.count}'        
-    if requested_connect := request.query_string if config.share else None:
-        user = Unishare.sessions.get(requested_connect, None)
-        if not user:
-            error = f'Session id "{requested_connect}" is unknown. Connection refused!'
-            with logging_lock:
-                logging.error(error)
-            return None, Error(error)
-        user = User.type(session, user)
-        ok = user.screens
-    elif config.mirror and User.count:
-        user = User.type(session, User.last_user)
-        ok = user.screens
-    elif not User.count:
-        user = User.last_user        
-        user.session = session
-        user.monitor(session)
-        ok = True
-    else:
-        user = User.type(session)
-        ok = user.load()  
-                
-    User.count += 1
-    Unishare.sessions[session] = user 
-    return user, ok
-
-def handle(elem, event):
-    def h(fn):
-        key = elem, event
-        handler_map = User.last_user.__handlers__        
-        func = handler_map.get(key, None)        
-        if func:
-            handler_map[key] =  compose_handlers(func, fn)  
-        else: 
-            handler_map[key] = fn
-        return fn
-    return h
-
-Unishare.handle = handle

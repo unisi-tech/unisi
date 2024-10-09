@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 from .common import *
 from .llmrag import get_property
 
@@ -20,7 +21,7 @@ class ChangedProxy:
         if name in ChangedProxy.MODIFYING_METHODS:
             super().__getattribute__('_unit')._mark_changed()
         elif not callable(value) and not isinstance(value, atomics):
-            return ChangedProxy(value, self)
+            return ChangedProxy(value, self._unit)
         return value
 
     def __setitem__(self, key, value):
@@ -28,7 +29,10 @@ class ChangedProxy:
         self._unit._mark_changed ()
        
     def __getitem__(self, key):
-        return self._obj[key]    
+        value = self._obj[key]    
+        if not callable(value) and not isinstance(value, atomics):
+            value = ChangedProxy(value, self._unit)
+        return value
 
     def __delitem__(self, key):
         del self._obj[key]
@@ -42,6 +46,13 @@ class ChangedProxy:
             return len(self._obj)
         except TypeError:        
             return 0  
+        
+    def __iadd__(self, other):  
+        if isinstance(self._obj, list):
+            self.extend(other)  
+            return self  # Important: __iadd__ must return self
+        else:
+             raise TypeError(f"Unsupported operand type for += with '{type(self._obj).__name__}'")
             
     def __getstate__(self):     
         return self._obj

@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 import config, os, json, asyncio
 from .utils import *
 from .units import * 

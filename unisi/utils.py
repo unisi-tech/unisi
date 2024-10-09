@@ -1,3 +1,4 @@
+# Copyright © 2024 UNISI Tech. All rights reserved.
 import os, platform, requests, logging
 from .common import set_defaults
 from .containers import Screen
