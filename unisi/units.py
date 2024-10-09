@@ -21,8 +21,13 @@ class ChangedProxy:
         if name in ChangedProxy.MODIFYING_METHODS:
             super().__getattribute__('_unit')._mark_changed()
         elif not callable(value) and not isinstance(value, atomics):
-            return ChangedProxy(value, self._unit)
+            return ChangedProxy(value, self)
         return value
+    
+    def __setattr__(self, name, value):        
+        super().__setattr__(name, value) 
+        if name not in ('_obj', '_unit', '__dict__'):            
+            self._unit._mark_changed()
 
     def __setitem__(self, key, value):
         self._obj[key] = value
@@ -92,9 +97,7 @@ class Unit:
 
     def __setattr__(self, name, value):      
         #it is correct condition order 
-        if name != "_mark_changed" and self._mark_changed:
-            if name != "__dict__" and not isinstance(value, atomics) and not callable(value):
-              value = ChangedProxy(value, self)                                    
+        if name[0] != "_" and self._mark_changed:            
             self._mark_changed(name, value)
         super().__setattr__(name, value)
 
