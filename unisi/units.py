@@ -24,9 +24,11 @@ class ChangedProxy:
             return ChangedProxy(value, self)
         return value
     
-    def __setattr__(self, name, value):        
-        super().__setattr__(name, value) 
-        if name not in ('_obj', '_unit', '__dict__'):            
+    def __setattr__(self, name, value):                
+        if name in ('_obj', '_unit'):            
+            super().__setattr__(name, value)
+        else:
+            self._obj.__setattr__(name, value) 
             self._unit._mark_changed()
 
     def __setitem__(self, key, value):

@@ -137,9 +137,8 @@ class Dialog:
         self.value = [[], *content] if content else []        
 
 class Screen(Unit):
-    def __init__(self, name, user):
+    def __init__(self, name):
         self._mark_changed = None        
         self.name = name                
-        self.type = 'screen'                          
-        super().set_reactivity(user)        
+        self.type = 'screen'                                  
 

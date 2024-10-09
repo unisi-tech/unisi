@@ -125,12 +125,10 @@ class VoiceCom:
 
     def start(self):
         if self.screen.blocks[-1] != self.block:
-            self.screen.blocks.append(self.block)
-            return Redesign
+            self.screen.blocks.append(self.block)            
     def stop(self):
         if self.screen.blocks[-1] is self.block:
-            self.screen.blocks.remove(self.block)
-            return Redesign
+            self.screen.blocks.remove(self.block)            
 
     def process_word(self, word: str):  
         self.input.value = word

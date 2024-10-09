@@ -40,10 +40,6 @@ block = Block('X Block',
     [ tarea, table], 
         icon = 'api')
 
-def delblock(elem, value):
-    context_screen().blocks = [block, config_area]
-    return Redesign
-
 def change_seletion(elem, value):
     for unit in elem.value['nodes']:
         if unit not in value['nodes']:

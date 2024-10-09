@@ -79,7 +79,7 @@ class User:
         module.user = self  
                 
         spec.loader.exec_module(module)            
-        screen = Screen(getattr(module, 'name', ''), self)
+        screen = Screen(getattr(module, 'name', ''))        
         #set system vars
         for var, val in screen.defaults.items():                                            
             setattr(screen, var, getattr(module, var, val))         
@@ -89,7 +89,8 @@ class User:
             screen.toolbar += User.toolbar
         else: 
             screen.toolbar = User.toolbar  
-        module.screen = screen                                 
+        screen.set_reactivity(self)        
+        module.screen = ChangedProxy(screen, screen)                                 
         return module
     
     async def delete(self):
@@ -217,7 +218,7 @@ class User:
                 return ['toolbar', e.name]
 
     def prepare_result(self, raw):
-        reload_screen = self.screen in self.changed_units
+        reload_screen = any(unit.type == 'screen' for unit in self.changed_units) 
         if reload_screen or raw is True or raw == Redesign:            
             self.screen.reload = reload_screen or raw == Redesign                              
             raw = self.screen
