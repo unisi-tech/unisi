@@ -64,8 +64,8 @@ class ChangedProxy:
         if isinstance(self._obj, list):
             self.extend(other)  
             return self  # Important: __iadd__ must return self
-        else:
-             raise TypeError(f"Unsupported operand type for += with '{type(self._obj).__name__}'")
+        
+        raise TypeError(f"Unsupported operand type for += with '{type(self._obj).__name__}'")
             
     def __getstate__(self):     
         return self._obj

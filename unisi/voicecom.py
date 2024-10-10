@@ -1,13 +1,22 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
-from difflib import get_close_matches, SequenceMatcher
+from difflib import SequenceMatcher
 from word2number import w2n 
 from .users import *
 from .units import *
 from .tables import Table
 from .containers import *
 
-def similarity(string1, string2):
-    return SequenceMatcher(None, string1, string2).ratio()
+def find_most_similar_sequence(input_string, string_list):    
+    best_match = ""
+    highest_ratio = 0
+    for string in string_list:
+        matcher = SequenceMatcher(None, input_string, string.lower())
+        ratio = matcher.ratio()
+        if ratio > highest_ratio:
+            highest_ratio = ratio
+            best_match = string
+
+    return best_match, highest_ratio
 
 def word_to_number(sn):
     try: 
@@ -21,16 +30,18 @@ command_synonyms = dict( #-> words
     backspace = ['back'],    
     enter = ['push', 'execute','run'],
     clean = ['empty','erase'],
-    screen = ['top']          
+    screen = ['top'], 
+    push = ['execute','run']         
 )
 
-root_commands = ['select', 'screen', 'stop']   
+root_commands = ['select', 'screen', 'stop', 'reset']   
 
 modes = dict( #-> actions    
     text = ['text', 'left', 'right', 'up', 'down','backspace','delete', 'space', 'tab', 'enter'],
     number = ['number', 'backspace','delete'],    
     graph = ['node', 'edge'],
-    table = ['page','row', 'column', 'left', 'right', 'up', 'down','backspace','delete'],    
+    table = ['page','row', 'column', 'left', 'right', 'up', 'down','backspace','delete'], 
+    command = ['push']   
 )
 
 word2command = {}
@@ -43,8 +54,8 @@ for mode, commands in modes.items():
 
 class VoiceCom:
     def __init__(self, user):
-        self.user = user
-        self.block = None
+        self.block = self.assist_block()    
+        self.user = user    
         self.set_screen(user.screen)
 
     def assist_block(self) -> Block:
@@ -60,21 +71,17 @@ class VoiceCom:
             self.command_list,
             closable = True, width = 390                                    
         )        
-    def set_screen(self, screen):
-        self.buffer = []
-        self.mode = 'select'
-        self.unit = None
-        if not self.block:
-            self.block = self.assist_block()        
+    def set_screen(self, screen):        
         self.calc_interactive_units()
         self.screen = screen
+        self.reset()
 
     @property
-    def  unit_names(self):
+    def  context_options(self):
         return self.context_list.options
 
-    @unit_names.setter
-    def unit_names(self, names):
+    @context_options.setter
+    def context_options(self, names):
         self.context_list.options = names       
 
     @property
@@ -91,25 +98,26 @@ class VoiceCom:
     
     @context.setter
     def context(self, context):
-        self.context_list.value = context
-        unit = self.name2unit[context]
-        self.activate_unit(unit)
+        self.context_list.value = context        
                 
     def calc_interactive_units(self):
         interactive_names = []
-        name2unit = {}
+        name2unit = {}        
         self.sreen_name = self.user.screen.name        
-        for block in flatten(self.user.screen.blocks):            
-            name2unit[block.name] = block            
+        for block in flatten(self.user.screen.blocks):                        
             for elem in flatten(block.value):
                 if getattr(elem, 'edit', True):
                     pretty_name = pretty4(elem.name)
                     name2unit[pretty_name] = elem
-                    interactive_names.append(pretty_name)
+                    interactive_names.append(pretty_name)  
+        interactive_names.sort()                  
         self.unit_names = interactive_names
         self.name2unit = name2unit
     
     def activate_unit(self, unit):
+        if self.unit:
+            self.unit.active = False
+            self.unit.focus = False
         match unit.type:
             case 'string':
                 self.mode = 'text'
@@ -119,9 +127,19 @@ class VoiceCom:
                 self.mode = unit.type
         if self.unit:
             self.unit.active = False
+            self.focus = True
         self.unit = unit
         unit.active = True
         self.buffer = []
+        commands = modes.get(self.mode, []) + root_commands 
+        syn_commands = []
+        for command in commands:
+            if command in command_synonyms:
+                syn_commands.extend(command_synonyms[command])
+        if syn_commands:
+            commands.extend(syn_commands)
+        commands.sort()
+        self.commands = commands
 
     def start(self):
         if self.screen.blocks[-1] != self.block:
@@ -165,43 +183,61 @@ class VoiceCom:
                 clist.value = None
                 self.mode = command
                 self.buffer = []
+            case 'reset':
+                self.reset()
             case 'stop':
                 result = self.stop()
             case _:
                 result = self.process_context(word)
         return result
+    
+    def reset(self):
+        self.buffer = []
+        self.mode = 'select'
+        self.unit = None
+        self.input.value = ''
+        self.message.value = 'Select an element'
+        self.context_list.value = None
+        self.commands = root_commands
+        self.context = None
+        self.context_options = self.unit_names
 
     def buffer_suits_name(self, word: str):
         self.buffer.append(word)
-        name = ' '.join(self.buffer) 
-        recon = get_close_matches(name, self.unit_names, n=1)        
-        return  (recon[0],  similarity(name, recon[0]))  if recon else '', 0
+        name = ' '.join(self.buffer)         
+        return find_most_similar_sequence(name, self.context_options)
                     
     def process_context(self, word):
         u = self.unit           
         result = None     
         match self.mode:            
             case 'screen':
-                if word == 'ok' and self.context:
+                if (word == 'ok' or word == 'okay') and self.context:
                     result = self.user.set_screen(self.context)
                     self.set_screen(self.user.screen)
+                    return result
                 else:
                     screen_name, similarity = self.buffer_suits_name(word)
                     if similarity > 0.9:
-                        result = self.user.set_screen(screen_name)
+                        return self.user.set_screen(screen_name)
                     else:
-                        self.context_list.value = screen_name
+                        self.context = screen_name
                         self.message.value = '"Ok" to confirm'
             case 'select':
-                if word == 'ok' and self.context:
-                    self.activate_unit(self.name2unit[self.context])
-                else:
-                    unit_name, similarity = self.buffer_suits_name(word)
-                    if similarity > 0.9:
-                        self.activate_unit(self.name2unit[unit_name])
+                if self.unit_names:
+                    if word == 'ok' or word == 'okay':
+                        self.activate_unit(self.name2unit[self.context])
                     else:
-                        self.command_list.value = unit_name
-                        self.message.value = '"Ok" to confirm'
+                        unit_name, similarity = self.buffer_suits_name(word)                    
+                        if similarity >= 0.8:
+                            self.activate_unit(self.name2unit[unit_name])
+                        elif unit_name:
+                            self.context = unit_name
+                            self.message.value = '"Ok" to confirm'
+                        else:
+                            self.commands = []
+                            self.message.value = 'No such unit. Continue..'
+                            self.input.value = ' '.join(self.buffer)
             case 'text':
                 match word:
                     case 'left' :
@@ -247,9 +283,8 @@ class VoiceCom:
                         if num is not None and  hasattr(u, 'x') :
                             if num >= 0 and num <= 9:                        
                                 u.value = float(svalue + str(num))
-                                u.x += len(word)
-                        
-            case _:
+                                u.x += len(word)                        
+            case 'command':
                 pass
                 
         

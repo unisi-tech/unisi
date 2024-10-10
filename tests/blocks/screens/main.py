@@ -1,38 +1,30 @@
 from unisi import *
-from blocks.tblock import config_area, tarea, changed
+from blocks.tblock import config_area, tarea
 
 name = "Main"
 order = 1
 
-def append_row(table, search: str):
-    row = [''] * 4
-    row[-1] = False
-    table.rows.append(row)
-    return row #new row
-
 table = Table('Videos', 0, headers = ['Video', 'Duration',  'Links', 'Mine'], rows = [
     ['opt_sync1_3_0.mp4', '30 seconds',  '@Refer to signal1', True],
     ['opt_sync1_3_0.mp4', '37 seconds',  '@Refer to signal8', False]
-], append = append_row, delete = delete_table_row)
+])
 
 def clean_table(_, value):
     table.rows = []    
 
-clean_button= Button('Clean table', clean_table, icon='swipe')
+clean_button = Button('Clean table', clean_table, icon='swipe')
 
-selector = Select('Select', 'All', options=['All','Based','Group'])
+selector = Select('Mode', 'All', options=['All','Based','Group'])
 
 @handle(selector,'changed')
 def selchanged(_, val):
     if val == 'Based':
-        return Error('Select can not be Based!',_)
+        return Error('Mode can not be Based!',_)
     _.accept(val)    
-
-def replace_image(_, iname):
-    print(iname)    
 
 def handler(*_):
     tarea.value = ''
+
 clean_text = Button('Clean text', handler, icon='delete')
 
 block = Block('X Block',
@@ -58,7 +50,7 @@ graph = Graph('_Random graph',
     edges = [Edge(0,1, color = "#3CA072"), Edge(1,3,'extending', size = 6),Edge(3,4, size = 2), Edge(2,4)])
 
 def switch_graph(*_):    
-    bottom_block.value[1] = toposcreen if bottom_block.value[1] is graph else graph
+    bottom_block.value[1] = toposcreen if bottom_block.value[1] == graph else graph
 
 bottom_block = Block('Screen topology: Press Shift for multi (de)select nodes and links', 
      Button('Switch graph', switch_graph), toposcreen, closable = True)
