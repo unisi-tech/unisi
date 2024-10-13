@@ -9,10 +9,10 @@ table = Table('Videos', 0, headers = ['Video', 'Duration',  'Links', 'Mine'], ro
     ['opt_sync1_3_0.mp4', '37 seconds',  '@Refer to signal8', False]
 ])
 
-def clean_table(_, value):
+def clear_table(_, value):
     table.rows = []    
 
-clean_button = Button('Clean table', clean_table, icon='swipe')
+clear_button = Button('Clear table', clear_table, icon='swipe')
 
 selector = Select('Mode', 'All', options=['All','Based','Group'])
 
@@ -25,10 +25,10 @@ def selchanged(_, val):
 def handler(*_):
     tarea.value = ''
 
-clean_text = Button('Clean text', handler, icon='delete')
+clear_text = Button('Clear text', handler, icon='delete')
 
 block = Block('X Block',
-    [ clean_text, selector, clean_button],
+    [ clear_text, selector, clear_button],
     [ tarea, table], 
         icon = 'api')
 
