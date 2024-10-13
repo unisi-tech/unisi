@@ -62,14 +62,14 @@ class VoiceCom:
         self.set_screen(user.screen)
 
     def assist_block(self) -> Block:
-        self.input = Text('Input', '')
+        self.input = Edit('Recognized words', '', update = lambda _,value: self.process_word(value))
         self.message = Edit('System message', '', edit = False)
         self.context_list = Select('Elements', None, self.select_elem, type = 'list')
         self.command_list = Select('Commands', None, self.select_command, type = 'list')
         
         return Block("Mate:", 
             self.message,
-            [Text('User:'), self.input],            
+            self.input,            
             self.context_list,
             self.command_list,
             closable = True, width = 390, icon = 'mic'                                    
@@ -83,8 +83,12 @@ class VoiceCom:
         self.activate_unit(self.name2unit[value])    
 
     def select_command(self, elem, value):
-        self.run_command(value)
-        
+        if command := word2command.get(value, None):
+            self.run_command(command)
+        self.input.value = value
+        self.message.value = command if command else ''
+        self.command_list.value = None
+
     @property
     def  context_options(self):
         return self.context_list.options
@@ -134,11 +138,10 @@ class VoiceCom:
                 self.mode = 'number'
             case _: 
                 self.mode = unit.type
-        if self.unit:
-            self.unit.active = False
-            self.focus = True
+        
         self.unit = unit
         unit.active = True
+        unit.focus = True
         self.buffer = []
         commands = modes.get(self.mode, []) + root_commands 
         syn_commands = []
@@ -259,6 +262,7 @@ class VoiceCom:
         self.mode = 'select'
         if self.unit:
             self.unit.active = False
+            self.unit.focus = False
             self.unit = None
         self.input.value = ''
         self.message.value = 'Select an element'

@@ -80,6 +80,11 @@ class Block(Unit):
                 self.scaler.changed(self.scaler, sval)        
         self.set_reactivity(Unishare.context_user())
 
+    def find(self, elem: Unit | str):
+        for e in flatten(self.value):
+            if e == elem or e.name == elem:
+                return e
+
 class ParamBlock(Block):
     def __init__(self, name, *args, row = 3, **params):
         """ does not need reactivity so Block init is not used"""

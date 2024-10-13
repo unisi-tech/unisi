@@ -73,6 +73,7 @@ class ChangedProxy:
 atomics = (int, float, complex, bool, str, bytes, ChangedProxy, type(None))
            
 class Unit:    
+    action_list = ['complete', 'update', 'changed','delete','append', 'modify', 'complete']
     def __init__(self, name, *args, **kwargs):                
         self._mark_changed =  None
         self.name = name
@@ -154,8 +155,8 @@ class Unit:
                 obj.value = value
         self.changed = compose_handlers(changed_handler, handler) 
     
-    def __getstate__(self):     
-        return {n: v for n, v in self.__dict__.items() if n[0] != '_'}
+    def __getstate__(self):         
+        return {n: (True if n in Unit.action_list else v) for n, v in self.__dict__.items() if n[0] != '_'}
 
     def __str__(self):
         return f'{type(self).__name__}({self.name})'
