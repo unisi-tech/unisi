@@ -147,7 +147,7 @@ class User:
         return  self.screen_module.screen 
 
     def set_screen(self,name): 
-        return asyncio.run(self.process(ArgObject(block = 'root', element = None, value = name)))
+        return self.screen_process(ArgObject(block = 'root', element = None, value = name))
     
     async def result4message(self, message):
         result = None        
@@ -243,8 +243,8 @@ class User:
                     
         self.changed_units.clear()           
         return raw
-
-    async def process(self, message):        
+    
+    def screen_process(self, message):
         screen_change_message = message.screen and self.screen.name != message.screen
         if screen_change_message or message.screen_type:
             for s in self.screens:
@@ -262,6 +262,10 @@ class User:
                 error = f'Unknown screen name: {message.value}'   
                 self.log(error)
                 return Error(error)
+
+    async def process(self, message):        
+        if screen_result := self.screen_process(message):
+            return screen_result
         elif message.voice_type:            
             if not self.voice:
                 self.voice = VoiceCom(self)                

@@ -43,18 +43,18 @@ class ArgObject:
     def __getattr__(self, _):
         """return None for unknown props"""
         return None
-
-class ReceivedMessage(ArgObject):
-    def __init__(self, kwargs):
-        self.__dict__.update(kwargs)
-    def __str__(self):
-        return f'{self.block}/{self.element}->{self.event}({self.value})'
     @property
     def screen_type(self):
         return self.block == 'root' and self.element is None
     @property
     def voice_type(self):
         return self.block == 'voice' and self.element is None
+
+class ReceivedMessage(ArgObject):
+    def __init__(self, kwargs):
+        self.__dict__.update(kwargs)
+    def __str__(self):
+        return f'{self.block}/{self.element}->{self.event}({self.value})'    
 
 def toJson(obj):
     return jsonpickle.encode(obj,unpicklable = False)
