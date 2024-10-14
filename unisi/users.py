@@ -23,7 +23,7 @@ class User:
         if share:            
             self.screens = share.screens            
             self.screen_module = share.screen_module if share.screens else []
-            self.__handlers__ =  share.__handlers__        
+            self.handlers =  share.handlers        
             
             if share.reflections:            
                 share.reflections.append(self)
@@ -34,7 +34,7 @@ class User:
             self.screens = []        
             self.reflections = []
             self.screen_module = None         
-            self.__handlers__ = {} 
+            self.handlers = {} 
 
         User.last_user = self
         self.monitor(session, share)     
@@ -287,7 +287,7 @@ class User:
     async def process_element(self, elem, message):                
         event = message.event 
         query = event == 'complete' or event == 'append' or event == 'get'        
-        handler = self.__handlers__.get((elem, event), None)
+        handler = self.handlers.get((elem, event), None)
         if handler:
             return await self.eval_handler(handler, elem, message.value)
                                                                     

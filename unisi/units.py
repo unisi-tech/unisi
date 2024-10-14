@@ -73,7 +73,7 @@ class ChangedProxy:
 atomics = (int, float, complex, bool, str, bytes, ChangedProxy, type(None))
            
 class Unit:    
-    action_list = ['complete', 'update', 'changed','delete','append', 'modify', 'complete']
+    action_list = set(['complete', 'update', 'changed','delete','append', 'modify', 'complete'])
     def __init__(self, name, *args, **kwargs):                
         self._mark_changed =  None
         self.name = name

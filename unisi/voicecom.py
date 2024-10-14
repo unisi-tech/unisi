@@ -56,6 +56,7 @@ for mode, commands in modes.items():
     word2command.update({c:c for c in commands})
 
 class VoiceCom:
+    standart_message = "Element or command?"
     def __init__(self, user):
         self.block = self.assist_block()    
         self.user = user    
@@ -154,7 +155,7 @@ class VoiceCom:
             self.unit.active = False
             self.unit.focus = False
         self.unit = unit
-        self.message.value = ''
+        self.message.value =  VoiceCom.standart_message
         if unit:
             match unit.type:
                 case 'string':
@@ -256,7 +257,7 @@ class VoiceCom:
                 self.mode = 'select'
                 self.buffer = []
                 self.commands = root_commands                    
-                self.message.value = 'Say an element or command'
+                self.message.value = VoiceCom.standart_message
             case 'screen':
                 self.context_options = [getattr(s, 'name')for s in self.user.screens 
                     if hasattr(s, 'name') and s.name != self.user.screen.name]
@@ -281,7 +282,7 @@ class VoiceCom:
             self.unit.active = False
             self.unit.focus = False
             self.unit = None
-        self.input.value = ''
+        self.input.value = VoiceCom.standart_message
         self.message.value = 'Select an element'
         self.context_list.value = None        
         self.commands = root_commands

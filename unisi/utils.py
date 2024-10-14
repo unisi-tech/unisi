@@ -5,7 +5,6 @@ from .containers import Screen
 
 blocks_dir = 'blocks'        
 screens_dir =  'screens'        
-public_dirs = 'public_dirs'
 testdir = 'autotest'
 
 divpath = '\\' if platform.system() == 'Windows' else '/'
@@ -19,7 +18,7 @@ except:
     f = open('config.py', 'w')  
     f.write("""port = 8000 
 upload_dir = 'web'
-hot_reload   = True
+hot_reload  = True
 logfile  = 'log'
 autotest = '*'
 appname = 'Unisi app'
@@ -43,7 +42,8 @@ set_defaults(config,  dict(
     monitor_tick = 0.005,
     pool = None,
     db_dir = None,
-    lang = 'en-US'
+    lang = 'en-US',
+    public_dirs = []
 ))
 
 Screen.defaults = dict(

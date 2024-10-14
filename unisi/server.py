@@ -5,7 +5,7 @@ from pathlib import Path
 from .reloader import empty_app 
 from .autotest import recorder, run_tests
 from .common import  *
-from.llmrag import setup_llmrag
+from .llmrag import setup_llmrag
 from .dbunits import dbupdates
 from .kdb import Database
 from config import port, upload_dir
@@ -59,7 +59,7 @@ def make_user(request):
 def handle(elem, event):
     def h(fn):
         key = elem, event
-        handler_map = User.last_user.__handlers__        
+        handler_map = User.last_user.handlers        
         func = handler_map.get(key, None)        
         if func:
             handler_map[key] =  compose_handlers(func, fn)  
@@ -82,7 +82,6 @@ async def post_handler(request):
                 break
             size += len(chunk)
             f.write(chunk)
-
     return web.Response(text=filename)
 
 async def static_serve(request):    
@@ -95,14 +94,12 @@ async def static_serve(request):
         file_path = None
         #unmask win path
         if rpath.startswith('/') and rpath[2] == ':':
-            rpath = rpath[1:]
-        dirs = getattr(config, public_dirs, []) 
-        for dir in dirs:              
+            rpath = rpath[1:]        
+        for dir in config.public_dirs:              
             if rpath.startswith(dir):                
                 if os.path.exists(rpath):
                     file_path  = Path(rpath)
-                break
-            
+                break            
     return web.FileResponse(file_path) if file_path else web.HTTPNotFound()
      
 async def websocket_handler(request):
