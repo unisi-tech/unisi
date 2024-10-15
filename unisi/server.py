@@ -50,15 +50,14 @@ def make_user(request):
         ok = True
     else:
         user = User.type(session)
-        ok = user.load()  
-                
+        ok = user.load()                  
     User.count += 1
     Unishare.sessions[session] = user 
     return user, ok
 
-def handle(elem, event):
+def handle(unit, event):
     def h(fn):
-        key = elem, event
+        key = unit, event
         handler_map = User.last_user.handlers        
         func = handler_map.get(key, None)        
         if func:
@@ -89,7 +88,6 @@ async def static_serve(request):
     file_path  = Path(f"{webpath}{rpath}" )
     if request.path == '/':
         file_path /= 'index.html'
-
     if not file_path.exists():
         file_path = None
         #unmask win path
@@ -113,7 +111,6 @@ async def websocket_handler(request):
             if type(res) != str:
                 res = toJson(user.prepare_result(res))        
             await ws.send_str(res)        
-
         user.send = send         
         await send(True if status else empty_app) 
         try:
@@ -146,7 +143,6 @@ async def websocket_handler(request):
         except BaseException as e:
             if not isinstance(e, ConnectionResetError):
                 user.log(traceback.format_exc())
-
         await user.delete()   
     return ws     
 

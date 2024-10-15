@@ -18,6 +18,7 @@ UNISI technology provides a unified system interface and advanced program functi
  - Monitoring and profiling
  - Database interactions
  - LLM-RAG interactions
+ - Voice interaction
 
 ### Installing ###
 ```
@@ -32,7 +33,7 @@ This document serves as a comprehensive guide on utilizing Unisi with Python, al
 ### High level - Screen ###
 The program directory has to contain a screens folder which contains all screens which Unisi has to show.
 
-Screen example tests/screens/main.py
+Screen example tests/blocks/main.py
 ```
 name = "Main"
 blocks = [block] 
@@ -60,7 +61,7 @@ block = Block('X Block',
 | toolbar | Optional | list | Unit elements to show in the screen toolbar |
 | order | Optional | int | order in the program menu |
 | icon  | Optional | str | MD icon of screen to show in the screen menu |
-| prepare | Optional | def prepare() | Syncronizes GUI elements one to another and with the program/system data. It is called before screen appearing if defined. |
+| prepare | Optional | def prepare() | Syncronizes Unit/GUI elements one to another and with the program/system data. It is called before screen appearing if defined. |
 
 
 ### Server start ###
@@ -146,7 +147,7 @@ Examples of such block tests/blocks/tblock.py:
 from unisi import *
 ..
 concept_block = Block('Concept block',
-   [   #some gui elements       
+   [   #some Units
        Button('Run',run_proccess),
        Edit('Working folder','run_folder')
    ], result_table)
@@ -169,7 +170,7 @@ blocks = [ [b1,b2], [b3, [b4, b5]]]
 ![image](https://github.com/user-attachments/assets/16ab9909-08b3-429e-9205-9b388b10aba7)
 
 ### ParamBlock ###
-ParamBlock(name, *gui_elements, row = 3, **parameters)
+ParamBlock(name, *units, row = 3, **parameters)
 
 ParamBlock creates blocks with Unit elements formed from parameters. Parameters can be string, bool, number and optional types. Example:
 ```
@@ -238,7 +239,7 @@ Text('Some field')
 complete handler is optional function which accepts the current edit value and returns a string list for autocomplete.
 
 ```
-def get_complete_list(gui_element, current_value):
+def get_complete_list(unit, current_value):
     return [s for s in vocab if current_value in s]    
 
 Edit('Edit me', 'value', complete = get_complete_list) #value has to be string or number
@@ -377,7 +378,7 @@ Info(info_message, *UnitforUpdades)
 Warning(warning_message, *UnitforUpdades)
 Error(error_message, *UnitforUpdades)
 ```
-They are returned by handlers and cause appearing on the top screen colored rectangle window for 3 second. UnitforUpdades is optional Unit enumeration for updating on GUI client side.
+They are returned by handlers and cause appearing on the top screen colored rectangle window for 3 second. UnitforUpdades is optional Unit enumeration for updating on client side (GUI).
 
 For long time processes it is possible to create Progress window. It is just call user.progress in any async handler.
 Open window 
@@ -487,6 +488,24 @@ UNISI supports now the following data types for persistent tables and links:
 Table options multimode = True and value define relation type 1 -> 1 if equals None or 1 -> many if equals [].
 UNISI is compatible with any database that implements the Database and Dbtable methods. Internally UNISI operates using the Kuzu graph database.
 For using the functionality db_dir  in config.py has to be defined as a path to the database directory.
+
+### Voice interaction. ###
+This functionality allows users to interact with a user interface using voice commands instead of fingers or a mouse. It facilitates voice interaction with a graphical user interface composed of various Units. It recognizes spoken words, interprets them as commands or element selections, and performs corresponding actions. The system supports various modes of interaction, including text input, number input, element selection, screen navigation, and command execution. The user speaks commands or element names. The module recognizes words and updates the Mate block, which exposes the state of the module and what it expects to listen.
+
+#### Modes. ####
+Select Mode (Default): The user can select an interactive element or switch to another mode (e.g., "screen" to change a current screen).
+Text Mode: Activated when a text input element is selected. The user can dictate text, and use commands like "left," "right," "backspace," "delete," "space," "undo," and "clean."
+
+
+Number Mode: Activated when a number input element is selected. The user can dictate numbers or use number-related commands. 
+
+Screen Mode: Allows the user to switch the current screen.
+
+Command Mode: Activated when a command element is selected (e.g., a button). The user can execute the command using words like "push," "execute," or "run." Synonyms like "ok" and "okay" are also recognized.
+
+Graph Mode: Supports graph element manipulation (nodes and edges). Currently documented but no specifics are provided on how to use it.
+
+Table Mode: Supports table navigation and editing with commands like "page", "row", "column", "left", "right", "up", "down", "backspace", and "delete." Currently documented but no specifics are provided on how to use it.
 
 
 Examples are in tests folder.

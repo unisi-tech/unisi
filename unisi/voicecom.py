@@ -17,11 +17,15 @@ def find_most_similar_sequence(input_string, string_list):
             best_match = string
     return best_match, highest_ratio
 
-def word_to_number(sn):
+def word_to_number(word: str):
+    sn = word.replace(',', '')
     try: 
-        return w2n.word_to_num(sn) 
+        return float(sn) 
     except:
-        return None
+        try: 
+            return w2n.word_to_num(sn) 
+        except:
+            return None
     
 command_synonyms = dict( #-> words    
     value = ['is', 'equals'],
@@ -47,9 +51,7 @@ modes = dict( #-> actions
 word2command = {}
 for command, syns in command_synonyms.items():
     for syn in syns:
-        word2command[syn] = command  
-        if command in root_commands:
-            root_commands.append(syn)
+        word2command[syn] = command          
 
 word2command.update({command: command for command in root_commands})
 for mode, commands in modes.items():
@@ -137,15 +139,13 @@ class VoiceCom:
         
     def commands4mode(self, mode):
         if commands :=self.cached_commands.get(mode, None):
-            return commands
+            self.commands = commands            
         syn_commands = []
-        commands = modes.get(mode, []) 
+        commands = modes.get(mode, []) + root_commands
         for command in commands:
             if command in command_synonyms:
-                syn_commands.extend(command_synonyms[command])
-        if syn_commands:
-            commands.extend(syn_commands)
-        commands.extend(root_commands)
+                syn_commands.extend(command_synonyms[command])        
+        commands.extend(syn_commands)        
         commands.sort()
         self.cached_commands[mode] = commands
         self.commands = commands
@@ -188,17 +188,13 @@ class VoiceCom:
             match self.mode:
                 case 'number'|'text':
                 #double repeat command word cause execution
-                    if self.mode == 'number' and not command:
+                    if self.mode == 'number':
                         num = word_to_number(word)
-                        if num is not None:
-                            self.previous_unit_value_x = self.unit.value, self.unit.x
-                            if self.unit.x == -1:
-                                self.unit.value = num
-                            elif num >= 0 and num <= 9:            
-                                snum = str(num)                                                
-                                svalue = str(self.unit.value)
-                                self.unit.value = float(svalue[:self.unit.x] + snum + svalue[self.unit.x:])
-                                self.unit.x += 1
+                        if command:
+                            self.run_command(command)
+                        elif num is not None:
+                            self.previous_unit_value_x = self.unit.value, self.unit.x                            
+                            self.unit.value = num                                                    
                         else:
                             self.message.value = 'Not a number'
                     elif self.mode == 'text':
@@ -222,6 +218,8 @@ class VoiceCom:
                 case 'select': 
                     if command == 'ok' and self.context:
                         self.activate_unit(self.name2unit[self.context])
+                    elif command:
+                        self.run_command(command)
                     else:
                         unit_name, similarity = self.buffer_suits_name(word)                    
                         if similarity >= 0.8:
@@ -254,10 +252,7 @@ class VoiceCom:
         self.message.value = ''                            
         match command:
             case 'select':            
-                self.mode = 'select'
-                self.buffer = []
-                self.commands = root_commands                    
-                self.message.value = VoiceCom.standart_message
+                self.reset()                
             case 'screen':
                 self.context_options = [getattr(s, 'name')for s in self.user.screens 
                     if hasattr(s, 'name') and s.name != self.user.screen.name]
