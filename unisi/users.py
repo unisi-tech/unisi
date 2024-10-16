@@ -282,20 +282,17 @@ class User:
                 return await self.process_element(elem, message)              
             error = f'Element {message.block}/{message.element} does not exist!'
             self.log(error)
-            return Error(error)
-        
+            return Error(error)        
     async def process_element(self, elem, message):                
-        event = message.event 
-        query = event == 'complete' or event == 'append' or event == 'get'        
+        event = message.event         
         handler = self.handlers.get((elem, event), None)
         if handler:
-            return await self.eval_handler(handler, elem, message.value)
-                                                                    
+            return await self.eval_handler(handler, elem, message.value)                                                                    
         if hasattr(elem, event):                
             attr = getattr(elem, event)
             if is_callable(attr):
                 result = await self.eval_handler(attr, elem, message.value)
-                if query:                        
+                if event in ('complete', 'append', 'get'):                        
                     result = Answer(event, message, result)                
                 return result
             #set attribute only for declared properties
