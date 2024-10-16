@@ -86,18 +86,15 @@ class Block(Unit):
                 return e
 
 class ParamBlock(Block):
-    def __init__(self, name, *args, row = 3, **params):
-        """ does not need reactivity so Block init is not used"""
+    def __init__(self, name, *args, row = 3, **params):        
         self._mark_changed = None
         if not args:
-            args = [[]]
-        self._mark_changed = None        
+            args = [[]]        
         self.name = name        
         self.type = 'block'
         self.value = list(args)
         self.name2elem = {}
         cnt = 0        
-
         for param, val in params.items():                    
             pretty_name = pretty4(param)            
             match val:
@@ -120,13 +117,15 @@ class ParamBlock(Block):
                 case _:
                     raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')
                             
-            self.name2elem[param] = el
-            
+            self.name2elem[param] = el            
             if cnt % row == 0:
                 block = []
                 self.value.append(block)
             cnt += 1
             block.append(el)
+            
+        self.set_reactivity(Unishare.context_user())
+        
     @property
     def params(self):
         return {name: el.value for name, el in self.name2elem.items()}

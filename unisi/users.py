@@ -275,7 +275,7 @@ class User:
                 else:
                     self.voice.stop()
             else:
-                self.voice.process_word(message.value)            
+                return self.voice.process_word(message.value)            
         else:        
             elem = self.find_element(message)          
             if elem:                          
