@@ -56,9 +56,9 @@ def make_user(request):
     return user, ok
 
 def handle(unit, event):
+    handler_map = User.last_user.handlers        
     def h(fn):
-        key = unit, event
-        handler_map = User.last_user.handlers        
+        key = unit, event        
         func = handler_map.get(key, None)        
         if func:
             handler_map[key] =  compose_handlers(func, fn)  
