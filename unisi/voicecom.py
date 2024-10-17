@@ -82,7 +82,7 @@ class VoiceCom:
             self.input,            
             self.context_list,
             self.command_list,
-            closable = True, icon = 'mic'                                    
+            closable = True, icon = 'mic', width = 300                                    
         )        
     def set_screen(self, screen):        
         self.calc_interactive_units()
@@ -151,6 +151,22 @@ class VoiceCom:
             commands.sort()
             self.cached_commands[mode] = commands
         self.commands = commands
+        self.input.value = mode
+        self.message.value = 'Continue..'
+        match self.mode:
+            case 'switch' | 'check':
+                self.context_options = ['true', 'false','yes', 'no', 'on', 'off']
+            case 'select' | 'list' | 'radio':
+                self.context_options = self.unit.options
+            case 'tree':
+                self.context_options = list(self.unit.options)  
+            case 'screen':
+                self.context_options = [getattr(s, 'name')for s in self.user.screens 
+                    if hasattr(s, 'name') and s.name != self.user.screen.name]
+                self.message.value = 'Select a screen'          
+            case _:
+                self.context_list.options = []
+        self.context = None        
     
     def activate_unit(self, unit: Unit | None):
         if self.unit:
@@ -176,7 +192,8 @@ class VoiceCom:
 
     def start(self):
         if self.screen.blocks[-1] != self.block:
-            self.screen.blocks.append(self.block)            
+            self.screen.blocks.append(self.block)    
+        self.reset()        
     def stop(self):
         if self.screen.blocks[-1] == self.block:
             self.screen.blocks.remove(self.block)            
@@ -215,8 +232,27 @@ class VoiceCom:
                             else:                 
                                 word += ' '           
                                 self.unit.value = value[:self.unit.x] + word + value[self.unit.x:]
-                                self.unit.x += len(word)
-                case 'select': 
+                                self.unit.x += len(word)            
+                case 'switch' | 'check' | 'select' | 'list' |'radio' | 'tree':
+                    if command:
+                        self.run_command(command)
+                    elif self.context:                        
+                        self.message.value = ''
+                        self.unit.value = self.context in ('true', 'yes', 'on') if self.mode == 'switch' else self.context
+                    else:
+                        choice, similarity = self.buffer_suits_name(word)                    
+                        if similarity >= 0.8:
+                            self.unit.value = choice in ('true', 'yes', 'on') if self.mode == 'switch' else choice
+                            self.message.value = ''                                
+                        elif choice:
+                            self.context = choice
+                            self.message.value = '"Ok" to confirm'
+                        else:
+                            self.commands = []
+                            self.message.value = 'Continue..'
+                            self.buffer = []
+                            self.input.value = ''                    
+                case 'root': 
                     if command == 'ok' and self.context:
                         self.activate_unit(self.name2unit[self.context])
                     elif command:
@@ -235,7 +271,7 @@ class VoiceCom:
                 case 'screen':
                     if command == 'ok' and self.context:
                         self.user.set_screen(self.context)                        
-                        return self.set_screen(self.user.screen)
+                        return True
                     else:
                         screen_name, similarity = self.buffer_suits_name(word)
                         if similarity > 0.9:
@@ -252,13 +288,10 @@ class VoiceCom:
     def run_command(self, command: str):  
         self.message.value = ''                            
         match command:
-            case 'select':            
+            case 'root' | 'select':            
                 self.reset()                
-            case 'screen':
-                self.context_options = [getattr(s, 'name')for s in self.user.screens 
-                    if hasattr(s, 'name') and s.name != self.user.screen.name]
-                self.set_mode('screen')                
-                self.message.value = 'Select a screen'
+            case 'screen':                
+                self.set_mode('screen')                                
             case 'reset':
                 self.reset()
             case 'stop':
@@ -270,7 +303,7 @@ class VoiceCom:
                     self.message.value = 'Command is out of context.'
     def reset(self):
         self.buffer = []
-        self.mode = 'select'
+        self.mode = 'root'
         if self.unit:
             self.unit.active = False
             self.unit.focus = False
