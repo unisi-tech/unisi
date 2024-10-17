@@ -288,7 +288,7 @@ class VoiceCom:
     def run_command(self, command: str):  
         self.message.value = ''                            
         match command:
-            case 'root' | 'select':            
+            case 'root':            
                 self.reset()                
             case 'screen':                
                 self.set_mode('screen')                                
