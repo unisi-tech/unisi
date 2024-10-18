@@ -16,13 +16,15 @@ def index_of(lst, target):
     return lst.index(target)
   except ValueError:
     return -1
+  
+async def call_anysync(handler, *params):
+    return (await handler(*params)) if asyncio.iscoroutinefunction(handler) else handler(*params)
 
 def compose_handlers(*handlers):
     async def compose(obj, value):
         objs = set()        
         for handler in handlers:
-            result = (await handler(obj, value)) if asyncio.iscoroutinefunction(handler)\
-            else handler(obj, value)
+            result = await call_anysync(handler, obj, value)
             if result == UpdateScreen or result == Redesign:
                 return result
             if isinstance(result, list | tuple):

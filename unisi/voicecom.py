@@ -3,8 +3,7 @@ from difflib import SequenceMatcher
 from word2number import w2n 
 from .users import *
 from .units import *
-from .tables import Table
-from .containers import *
+from .containers import Block
 
 def find_most_similar_sequence(input_string, string_list):    
     best_match = ""
@@ -71,18 +70,21 @@ class VoiceCom:
         self.cached_commands = {}
         self.set_screen(user.screen)
 
+    async def keyboard_input(self, _, value):
+        return await self.process_word(value)
+
     def assist_block(self) -> Block:
-        self.input = Edit('Recognized words', '', update = lambda _,value: self.process_word(value))
+        self.input = Edit('Recognized words', '', update = self.keyboard_input)
         self.message = Edit('System message', '', edit = False)
-        self.context_list = Select('Elements', None, self.select_elem, type = 'list')
-        self.command_list = Select('Commands', None, self.select_command, type = 'list')
+        self.context_list = Select('Elements', None, self.select_elem, type = 'list', width = 250)
+        self.command_list = Select('Commands', None, self.select_command, type = 'list', width = 250)
         
         return Block("Mate:", 
             self.message,
             self.input,            
             self.context_list,
             self.command_list,
-            closable = True, icon = 'mic', width = 300                                    
+            closable = True, icon = 'mic'                                
         )        
     def set_screen(self, screen):        
         self.calc_interactive_units()
@@ -96,8 +98,9 @@ class VoiceCom:
                 return self.user.set_screen(value)
             self.activate_unit(self.name2unit.get(value, None))    
 
-    def select_command(self, _, value):        
-        self.process_word(value)        
+    async def select_command(self, _, value):
+        _.value = None        
+        return await self.process_word(value)        
 
     @property
     def  context_options(self):
@@ -141,6 +144,7 @@ class VoiceCom:
         self.context = None
         self.mode = mode
         self.buffer = []
+        self.previous_unit_value_x = None
         if not (commands := self.cached_commands.get(mode, None)):            
             syn_commands = []
             commands = modes.get(mode, []) + root_commands
@@ -198,7 +202,7 @@ class VoiceCom:
         if self.screen.blocks[-1] == self.block:
             self.screen.blocks.remove(self.block)            
 
-    def process_word(self, word: str):  
+    async def process_word(self, word: str) -> any:  
         self.input.value = word
         self.message.value = ''
         if word:      
@@ -209,7 +213,7 @@ class VoiceCom:
                     if self.mode == 'number':
                         num = word_to_number(word)
                         if command:
-                            self.run_command(command)
+                            return await self.run_command(command)
                         elif num is not None:
                             self.previous_unit_value_x = self.unit.value, self.unit.x                            
                             self.unit.value = num                                                    
@@ -218,7 +222,10 @@ class VoiceCom:
                     elif self.mode == 'text':
                         if self.buffer and self.buffer[-1] == word and command:
                             self.buffer.pop()
-                            self.run_command(command)
+                            if self.previous_unit_value_x:
+                                self.unit.value, self.unit.x = self.previous_unit_value_x                            
+                                self.previous_unit_value_x = None
+                            return await self.run_command(command)
                         else:
                             self.previous_unit_value_x = self.unit.value, self.unit.x
                             self.buffer = [word]
@@ -235,8 +242,8 @@ class VoiceCom:
                                 self.unit.x += len(word)            
                 case 'switch' | 'check' | 'select' | 'list' |'radio' | 'tree':
                     if command:
-                        self.run_command(command)
-                    elif self.context:                        
+                        return await self.run_command(command)
+                    if self.context:                        
                         self.message.value = ''
                         self.unit.value = self.context in ('true', 'yes', 'on') if self.mode == 'switch' else self.context
                     else:
@@ -256,7 +263,7 @@ class VoiceCom:
                     if command == 'ok' and self.context:
                         self.activate_unit(self.name2unit[self.context])
                     elif command:
-                        self.run_command(command)
+                        return await self.run_command(command)
                     else:
                         unit_name, similarity = self.buffer_suits_name(word)                    
                         if similarity >= 0.8:
@@ -270,8 +277,7 @@ class VoiceCom:
                             self.input.value = ' '.join(self.buffer)                      
                 case 'screen':
                     if command == 'ok' and self.context:
-                        self.user.set_screen(self.context)                        
-                        return True
+                        return self.user.set_screen(self.context)
                     else:
                         screen_name, similarity = self.buffer_suits_name(word)
                         if similarity > 0.9:
@@ -281,11 +287,11 @@ class VoiceCom:
                             self.message.value = '"Ok" to confirm'             
                 case _:
                     if command: 
-                        self.run_command(command)  
+                        return await self.run_command(command)  
                     else:       
                         self.message.value = 'Unknown command.'
 
-    def run_command(self, command: str):  
+    async def run_command(self, command: str):  
         self.message.value = ''                            
         match command:
             case 'root':            
@@ -298,29 +304,37 @@ class VoiceCom:
                 self.stop()
             case _:
                 if self.unit:
-                    self.context_command(command)
+                    return await self.context_command(command)
                 else:
                     self.message.value = 'Command is out of context.'
+
     def reset(self):
         self.buffer = []
         self.mode = 'root'
+        if dialog := self.user.active_dialog:
+            commands = ext_root_commands + ['close']
+            commands.sort
+            self.commands = commands
+            options = [u.name for u in flatten(dialog.value)]
+            options.sort()
+            self.context_options = options            
+        else:
+            self.commands = ext_root_commands
+            self.context_options = self.unit_names
         if self.unit:
             self.unit.active = False
             self.unit.focus = False
             self.unit = None
         self.input.value = VoiceCom.standart_message
-        self.message.value = 'Select an element'
-        self.context_list.value = None        
-        self.commands = ext_root_commands
-        self.context = None
-        self.context_options = self.unit_names
+        self.message.value = 'Select an element'        
+        self.context = None        
 
     def buffer_suits_name(self, word: str):
         self.buffer.append(word)
         name = ' '.join(self.buffer)         
         return find_most_similar_sequence(name, self.context_options)
                     
-    def context_command(self, command: str):
+    async def context_command(self, command: str):
         u = self.unit                   
         match self.mode:                        
             case 'text':
@@ -343,7 +357,8 @@ class VoiceCom:
                             u.value = u.value[:u.x] + ' ' + u.value[u.x:]
                             u.x += 1
                     case 'undo':
-                        u.value, u.x = self.previous_unit_value_x 
+                        if self.previous_unit_value_x:
+                            u.value, u.x = self.previous_unit_value_x 
                     case 'clean':
                         u.value = ''
                     case _ :
@@ -368,9 +383,10 @@ class VoiceCom:
                         u.value = None
                     case _ : 
                         self.message.value = 'Command is ouside context'
-                        
+                                                
             case 'command':
                 if command == 'ok' or command == 'push':
-                    return self.unit.accept(None)
-                else:
-                    self.message.value = 'Command is ouside context'                                    
+                    handler = self.unit.changed
+                    if handler:
+                        return await call_anysync(handler, self.unit, None)                  
+                self.message.value = 'Command is ouside context'                                    

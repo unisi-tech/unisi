@@ -168,11 +168,10 @@ class User:
             self.active_dialog = result
         return result
 
-    async def eval_handler(self, handler, gui, value):
+    async def eval_handler(self, handler, *params):
         if notify_monitor:
             await notify_monitor('+', self.session, self.last_message)        
-        result = (await handler(gui, value)) if asyncio.iscoroutinefunction(handler)\
-            else handler(gui, value)
+        result = await call_anysync(handler, *params)
         if notify_monitor:
             await notify_monitor('-', self.session, None)        
         return result
@@ -187,7 +186,7 @@ class User:
 
     @property
     def blocks(self):
-        return [self.active_dialog] if self.active_dialog and \
+        return [self.active_dialog, *self.screen.blocks] if self.active_dialog and \
             self.active_dialog.value else self.screen.blocks
 
     def find_element(self, message):               
@@ -253,7 +252,7 @@ class User:
                     if screen_change_message:
                         break                    
                     if self.voice:
-                        self.voice.set_screen(s)       
+                        self.voice.set_screen(s.screen)       
                         self.voice.start()                              
                     if getattr(s.screen,'prepare', None):
                         s.screen.prepare()
@@ -275,7 +274,7 @@ class User:
                 else:
                     self.voice.stop()
             else:
-                return self.voice.process_word(message.value)            
+                return await self.voice.process_word(message.value)            
         else:        
             elem = self.find_element(message)          
             if elem:                          

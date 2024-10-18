@@ -136,9 +136,15 @@ class Dialog:
         self.type = 'dialog'         
         self.name = question
         self.changed = callback          
-        self.commands = commands
+        buttons = [Line] + [Button(name, color = 'secondary', close = True) for name in commands]
+        for button in buttons:
+            button.changed = self.dialog_command_handler      
+        buttons[1].color = 'primary' 
         self.icon = icon
-        self.value = [[], *content] if content else []        
+        self.value = [[], *content, buttons] if content else buttons        
+
+    async def dialog_command_handler(self, button, _):
+        return await call_anysync(self.changed, self, button.name)
 
 class Screen(Unit):
     def __init__(self, name):
