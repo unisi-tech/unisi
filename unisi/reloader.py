@@ -75,8 +75,8 @@ if config.hot_reload:
             user.screens.sort(key=lambda s: s.screen.order)           
             module.screen.menu = [[getattr(s, 'name', ''),getattr(s,'icon', None)] for s in user.screens]               
             user.set_clean() 
-            user.sync_send(Redesign)
-
+            if hasattr(user,'send'):
+                user.sync_send(Redesign)
             free()  
             return module  
 
@@ -134,14 +134,17 @@ if config.hot_reload:
                                     fname = user.screens[0].__file__.split(divpath)[-1]
                                     module = reload(fname)
                                     user.set_screen(module.name)
-                                    user.update_menu()                                
-                                    user.sync_send(Redesign)      
-                                else:                                                      
-                                    user.sync_send(empty_app)                                                        
+                                    user.update_menu()   
+                                    if hasattr(user,'send'):                             
+                                        user.sync_send(Redesign)      
+                                else:   
+                                    if hasattr(user,'send'):                                                   
+                                        user.sync_send(empty_app)                                                        
                             else:
                                 reload(user.screen_module.__file__.split(divpath)[-1])
                                 user.update_menu()
-                                user.sync_send(Redesign)                                                        
+                                if hasattr(user,'send'):
+                                    user.sync_send(Redesign)                                                        
                             break
     
     event_handler = ScreenEventHandler()

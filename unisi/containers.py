@@ -1,6 +1,6 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
 from .units import *
-from .common import pretty4, flatten, delete_unit
+from .common import pretty4, flatten, delete_unit, close_message
 from numbers import Number
         
 class Block(Unit):    
@@ -136,15 +136,23 @@ class Dialog:
         self.type = 'dialog'         
         self.name = question
         self.changed = callback          
-        buttons = [Line] + [Button(name, color = 'secondary', close = True) for name in commands]
+        buttons = [Button(name, color = 'secondary', width = 80, close = True) for name in commands]
         for button in buttons:
             button.changed = self.dialog_command_handler      
-        buttons[1].color = 'primary' 
+        buttons[0].color = 'primary' 
+        buttons[0].space = True        
         self.icon = icon
         self.value = [[], *content, buttons] if content else buttons        
 
     async def dialog_command_handler(self, button, _):
-        return await call_anysync(self.changed, self, button.name)
+        result = await call_anysync(self.changed, self, button.name)
+        if isinstance(result, Message) and result.updates:
+            result.updates = []
+        elif result == self:
+            result = None
+        else:
+            result = close_message
+        return result
 
 class Screen(Unit):
     def __init__(self, name):

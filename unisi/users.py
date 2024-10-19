@@ -156,7 +156,7 @@ class User:
             if message.element is None: #dialog command button is pressed
                 self.active_dialog = None    
                 if self.reflections:            
-                    await self.broadcast(TypeMessage('action', 'close'))                                    
+                    await self.broadcast(close_message)                                    
                 result = await self.eval_handler(dialog.changed, dialog, message.value)
             else:
                 el = self.find_element(message)
@@ -274,7 +274,7 @@ class User:
                 else:
                     self.voice.stop()
             else:
-                return await self.voice.process_word(message.value)            
+                return await self.voice.process_string(message.value)            
         else:        
             elem = self.find_element(message)          
             if elem:                          

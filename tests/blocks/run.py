@@ -6,4 +6,4 @@ async def handle_get(request):
 
 http_handlers = [web.get('/get', handle_get)]
 
-unisi.start('Test app', http_handlers = http_handlers)
+unisi.start(http_handlers = http_handlers)

@@ -158,6 +158,8 @@ def Answer(type, message, result):
     ms.message = message
     return ms
 
+close_message = TypeMessage('action', 'close')
+
 def delete_unit(units, name):
     """Deletes a unit with the given name from a nested list of units.
         Returns True if the unit was found and deleted, False otherwise.

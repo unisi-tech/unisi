@@ -36,7 +36,7 @@ async def dialog_callback(_,value):
         user = context_user()        
         res = await user.run_process(long_function, ticks.value, None, progress_callback = user.progress)      
         txt.value = f'Process result is {res}'
-        return txt  
+        return txt      
         
 def call_dialog(*_):
     return Dialog('Start a long process?', dialog_callback, ticks)

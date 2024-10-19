@@ -151,13 +151,10 @@ def ensure_directory_exists(directory_path):
         os.makedirs(directory_path)
         print(f"Directory '{directory_path}' created.")
 
-def start(appname = None, user_type = User, http_handlers = []):    
+def start(user_type = User, http_handlers = []):    
     ensure_directory_exists(screens_dir)
     ensure_directory_exists(blocks_dir)
     setup_llmrag()
-
-    if appname:
-        config.appname = appname
 
     User.type = user_type        
     run_tests(User.init_user())

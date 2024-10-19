@@ -71,7 +71,7 @@ class VoiceCom:
         self.set_screen(user.screen)
 
     async def keyboard_input(self, _, value):
-        return await self.process_word(value)
+        return await self.process_string(value)
 
     def assist_block(self) -> Block:
         self.input = Edit('Recognized words', '', update = self.keyboard_input)
@@ -201,6 +201,11 @@ class VoiceCom:
     def stop(self):
         if self.screen.blocks[-1] == self.block:
             self.screen.blocks.remove(self.block)            
+
+    async def process_string(self, string: str) -> any:  
+        for word in string.split(' '):
+            if word:
+                await self.process_word(word)
 
     async def process_word(self, word: str) -> any:  
         self.input.value = word
