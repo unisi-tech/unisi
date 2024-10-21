@@ -483,11 +483,26 @@ UNISI supports now the following data types for persistent tables and links:
 - Datetime
 - Date
 - Bytes
-- List
-
 Table options multimode = True and value define relation type 1 -> 1 if equals None or 1 -> many if equals [].
 UNISI is compatible with any database that implements the Database and Dbtable methods. Internally UNISI operates using the Kuzu graph database.
 For using the functionality db_dir  in config.py has to be defined as a path to the database directory.
+
+### LLM-RAG interactions ###
+UNISI supports LLM-RAG transparent interactions without the need of programming prompts and LLM details. Screen data  contains all required data for processing queries to LLM and decode a result. A user has to define only what data from LLM is required by setting ‘llm’ parameter in Unit constructor.  All other jobs are automated by UNISI.
+Possible to set a LLM  temperature if required. By default it is 0.
+temperature  = 0.2
+For using the service define llm in config.py:
+llm = provider, model_name
+Where provider can be ‘host’ for local or deployed custom models using LM Studio, Ollama or LLVM.
+The other support providers are ‘google’ (== ‘gemini’), ‘openai’, ‘groq’ . They require setting some of API key in system variables:
+```export GROQ_API_KEY=’my_groq_key’
+export GOOGLE_API_KEY=’my_google_key’
+export OPENAI_API_KEY=’my_open_key’
+```
+Any Unit except Button can be calculated using llm parameter in constructor, which can be True for automatic context evaluation and an enumeration of units, which are required for its calculation. Unisi automatically calculates such unit value when its context is changed and its value is empty.
+For table fields in rows ‘llm’ can be True for automatic context evaluation or enumeration of units and field names for tables  which are required for its calculation.
+Example https://github.com/unisi-tech/unisi/blob/main/tests/llm/screens/main.py where Date of birth and Occupation are calculated by a person name.
+
 
 ### Voice interaction. ###
 This functionality allows users to interact with a user interface using voice commands instead of fingers or a mouse. It facilitates voice interaction with a graphical user interface composed of various Units. It recognizes spoken words, interprets them as commands or element selections, and performs corresponding actions. The system supports various modes of interaction, including text input, number input, element selection, screen navigation, and command execution. The user speaks commands or element names. The module recognizes words and updates the Mate block, which exposes the state of the module and what it expects to listen.
