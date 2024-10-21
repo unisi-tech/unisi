@@ -518,9 +518,9 @@ Screen Mode: Allows the user to switch the current screen.
 
 Command Mode: Activated when a command element is selected (e.g., a button). The user can execute the command using words like "push," "execute," or "run." Synonyms like "ok" and "okay" are also recognized.
 
-Graph Mode: Supports graph element manipulation (nodes and edges). Currently documented but no specifics are provided on how to use it.
+Graph Mode: Supports graph element manipulation (nodes and edges). 
 
-Table Mode: Supports table navigation and editing with commands like "page", "row", "column", "left", "right", "up", "down", "backspace", and "delete." Currently documented but no specifics are provided on how to use it.
+Table Mode: Supports table navigation and editing with commands like "page", "row", "column", "left", "right", "up", "down", "backspace", and "delete." 
 
 
 Examples are in tests folder.
