@@ -9,7 +9,7 @@ def find_most_similar_sequence(input_string, string_list):
     best_match = ""
     highest_ratio = 0
     for string in string_list:
-        matcher = SequenceMatcher(None, input_string, string.lower())
+        matcher = SequenceMatcher(None, input_string.lower(), string.lower())
         ratio = matcher.ratio()
         if ratio > highest_ratio:
             highest_ratio = ratio
@@ -202,9 +202,13 @@ class VoiceCom:
             self.screen.blocks.remove(self.block)            
 
     async def process_string(self, string: str) -> any:  
+        screen_changed = None
         for word in string.split(' '):
             if word:
-                await self.process_word(word)
+                result = await self.process_word(word)
+                if not screen_changed:
+                    screen_changed = result
+        return screen_changed 
 
     async def process_word(self, word: str) -> any:  
         self.input.value = word
