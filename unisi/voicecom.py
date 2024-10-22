@@ -61,7 +61,6 @@ for mode, commands in modes.items():
     
 
 class VoiceCom:
-    standart_message = "Element or command?"
     def __init__(self, user):
         self.block = self.assist_block()    
         self.user = user    
@@ -177,7 +176,7 @@ class VoiceCom:
             self.unit.active = False
             self.unit.focus = False
         self.unit = unit
-        self.message.value =  VoiceCom.standart_message
+        self.message.value =  'Select a command'
         if unit:
             match unit.type:
                 case 'string':
@@ -330,8 +329,8 @@ class VoiceCom:
             self.unit.active = False
             self.unit.focus = False
             self.unit = None
-        self.input.value = VoiceCom.standart_message
-        self.message.value = 'Select an element'        
+        self.input.value = ''
+        self.message.value = 'Select a command or element'
         self.context = None        
 
     def buffer_suits_name(self, word: str):
