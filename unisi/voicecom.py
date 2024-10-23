@@ -28,7 +28,7 @@ def word_to_number(word: str):
     
 command_synonyms = dict( #-> words    
     value = ['is', 'equals'],
-    select = ['choose','set'],
+    root = ['select', 'choose','set'],
     backspace = ['back'],    
     enter = ['push', 'execute','run'],
     clean = ['empty','erase'],
@@ -38,7 +38,7 @@ command_synonyms = dict( #-> words
     ok = ['okay']
 )
 
-root_commands = ['select', 'screen', 'stop', 'reset', 'ok']   
+root_commands = ['root', 'screen', 'stop', 'reset', 'ok']   
 ext_root_commands = root_commands[:]
 
 modes = dict( #-> actions    
@@ -62,7 +62,7 @@ for mode, commands in modes.items():
 
 class VoiceCom:
     def __init__(self, user):
-        self.block = self.assist_block()    
+        self.block = self.assist_block(user)    
         self.user = user    
         self.previous_unit_value_x = None
         self.unit = None
@@ -72,19 +72,22 @@ class VoiceCom:
     async def keyboard_input(self, _, value):
         return await self.process_string(value)
 
-    def assist_block(self) -> Block:
+    def assist_block(self, user) -> Block:
         self.input = Edit('Recognized words', '', update = self.keyboard_input)
         self.message = Edit('System message', '', edit = False)
         self.context_list = Select('Elements', None, self.select_elem, type = 'list', width = 250)
         self.command_list = Select('Commands', None, self.select_command, type = 'list', width = 250)
         
-        return Block("Mate:", 
+        block = Block("Mate:", 
             self.message,
             self.input,            
             self.context_list,
             self.command_list,
             closable = True, icon = 'mic'                                
-        )        
+        )      
+        block.set_reactivity(user)  
+        return block
+    
     def set_screen(self, screen):        
         self.calc_interactive_units()
         self.screen = screen
@@ -94,7 +97,7 @@ class VoiceCom:
         elem.value = value
         if value:
             if self.mode == 'screen':
-                return self.user.set_screen(value)
+                self.user.set_screen(value)
             self.activate_unit(self.name2unit.get(value, None))    
 
     async def select_command(self, _, value):
@@ -285,11 +288,11 @@ class VoiceCom:
                             self.input.value = ' '.join(self.buffer)                      
                 case 'screen':
                     if command == 'ok' and self.context:
-                        return self.user.set_screen(self.context)
+                        self.user.set_screen(self.context)
                     else:
                         screen_name, similarity = self.buffer_suits_name(word)
                         if similarity > 0.9:
-                            return self.user.set_screen(screen_name)
+                            self.user.set_screen(screen_name)
                         else:
                             self.context = screen_name
                             self.message.value = '"Ok" to confirm'             

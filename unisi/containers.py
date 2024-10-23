@@ -8,7 +8,8 @@ class Block(Unit):
         self._mark_changed = None        
         self.name = name        
         self.type = 'block'
-        self.value = list(elems)        
+        self.value = list(elems)       
+        self._user = None 
         self.add(options)  
         if getattr(self,'scaler', False):
             scaler = ContentScaler(elements = lambda: self.scroll_list)
@@ -47,16 +48,15 @@ class Block(Unit):
                 else:
                     elem.llm = None
                     print(f'Empty dependency list for llm calculation for {elem.name} {elem.type}!')
-
-        user = Unishare.context_user()
+        
         if hasattr(self,'closable'):        
             def close(*_):
+                user = Unishare.context_user()
                 delete_unit(user.screen.blocks, self.name)                
-            self.close = close
-
-        self.set_reactivity(user)
+            self.close = close        
 
     def set_reactivity(self, user, override = False):
+        self._user = user
         if user:            
             super().set_reactivity(user, override)
             for elem in flatten(self.value):
@@ -72,13 +72,14 @@ class Block(Unit):
     
     @scroll_list.setter
     def scroll_list(self, lst):
-        self.value = [self.value[0] if self.value else [], lst]
+        self.value = ChangedProxy([self.value[0] if self.value else [], lst], self)
         if hasattr(self,'scaler'):
             sval = self.scaler.value
             if sval != 1:
                 self.scaler.value = 1
-                self.scaler.changed(self.scaler, sval)        
-        self.set_reactivity(Unishare.context_user())
+                self.scaler.changed(self.scaler, sval)                  
+        for image in lst:
+            image.set_reactivity(self._user)      
 
     def find(self, elem: Unit | str):
         for e in flatten(self.value):
@@ -123,8 +124,6 @@ class ParamBlock(Block):
                 self.value.append(block)
             cnt += 1
             block.append(el)
-            
-        self.set_reactivity(Unishare.context_user())
         
     @property
     def params(self):
@@ -159,4 +158,9 @@ class Screen(Unit):
         self._mark_changed = None        
         self.name = name                
         self.type = 'screen'                                  
+
+    def set_reactivity(self, user, override = False):
+        super().set_reactivity(user, override)
+        for block in flatten(self.blocks):
+            block.set_reactivity(user, override)
 

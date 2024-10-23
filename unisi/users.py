@@ -217,7 +217,7 @@ class User:
                 return ['toolbar', e.name]
 
     def prepare_result(self, raw):
-        reload_screen = self.screen in self.changed_units
+        reload_screen = any(u.type == 'screen' for u in self.changed_units)
         if reload_screen or raw is True or raw == Redesign:            
             self.screen.reload = reload_screen or raw == Redesign                              
             raw = self.screen
@@ -248,15 +248,17 @@ class User:
         if screen_change_message or message.screen_type:
             for s in self.screens:
                 if s.name == message.value:
-                    self.screen_module = s   
-                    if screen_change_message:
-                        break                    
-                    if self.voice:
-                        self.voice.set_screen(s.screen)       
-                        self.voice.start()                              
-                    if getattr(s.screen,'prepare', None):
-                        s.screen.prepare()
-                    return True 
+                    if self.screen_module != s:
+                        self.changed_units.add(s.screen)
+                        self.screen_module = s   
+                        if screen_change_message:
+                            break                    
+                        if self.voice:
+                            self.voice.set_screen(s.screen)       
+                            self.voice.start()                              
+                        if getattr(s.screen,'prepare', None):
+                            s.screen.prepare()
+                        return True 
             else:        
                 error = f'Unknown screen name: {message.value}'   
                 self.log(error)

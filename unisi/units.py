@@ -25,7 +25,7 @@ class ChangedProxy:
         return value
     
     def __setattr__(self, name, value):                
-        if name in ('_obj', '_unit'):            
+        if name.startswith('_'):
             super().__setattr__(name, value)
         else:
             self._obj.__setattr__(name, value) 
@@ -90,14 +90,14 @@ class Unit:
         
     def set_reactivity(self, user, override = False):        
         changed_call = None
-        if user:
-            if not hasattr(self, 'id') and (override or not self._mark_changed): 
-                self.__dict__.update({property : ChangedProxy(value, self)  for property, value in self.__dict__.items() 
-                    if not isinstance(value, atomics) and not callable(value)})                    
-                        
-                def changed_call(property = None, value = None):
-                    if self.specific_changed_register(property, value):
-                        user.register_changed_unit(self, property, value)            
+        
+        if not hasattr(self, 'id') and (override or not self._mark_changed): 
+            self.__dict__.update({property : ChangedProxy(value, self)  for property, value in self.__dict__.items() 
+                if property[0] != '_' and not isinstance(value, atomics) and not callable(value)})                    
+                    
+            def changed_call(property = None, value = None):
+                if self.specific_changed_register(property, value):
+                    user.register_changed_unit(self, property, value)            
         super().__setattr__('_mark_changed', changed_call)                    
 
     def add(self, kwargs):              
