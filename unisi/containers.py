@@ -51,7 +51,7 @@ class Block(Unit):
         
         if hasattr(self,'closable'):        
             def close(*_):
-                user = Unishare.context_user()
+                user = self._user if self._user else  Unishare.context_user()
                 delete_unit(user.screen.blocks, self.name)                
             self.close = close        
 

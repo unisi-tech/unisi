@@ -271,8 +271,7 @@ def append_panda_row(table, row_index):
 class PandaTable(Table):
     """ panda = opened panda table"""
     def __init__(self, name, *args, panda = None, fix_headers = True, **kwargs):
-        Unit.__init__(self, name, *args, **kwargs)          
-        self.set_reactivity(None)
+        Unit.__init__(self, name, *args, **kwargs)                  
         set_defaults(self, dict(type = 'table', value = None, editing = False, dense = True))        
         if panda is None:
             raise Exception('PandaTable has to get panda = pandaTable as an argument.')
