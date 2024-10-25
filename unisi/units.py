@@ -295,5 +295,10 @@ class TextArea(Unit):
         super().__init__(name, *args, **kwargs)
         self.x = 0
         self.type = 'text' 
+
+class HTML(Unit):
+    def __init__(self,name, *args, **kwargs):
+        super().__init__(name, *args, **kwargs)        
+        self.type = 'html' 
                      
         

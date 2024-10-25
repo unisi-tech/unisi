@@ -14,5 +14,11 @@ block = ParamBlock('System parameters', Button('Show server params', get_params)
     device = ('gpu', ['cpu', 'gpu']),
     load_best = True)
 
+def html_handler(unit, event):
+    print(event)
 
-blocks = [block]
+html = HTML('HTML',  '<button>Click me</button> <a href="#">Link</a> <input type="text">', html_handler)
+
+html_block = Block('Block with HTML', [], html)
+
+blocks = [block, html_block]
