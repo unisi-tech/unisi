@@ -43,7 +43,8 @@ set_defaults(config,  dict(
     pool = None,
     db_dir = None,
     lang = 'en-US',
-    public_dirs = []
+    public_dirs = [],
+    debug = False
 ))
 
 Screen.defaults = dict(

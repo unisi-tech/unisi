@@ -141,7 +141,7 @@ class Message:
 
 def TypeMessage(type, value, *data, user = None):
     message = Message(*data, user=user, type = type)    
-    message.value = value    
+    message.value = str(value)    
     return message    
 
 def Warning(text, *data):
