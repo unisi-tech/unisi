@@ -68,7 +68,7 @@ block = Block('X Block',
 tests/template/run.py
 ```
 import unisi
-unisi.start('Test app') 
+unisi.start() 
 ```
 UNISI builds the interactive app for the code above.
 Connect a browser to localhast:8000 which are by default and will see:
