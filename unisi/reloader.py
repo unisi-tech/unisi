@@ -65,7 +65,9 @@ else:
                     user.set_screen(module.name)                    
 
             user.screens.sort(key=lambda s: s.screen.order)           
-            user.screen.menu = [[getattr(s, 'name', ''),getattr(s,'icon', None)] for s in user.screens]               
+            menu = [[getattr(s, 'name', ''),getattr(s,'icon', None)] for s in user.screens]               
+            for s in user.screens:
+                s.screen.menu = menu
             user.set_clean() 
             if hasattr(user,'send'):
                 user.sync_send(Redesign)
