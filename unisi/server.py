@@ -2,7 +2,7 @@
 from aiohttp import web, WSMsgType
 from .users import *
 from pathlib import Path
-from .reloader import empty_app 
+from .reloader import active_reloader 
 from .autotest import recorder, run_tests
 from .common import  *
 from .llmrag import setup_llmrag

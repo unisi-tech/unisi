@@ -175,6 +175,16 @@ def delete_unit(units, name):
             return True
     return False
 
+empty_app = ArgObject(
+    blocks = [],
+    header = "No screens",
+    icon = None,
+    menu = [["You need to put at least 1 file in the 'screens' folder.",'exclamation']],
+    name = "",
+    order = 0,
+    toolbar = [],
+    type = "screen"
+)
 
 
 

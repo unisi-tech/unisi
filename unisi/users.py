@@ -144,7 +144,7 @@ class User:
     
     @property
     def screen(self):        
-        return  self.screen_module.screen 
+        return  self.screen_module.screen if self.screen_module else empty_app
 
     def set_screen(self,name): 
         return self.screen_process(ArgObject(block = 'root', element = None, value = name))

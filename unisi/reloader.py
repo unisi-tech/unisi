@@ -1,18 +1,10 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
 from .autotest import config
 
-empty_app = {
-    "blocks": [],
-    "header": "No screens",
-    "icon": None,
-    "menu": [["You need to put at least 1 file in the 'screens' folder.",'exclamation']],
-    "name": "",
-    "order": 0,
-    "toolbar": [],
-    "type": "screen"
-}
-
-if config.hot_reload:
+if not config.hot_reload:
+    active_reloader = False
+else:
+    active_reloader = True
     import os, sys, traceback
     from watchdog.observers import Observer
     from watchdog.events import PatternMatchingEventHandler
@@ -73,7 +65,7 @@ if config.hot_reload:
                     user.set_screen(module.name)                    
 
             user.screens.sort(key=lambda s: s.screen.order)           
-            module.screen.menu = [[getattr(s, 'name', ''),getattr(s,'icon', None)] for s in user.screens]               
+            user.screen.menu = [[getattr(s, 'name', ''),getattr(s,'icon', None)] for s in user.screens]               
             user.set_clean() 
             if hasattr(user,'send'):
                 user.sync_send(Redesign)
