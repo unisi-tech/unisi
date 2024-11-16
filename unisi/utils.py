@@ -15,6 +15,9 @@ app_dir = os.getcwd()
 try:
     import config
 except:
+    if os.path.exists('config.py'):
+        print('Invalid script is started! It has to be in a working directory.')
+        exit()
     f = open('config.py', 'w')  
     f.write("""port = 8000 
 upload_dir = 'web'
