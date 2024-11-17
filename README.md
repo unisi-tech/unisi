@@ -26,9 +26,8 @@ pip install unisi
 ```
 
 ### Programming ###
-Automatic functionality means that only confiration have to be defined and for all paramaters UNISI has defaults, and it can be redefined in config.py file.
-UNISI is a universal data protocol and compact yet highly efficient framework specifically designed for serving and proccessing data descibed in UNISI format. The library includes the web version of Unisi, providing developers with a comprehensive set of tools and resources for web application development. Supports Python 3.10+.
-
+Automatic functionality means that only configuration has to be defined and for all paramaters UNISI has defaults that can be redefined in config.py file.
+UNISI is a universal data protocol and compact yet highly efficient framework designed for serving and proccessing data in UNISI format. The library includes the web version of Unisi and a comprehensive set of tools and resources for web application development. Supports Python 3.10+.
 
 ### High level - Screen ###
 The program directory has to contain a screens folder which contains all screens which Unisi has to show.
@@ -75,7 +74,7 @@ Connect a browser to localhast:8000 which are by default and will see:
 
 ![image](https://github.com/unisi-tech/unisi/assets/1247062/dafebd1f-ae48-4790-9282-dea83d986749)  
 
-### 'The fastest way to create Web applications in Python.' is a free crash course1 1-hour video how to use UNISI ###
+### 'The fastest way to create Web applications in Python.' is a free crash course 1-hour video how to use UNISI ###
    https://www.unisi.tech/learn
 
 ### Handling events ###
@@ -152,7 +151,7 @@ concept_block = Block('Concept block',
        Edit('Working folder','run_folder')
    ], result_table)
 ```
-If some elements are enumerated inside an array, Unisi will display them on a line one after another, otherwise everyone will be displayed on a new own line(s).
+If some elements are enumerated inside an array, UNISI will display them on a line one after another, otherwise everyone will be displayed on a new own line(s).
  
 Using a shared block in some screen:
 ```
