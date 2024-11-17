@@ -26,7 +26,7 @@ pip install unisi
 ```
 
 ### Programming ###
-Aautomatic functionality means that only confiration have to be defined and for all paramaters UNISI has defaults, and it can be redefined in config.py file.
+Automatic functionality means that only confiration have to be defined and for all paramaters UNISI has defaults, and it can be redefined in config.py file.
 UNISI is a universal data protocol and compact yet highly efficient framework specifically designed for serving and proccessing data descibed in UNISI format. The library includes the web version of Unisi, providing developers with a comprehensive set of tools and resources for web application development. Supports Python 3.10+.
 
 
