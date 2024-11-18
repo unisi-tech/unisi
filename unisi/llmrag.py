@@ -7,6 +7,54 @@ from langchain_google_genai import (
     HarmBlockThreshold,
     HarmCategory,
 )
+from functools import lru_cache
+from pydantic import RootModel, create_model, BaseModel
+import collections, inspect
+
+def is_standard_type(obj):    
+    return isinstance(obj, (collections.abc.Sequence, collections.abc.Mapping, 
+        int, float, complex, bool, str, bytes, bytearray, range))
+        
+def Model(name, type_value = None, **parameters):
+    model = {}
+    if type_value is None:
+        for k, v in parameters.items():
+            vtype = is_standard_type(v)
+            if vtype:
+                model[k] = (v, ...)
+            else:
+                model[k] = (vtype, v)
+        return create_model(name, **model) if model else RootModel[str]
+    return RootModel[type_value] 
+
+class Question:
+    index = 0
+    """contains question, format of answer"""
+    def __init__(self, question, type_value = None, **format_model):
+        self.question = question        
+        self.format = Model(f'Question {Question.index}', type_value,  **format_model)
+        Question.index += 1
+        
+    def __str__(self):
+        return f'Qustion: {self.question} \n Format: {self.format}'     
+
+    @lru_cache(maxsize=None) 
+    def get(question, type_value = None, **format_model):
+        return Question(question, type_value, **format_model)
+    
+async def Q(question, type_value = None,  **format_model):
+    """returns LLM answer for a question"""
+    q = Question.get(question, type_value, **format_model)        
+    llm = Unishare.llm_model
+    str_prompt = q.question
+    if '{' in str_prompt:
+        caller_frame = inspect.currentframe().f_back    
+        str_prompt = str_prompt.format(**caller_frame.f_locals)            
+    io = await llm.ainvoke(str_prompt)
+    js = io.content.strip('`')    
+    js = js.replace('json', '').replace('\n', '')    
+    return q.format.parse_raw(js).root
+
 
 def setup_llmrag():    
     import config #the module is loaded before config.py    
