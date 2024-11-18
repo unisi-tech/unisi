@@ -41,20 +41,22 @@ class Question:
     @lru_cache(maxsize=None) 
     def get(question, type_value = None, **format_model):
         return Question(question, type_value, **format_model)
-    
-async def Q(question, type_value = None,  **format_model):
-    """returns LLM answer for a question"""
-    q = Question.get(question, type_value, **format_model)        
+        
+def Q(question, type_value = None,  **format_model):
+    """returns LLM async call for a question"""
+    q = Question.get(question, type_value)        
     llm = Unishare.llm_model
     str_prompt = q.question
     if '{' in str_prompt:
-        caller_frame = inspect.currentframe().f_back    
-        str_prompt = str_prompt.format(**caller_frame.f_locals)            
-    io = await llm.ainvoke(str_prompt)
-    js = io.content.strip('`')    
-    js = js.replace('json', '').replace('\n', '')    
-    return q.format.parse_raw(js).root
-
+        caller_frame = inspect.currentframe().f_back            
+        format_model = caller_frame.f_locals | format_model if format_model else caller_frame.f_locals
+        str_prompt = str_prompt.format(**format_model)            
+    async def f():            
+        io = await llm.ainvoke(str_prompt)
+        js = io.content.strip('`')    
+        js = js.replace('json', '').replace('\n', '')    
+        return q.format.parse_raw(js).root
+    return f()
 
 def setup_llmrag():    
     import config #the module is loaded before config.py    
