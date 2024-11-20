@@ -9,16 +9,18 @@ from langchain_google_genai import (
 )
 from functools import lru_cache
 from pydantic import RootModel, create_model, BaseModel
-import collections, inspect
+from datetime import datetime
+import collections, inspect, re
 
 def is_standard_type(obj):    
     return isinstance(obj, (collections.abc.Sequence, collections.abc.Mapping, 
         int, float, complex, bool, str, bytes, bytearray, range))
         
-def Model(name, type_value = None, **parameters):
+def Model(name, type_value):
+    """type_value can be simple Python type or dict of {name: type}"""
     model = {}
-    if type_value is None:
-        for k, v in parameters.items():
+    if isinstance(type_value, dict):
+        for k, v in type_value.items():
             vtype = is_standard_type(v)
             if vtype:
                 model[k] = (v, ...)
@@ -32,17 +34,17 @@ class Question:
     """contains question, format of answer"""
     def __init__(self, question, type_value = None, **format_model):
         self.question = question        
-        self.format = Model(f'Question {Question.index}', type_value,  **format_model)
+        self.format = Model(f'Question {Question.index}', type_value)
         Question.index += 1
         
     def __str__(self):
         return f'Qustion: {self.question} \n Format: {self.format}'     
 
-    @lru_cache(maxsize=None) 
-    def get(question, type_value = None, **format_model):
-        return Question(question, type_value, **format_model)
+    @lru_cache(maxsize = None) 
+    def get(question, type_value):
+        return Question(question, type_value)
         
-def Q(question, type_value = None,  **format_model):
+def Q(question, type_value = str,  **format_model):
     """returns LLM async call for a question"""
     q = Question.get(question, type_value)        
     llm = Unishare.llm_model
@@ -50,16 +52,28 @@ def Q(question, type_value = None,  **format_model):
     if '{' in str_prompt:
         caller_frame = inspect.currentframe().f_back            
         format_model = caller_frame.f_locals | format_model if format_model else caller_frame.f_locals
-        str_prompt = str_prompt.format(**format_model)            
+        str_prompt = str_prompt.format(**format_model) 
+    if not re.search(r'json', str_prompt, re.IGNORECASE):           
+        if type_value == int or type_value == float:                    
+            jtype = 'number'
+        elif type_value == bool:
+            jtype = 'boolean'
+        elif type_value == dict:
+            jtype = 'object'
+        elif type_value == list:
+            jtype = 'array'
+        else:
+            jtype = 'string'        
+        format = " dd/mm/yyyy string" if type_value == 'date' else f'a JSON {jtype}' if jtype != 'string' else jtype      
+        str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY in {format} format." + str_prompt 
     async def f():            
         io = await llm.ainvoke(str_prompt)
-        js = io.content.strip('`')    
-        js = js.replace('json', '').replace('\n', '')    
-        return q.format.parse_raw(js).root
+        js = io.content.strip('`').replace('json', '')                 
+        return js if type_value == str or type_value == 'date' else q.format.parse_raw(js).root
     return f()
 
 def setup_llmrag():    
-    import config #the module is loaded before config.py    
+    import config #the module is loaded before config analisis    
     temperature = getattr(config, 'temperature', 0.0)
     if config.llm:
         match config.llm:
@@ -103,42 +117,15 @@ def setup_llmrag():
                     }
                 )
 
-numeric_types = ['number', 'int', 'float', 'double']
-
-async def get_property(name, context = '', type = 'string', options = None, attempts = 1, messages = None):
-    if messages is None:
-        limits = f'type is {type}'
-        if type == 'date':
-            limits = f'{limits}, use format "dd/mm/yyyy"'
-        if options:            
-            limits = f'{limits}, and its possible options are {",".join(opt for opt in options)}'        
-        messages = [
-            (
-                "system",
-                f"""You are an intelligent and extremely smart assistant."""        
-            ),
-            ("human",  f"""{context} . Reason and infer {name}, which {limits}. 
-                Do not include any additional text or commentary in your answer, just exact the property value.""")
-        ]
-    ai_msg =  await Unishare.llm_model.ainvoke(messages)
-    value = ai_msg.content
-    log_error = ''
-    if type in numeric_types:
-        try:
-            value = float(value)
-        except:
-            log_error = f'Invalid value {value} from llm-rag for {messages[1][1]}'
-            return value
-    else:
-        value = value.strip('""')
-
-    if not log_error and options and value not in options:
-        attempts -= 1
-        if attempts > 0:
-            value = get_property(name, context, type, options, attempts, messages)
-        else:
-            log_error = f'Invalid value {value} from llm-rag for {messages[1][1]}'
-
-    if log_error:
-        Unishare.message_logger(log_error)
+async def get_property(name, context = '', type = str, options = None):  
+    if type == str and re.search(r'date', name, re.IGNORECASE):
+        type = 'date'
+    limits = f'{limits}, which possible options are {",".join(opt for opt in options)}' if options else ''                    
+    prompt = """Human: {context} . Output ONLY "{name}" explicit value {limits} based on the context. """    
+    try:
+        value = await Q(prompt, type)
+    except Exception as e:        
+        Unishare.message_logger(e)
+        return None
     return value
+    
