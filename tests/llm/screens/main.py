@@ -17,9 +17,12 @@ ecountry = Edit('Country', "France")
 
 ecountry_info = Edit('Country info')
 
-qcapitals =  "What are the capitals of the European countries?"
-
 tcapitals = Table('Europe', headers = ['Country','Capital'], tools = False)
+
+topic = 'Managing personal notes' 
+etopic = Edit('Topic', topic)
+extext = TextArea('Main points')
+equestions = TextArea(f'Questions for the topic')
 
 async def geo_code():    
     country = ecountry.value.strip()
@@ -28,46 +31,38 @@ async def geo_code():
         country_info = await Q("Provide information about {country}.", dict(capital = str, population = int, currency = str))
         ecountry_info.value = str(country_info)
     await user.progress(f'Information about Europe...')
-    country2capital = await Q(qcapitals, dict[str, str])        
-    tcapitals.rows = [[country, capital] for country, capital in country2capital.items()]
+    country2capital = await Q("What are the capitals of the European countries?", dict[str, str])        
+    tcapitals.rows = [[country, capital] for country, capital in country2capital.items()]    
         
-query = "Create a user profile for {name} with fields: name, age, occupation."
-async def create_user_profile(name = "John Doe"):
-        user_info = await Q(query, name=name) #format for external defined query 
-        print("User profile:", user_info)
 text = "Alpha Centauri A, also known as Rigil Kentaurus, is the principal member, or primary,\
  of the binary system. It is a solar-like main-sequence star with a similar yellowish colour, whose stellar \
  classification is spectral type G2-V; it is about 10% more massive than the Sun, with a radius about 22% larger.",
-async def extract_info():
-    key_points = await Q("Extract key points from the following text: {text}. ", list[str], text=text)
-    print("Key points:", key_points)
-
-async def parallel_execution():
-    topic = 'Managing personal notes' 
-    questions = await Q("Suggest 3 questions about {topic}.", list[str])
+async def extract_info(*_):
+    key_points = await Q("Extract key points from the following text: {text}. ", list[str], text=text) #and return them as a list
+    etext = ''
+    for i, key_point in enumerate(key_points):
+        etext = f"{etext}{i+1}. {key_point}\n"
+    extext.value = etext
+    await parallel_execution()
+    
+async def parallel_execution():        
+    questions = await Q("Suggest 3 questions about {topic}.", list[str], topic=topic)
     Qs = [Q(question, str) for question in questions]
     results = await asyncio.gather(*Qs) 
+    etext = ''
+    i = 1
     for question, result in zip(questions, results):
-        print(question, result)
+        etext = f"==={etext}{i}. {question}\n  => {result}\n"
+        i += 1
+    equestions.value = etext
 
 async def test(*_):
     await user.progress('Calculating...')
     await geo_code()
-    return
-    await create_user_profile()
-    await extract_info()
-    await parallel_execution()
-    purpose = 'Managing personal notes' 
-    data_types = await Q(purpose_types, list[str])
-    print('Types: ', data_types)
-    arr = []
-    for data_type in data_types:
-        arr.append( Q(object_properties, dict, data_type=data_type))
-    res = await asyncio.gather(*arr)
-    for data_type in zip(data_types, res): 
-        print(data_type)
 
 button = Button("Run", test)
-tblock = Block("Calculations", [button, ecountry], ecountry_info, tcapitals, width=400)
+tblock = Block("Geo calculations", [ecountry, button], ecountry_info, tcapitals, width=400)
 
-blocks = [[block2, block1], tblock]
+eblock = Block('Text operations', [etopic, Button('Extract info', extract_info)], extext, equestions)
+
+blocks = [[block2, block1], tblock, eblock]

@@ -62,7 +62,7 @@ def jstype(type_value):
             if origin == list:
                 return f'{jstype(args[0])} array'
             elif origin == dict:
-                return f'object of {jstype(args[0])} to {jstype(args[1])} properties'
+                return f'object of {jstype(args[0])} to {jstype(args[1])} properties.'
             else:
                 return 'string'  
     else: 
@@ -96,7 +96,7 @@ def Q(str_prompt, type_value = str, **format_model):
         str_prompt = str_prompt.format(**format_model) 
     if not re.search(r'json', str_prompt, re.IGNORECASE):           
         jtype = jstype(type_value)
-        format = " dd/mm/yyyy string" if type_value == 'date' else f'a JSON {jtype}' if jtype != 'string' else jtype      
+        format = " dd/mm/yyyy string" if type_value == 'date' else f'as JSON {jtype}' if jtype != 'string' else jtype      
         str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY in {format} format." + str_prompt 
     async def f():            
         io = await llm.ainvoke(str_prompt)
@@ -130,7 +130,7 @@ def setup_llmrag():
                     openai_api_base = address
                 ) 
             case 'openai':
-                Unishare.llm_model = ChatOpenAI(temperature=0.0)
+                Unishare.llm_model = ChatOpenAI(temperature = temperature)
 
             case 'groq':
                 Unishare.llm_model = ChatGroq(
