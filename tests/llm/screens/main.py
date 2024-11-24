@@ -38,7 +38,7 @@ text = "Alpha Centauri A, also known as Rigil Kentaurus, is the principal member
  of the binary system. It is a solar-like main-sequence star with a similar yellowish colour, whose stellar \
  classification is spectral type G2-V; it is about 10% more massive than the Sun, with a radius about 22% larger.",
 async def extract_info(*_):
-    key_points = await Q("Extract key points from the following text: {text}. ", list[str], text=text) #and return them as a list
+    key_points = await Q("Extract a list of key points from the following text: {text}. ", list[str], text=text) #and return them as a list
     etext = ''
     for i, key_point in enumerate(key_points):
         etext = f"{etext}{i+1}. {key_point}\n"
@@ -46,7 +46,7 @@ async def extract_info(*_):
     await parallel_execution()
     
 async def parallel_execution():        
-    questions = await Q("Suggest 3 questions about {topic}.", list[str], topic=topic)
+    questions = await Q("Suggest a list of 3 questions about {topic}.", list[str], topic=topic)
     Qs = [Q(question, str) for question in questions]
     results = await asyncio.gather(*Qs) 
     etext = ''

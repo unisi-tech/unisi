@@ -2,45 +2,15 @@
 from .common import Unishare
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
+from langchain_mistralai import ChatMistralAI
 from langchain_google_genai import (
     ChatGoogleGenerativeAI,
     HarmBlockThreshold,
     HarmCategory,
 )
-from functools import lru_cache
-from pydantic import RootModel, create_model, BaseModel
 from datetime import datetime
-import collections, inspect, re
-
-def is_standard_type(obj):    
-    return isinstance(obj, (collections.abc.Sequence, collections.abc.Mapping, 
-        int, float, complex, bool, str, bytes, bytearray, range))
-        
-def Model(name, type_value):
-    """type_value can be simple Python type or dict of {name: type}"""
-    model = {}
-    if isinstance(type_value, dict):
-        for k, v in type_value.items():
-            vtype = is_standard_type(v)
-            if vtype:
-                model[k] = (vtype, v)
-            else:
-                model[k] = (v, ...)
-        return create_model(name, **model) if model else RootModel[str]
-    return RootModel[type_value] 
-
-class Question:
-    index = 0
-    """contains question, format of answer"""
-    def __init__(self, question, type_value = None, **format_model):
-        self.question = question        
-        self.format = Model(f'Question {Question.index}', type_value)
-        Question.index += 1
-        
-    def __str__(self):
-        return f'Qustion: {self.question} \n Format: {self.format}'     
-
-from typing import get_origin, get_args
+import collections, inspect, re, json
+from typing import get_origin, get_args        
 
 def jstype(type_value):        
     if isinstance(type_value, type):         
@@ -60,9 +30,9 @@ def jstype(type_value):
             origin = get_origin(type_value) 
             args = get_args(type_value)
             if origin == list:
-                return f'{jstype(args[0])} array'
+                return f'array of {jstype(args[0])} '
             elif origin == dict:
-                return f'object of {jstype(args[0])} to {jstype(args[1])} properties.'
+                return f'object of {jstype(args[0])} to {jstype(args[1])} structure.'
             else:
                 return 'string'  
     else: 
@@ -77,8 +47,8 @@ def jstype(type_value):
                 jtype = 'boolean'
             case dict():
                 if type_value:
-                    ptypes = ','.join(f"{k}: {jstype(v)}" for k, v in type_value.items())
-                    jtype = f'object with {ptypes} properties'
+                    ptypes = ','.join(f'"{k}": "[Type: {jstype(v)}]"' for k, v in type_value.items())
+                    jtype = f'object with {ptypes} structure'
                 else:
                     jtype = 'object'
             case list():  
@@ -87,7 +57,30 @@ def jstype(type_value):
                 jtype = 'string' 
     return jtype
 
-def Q(str_prompt, type_value = str, **format_model):
+def is_type(variable, expected_type):
+    """
+    Check if the variable matches the expected type hint.
+    """
+    origin = get_origin(expected_type) 
+    if origin is None:
+        return isinstance(variable, expected_type)
+    args = get_args(expected_type)
+    
+    # Check if the type matches the generic type
+    if not isinstance(variable, origin):
+        return False
+        
+    if not args:
+        return True
+        
+    if origin is list:
+        return all(isinstance(item, args[0]) for item in variable)
+    elif origin is dict:
+        return all(isinstance(k, args[0]) and isinstance(v, args[1]) for k, v in variable.items())
+    
+    return False
+
+def Q(str_prompt, type_value = str, blank = True, **format_model):
     """returns LLM async call for a question"""    
     llm = Unishare.llm_model    
     if '{' in str_prompt:
@@ -96,15 +89,34 @@ def Q(str_prompt, type_value = str, **format_model):
         str_prompt = str_prompt.format(**format_model) 
     if not re.search(r'json', str_prompt, re.IGNORECASE):           
         jtype = jstype(type_value)
-        format = " dd/mm/yyyy string" if type_value == 'date' else f'as JSON {jtype}' if jtype != 'string' else jtype      
-        str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY in {format} format." + str_prompt 
+        format = " dd/mm/yyyy string" if type_value == 'date' else f'a JSON {jtype}' if jtype != 'string' else jtype      
+        str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY {format}." + str_prompt 
     async def f():            
         io = await llm.ainvoke(str_prompt)
-        js = io.content.strip('`').replace('json', '')                      
+        js = io.content.strip().strip('`').replace('json', '')                      
         if type_value == str or type_value == 'date':
             return js  
-        parsed = Model('Answer', type_value).parse_raw(js)   
-        return parsed.__dict__ if isinstance(type_value, dict) else  parsed.root
+        parsed = json.loads(js)
+        if isinstance(type_value, dict):
+            for k, v in type_value.items():
+                if k not in parsed:
+                    for k2, v2 in parsed.items():
+                        if re.fullmatch(k, k2, re.IGNORECASE) is not None:
+                            parsed[k] = parsed.pop(k2)
+                            break
+                    else:
+                        if blank:
+                            parsed[k] = None
+                            continue
+                        else:
+                            raise KeyError(f'Key {k} not found in {parsed}')
+                        
+                if not is_type(parsed[k], v):
+                    raise TypeError(f'Invalid type for {k}: {type(parsed[k])} != {v}')
+        else:
+            if not is_type(parsed, type_value):
+                raise TypeError(f'Invalid type: {type(parsed)} != {type_value}')            
+        return parsed
     return f()
 
 def setup_llmrag():    
@@ -150,6 +162,13 @@ def setup_llmrag():
                     safety_settings = {
                         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE
                     }
+                )
+            case 'mistral':
+                Unishare.llm_model = ChatMistralAI(
+                    model = model,
+                    temperature=0,
+                    max_retries=2,
+                    # other params...
                 )
 
 async def get_property(name, context = '', type = str, options = None):  

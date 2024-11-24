@@ -18,9 +18,13 @@ def context_screen():
     user = context_user()
     return user.screen if user else None
 
-def message_logger(str, type = 'error'):
+def message_logger(message, type = 'error'):
     user = context_user()
-    user.log(str, type)
+    if user:    
+        user.log(message, type)
+    else:
+        with logging_lock:
+            logging.error(message)
 
 Unishare.context_user = context_user
 Unishare.message_logger = message_logger

@@ -312,18 +312,18 @@ class User:
     def sync_send(self, obj):                    
         asyncio.run(self.send(obj))
     
-    def log(self, str, type = 'error'):        
+    def log(self, message, type = 'error'):        
         scr = self.screen.name if self.screens else 'void'
-        str = f"session: {self.session}, screen: {scr}, message: {self.last_message}\n  {str}"
+        message = f"session: {self.session}, screen: {scr}, message: {self.last_message}\n  {message}"
         with logging_lock:
             if type == 'error':
-                logging.error(str)
+                logging.error(message)
             elif type == 'warning':
-                logging.warning(str)    
+                logging.warning(message)    
             else:
                 func = logging.getLogger().setLevel
                 func(level = logging.INFO)
-                logging.info(str)
+                logging.info(message)
                 func(level = logging.WARNING)
 
     def init_user():
