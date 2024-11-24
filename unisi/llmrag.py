@@ -48,7 +48,7 @@ def jstype(type_value):
             case dict():
                 if type_value:
                     ptypes = ','.join(f'"{k}": "[Type: {jstype(v)}]"' for k, v in type_value.items())
-                    jtype = f'object with {ptypes} structure'
+                    jtype = f'object with {{{ptypes}}} structure'
                 else:
                     jtype = 'object'
             case list():  
