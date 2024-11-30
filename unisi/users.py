@@ -143,6 +143,10 @@ class User:
         return  self.session == testdir
     
     @property
+    def id(self):        
+        return  self.session.split('-')[-1]
+    
+    @property
     def screen(self):        
         return  self.screen_module.screen if self.screen_module else empty_app
 
