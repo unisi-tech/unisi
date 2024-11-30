@@ -90,7 +90,7 @@ def Q(str_prompt, type_value = str, blank = True, **format_model):
     if not re.search(r'json', str_prompt, re.IGNORECASE):           
         jtype = jstype(type_value)
         format = " dd/mm/yyyy string" if type_value == 'date' else f'a JSON {jtype}' if jtype != 'string' else jtype      
-        str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY {format}." + str_prompt 
+        str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY {format}. Do not output any commentary." + str_prompt 
     async def f():            
         io = await llm.ainvoke(str_prompt)
         js = io.content.strip().strip('`').replace('json', '')                      
@@ -107,9 +107,8 @@ def Q(str_prompt, type_value = str, blank = True, **format_model):
                     else:
                         if blank:
                             parsed[k] = None
-                            continue
-                        else:
-                            raise KeyError(f'Key {k} not found in {parsed}')
+                            continue                        
+                        raise KeyError(f'Key {k} not found in {parsed}')
                         
                 if not is_type(parsed[k], v):
                     raise TypeError(f'Invalid type for {k}: {type(parsed[k])} != {v}')

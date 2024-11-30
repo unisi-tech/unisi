@@ -9,7 +9,12 @@ from .llmrag import setup_llmrag
 from .dbunits import dbupdates
 from .kdb import Database
 from config import port, upload_dir
-import traceback, json
+import traceback, json, random, string
+from urllib.parse import parse_qs
+
+def generate_random_string(length=10):
+    characters = string.ascii_letters + string.digits 
+    return ''.join(random.choices(characters, k=length))
 
 def context_user():
     return context_object(User)
@@ -34,11 +39,17 @@ if config.db_dir:
     Unishare.db = Database(config.db_dir, message_logger) 
 
 def make_user(request):
-    session = f'{request.remote}-{User.count}'        
-    if requested_connect := request.query_string if config.share else None:
-        user = Unishare.sessions.get(requested_connect, None)
+    parsed_query = parse_qs(request.query_string)
+    if 'session' in parsed_query:
+        session = parsed_query['session'][0]
+        user_id = session.split('-')[1]
+    else:
+        user_id = parsed_query.get('id', [User.count])[0]
+        session = f'{generate_random_string()}-{user_id}'        
+    if config.share and 'session' in parsed_query:
+        user = Unishare.sessions.get(session, None)
         if not user:
-            error = f'Session id "{requested_connect}" is unknown. Connection refused!'
+            error = f'Session id "{session}" is unknown. Connection refused!'
             with logging_lock:
                 logging.error(error)
             return None, Error(error)
@@ -106,7 +117,7 @@ async def static_serve(request):
      
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
-    await ws.prepare(request)
+    await ws.prepare(request)    
     user, status = make_user(request)
     if not user:
         await ws.send_str(toJson(status))
