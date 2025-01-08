@@ -141,17 +141,17 @@ class Message:
 
 def TypeMessage(type, value, *data, user = None):
     message = Message(*data, user=user, type = type)    
-    message.value = str(value)    
+    message.value = value
     return message    
 
 def Warning(text, *data):
-    return TypeMessage('warning', text, *data)
+    return TypeMessage('warning', str(text), *data)
 
 def Error(text, *data):
-    return TypeMessage('error', text, *data)
+    return TypeMessage('error', str(text), *data)
     
 def Info(text, *data):
-    return TypeMessage('info', text, *data)
+    return TypeMessage('info', str(text), *data)
 
 def Answer(type, message, result):
     ms = TypeMessage(type, result)

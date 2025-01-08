@@ -143,15 +143,10 @@ class Dialog:
         self.icon = icon
         self.value = [[], *content, buttons] if content else buttons        
 
-    async def dialog_command_handler(self, button, _):
-        result = await call_anysync(self.changed, self, button.name)
-        if isinstance(result, Message) and result.updates:
-            result.updates = []
-        elif result == self:
-            result = None
-        else:
-            result = close_message
-        return result
+    async def dialog_command_handler(self, button, _):        
+        if user := Unishare.context_user():
+            await user.send(TypeMessage('action', 'close'))
+            return await call_anysync(self.changed, self, button.name)        
 
 class Screen(Unit):
     def __init__(self, name):

@@ -51,7 +51,7 @@ def append_table_row(table, search_str = ''):
     ''' append has to return new row, value is the search string value in the table'''    
     new_row = [None] * len(table.headers)           
     if getattr(table,'id', None):          
-        new_row = table.rows.dbtable.list.append(new_row)        
+        new_row = table.rows.append(new_row)        
         if hasattr(table, 'link') and table.filter:
             link_table, _, rel_name = table.rows.dbtable.list.link
             for linked_id in link_table.selected_list:

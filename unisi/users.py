@@ -63,10 +63,10 @@ class User:
                 if not isinstance(result, Message) or not result.contains(msg_object):                                                        
                     await self.broadcast(msg_object)    
 
-    async def progress(self, str, *updates):
+    async def progress(self, value, *updates):
         """open or update progress window if str != null else close it """  
         if not self.testing:           
-            msg = TypeMessage('progress', str, *updates, user = self)            
+            msg = TypeMessage('progress', str(value), *updates, user = self)            
             await asyncio.gather(self.send(msg), self.reflect(None, msg))
             if notify_monitor:
                 await notify_monitor('e', self.session, self.last_message) 

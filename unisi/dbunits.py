@@ -132,18 +132,18 @@ class Dblist:
             return update
 
     def append(self, arr):
-        """append row to list"""
+        """append row to dblist"""
+        row = self.dbtable.append_row(arr) 
         if self.cache is not None:
-            self.cache.append(arr)
-            return arr
-        index = len(self)
-        row = self.dbtable.append_row(arr)                    
-        delta_chunk,list = self.get_delta_chunk(index)
-        if list is not None:
-            list.append(row)
-            update = dict(type = 'action', update = 'add', index = index, data = row) 
-            dbupdates[self.dbtable.id].append(update)
-            return row
+            self.cache.append(row)
+        else:
+            index = len(self) - 1                          
+            delta_chunk,lst = self.get_delta_chunk(index)
+            if lst is not None:
+                lst.append(row)
+                update = dict(type = 'action', update = 'add', index = index, data = row) 
+                dbupdates[self.dbtable.id].append(update)
+        return row
         
     def extend(self, rows) -> dict:
         delta_start = self.dbtable.length
@@ -154,15 +154,15 @@ class Dblist:
         length = len_rows + start
         while len_rows > 0:
             delta_list = start // self.limit * self.limit
-            list = self.delta_list.get(delta_list)
-            if list is None:            
-                list = []
-                self.delta_list[delta_list] = list
+            lst = self.delta_list.get(delta_list)
+            if lst is None:            
+                lst = []
+                self.delta_list[delta_list] = lst
                 can_fill = self.limit
             else:
-                can_fill = self.limit - len(list)
+                can_fill = self.limit - len(lst)
             if can_fill:        
-                list.extend(rows[i_rows: i_rows + can_fill])                
+                lst.extend(rows[i_rows: i_rows + can_fill])                
                         
             i_rows += can_fill           
             start += can_fill
