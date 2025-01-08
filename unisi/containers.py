@@ -145,6 +145,7 @@ class Dialog:
 
     async def dialog_command_handler(self, button, _):        
         if user := Unishare.context_user():
+            user.active_dialog = None
             await user.send(TypeMessage('action', 'close'))
             return await call_anysync(self.changed, self, button.name)        
 
