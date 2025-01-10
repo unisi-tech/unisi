@@ -1,5 +1,5 @@
 from unisi import *
-import random, copy
+import random, copy, time
 from data import long_function
 
 def append(_,val):
@@ -31,10 +31,20 @@ def table_update(_, value):
 
 ticks = Edit('How many ticks', 50)
 
+async def serious_function(ticks):
+    await user.progress('Run process')
+    for i in range(ticks):        
+        time.sleep(0.04)
+        await user.progress(f'{i} tick')
+    return 5
+
+
 async def dialog_callback(_,value):    
     if value == 'Ok':
         user = context_user()        
-        res = await user.run_process(long_function, ticks.value, None, progress_callback = user.progress)      
+        #bug in python-windows in call multiprocessing.Manager()
+        #res = await user.run_process(long_function, ticks.value, None, progress_callback = user.progress)      
+        res = await serious_function(50)
         txt.value = f'Process result is {res}'
         return txt      
         
