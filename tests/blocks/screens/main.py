@@ -2,7 +2,7 @@ from unisi import *
 from blocks.tblock import config_area, tarea
 
 name = "Main"
-order = 1
+order = 0
 
 table = Table('Videos', 0, headers = ['Video', 'Duration',  'Links', 'Mine'], rows = [
     ['opt_sync1_3_0.mp4', '30 seconds',  '@Refer to signal1', True],
@@ -33,13 +33,11 @@ block = Block('X Block',
         icon = 'api')
 
 def change_seletion(elem, value):
-    for unit in elem.value['nodes']:
-        if unit not in value['nodes']:
-            unit.active = False
+    for unit in elem.value['nodes']:        
+        unit.active = False
     
     for unit in value['nodes']:
-        if unit not in elem.value['nodes']:
-            unit.active = True
+        unit.active = True
     elem.value = value
 
 toposcreen = Net('Net', changed = change_seletion )

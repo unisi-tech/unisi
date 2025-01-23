@@ -80,6 +80,13 @@ def is_type(variable, expected_type):
     
     return False
 
+def remove_comments(json_str):
+    # Regular expression to remove single-line comments (// ...)
+    json_str = re.sub(r'//.*', '', json_str)
+    # Regular expression to remove multi-line comments (/* ... */)
+    json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
+    return json_str
+
 def Q(str_prompt, type_value = str, blank = True, **format_model):
     """returns LLM async call for a question"""    
     llm = Unishare.llm_model    
@@ -90,13 +97,17 @@ def Q(str_prompt, type_value = str, blank = True, **format_model):
     if not re.search(r'json', str_prompt, re.IGNORECASE):           
         jtype = jstype(type_value)
         format = " dd/mm/yyyy string" if type_value == 'date' else f'a JSON {jtype}' if jtype != 'string' else jtype      
-        str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY {format}. Do not output any commentary." + str_prompt 
+        str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY {format}. DO NOT OUTPUT ANY COMMENTARY." + str_prompt 
     async def f():            
         io = await llm.ainvoke(str_prompt)
         js = io.content.strip().strip('`').replace('json', '')                      
         if type_value == str or type_value == 'date':
             return js  
-        parsed = json.loads(js)
+        try:       
+            clean_js = remove_comments(js)     
+            parsed = json.loads(clean_js)
+        except json.JSONDecodeError as e:
+            raise ValueError(f'Invalid JSON: {js}, \n Query: {str_prompt}') 
         if isinstance(type_value, dict):
             for k, v in type_value.items():
                 if k not in parsed:
