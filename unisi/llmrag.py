@@ -9,8 +9,49 @@ from langchain_google_genai import (
     HarmCategory,
 )
 from datetime import datetime
-import collections, inspect, re, json
+import os, inspect, re, json
 from typing import get_origin, get_args        
+
+class QueryCache:
+    ITEM_SEPARATOR = "§¶†‡◊•→±"
+    ENTRY_SEPARATOR = "€£¥¢≠≈∆√"    
+    
+    def __init__(self, file_path):
+        self.file_path = file_path
+        self.cache = {}
+        self._load_cache()
+
+    def _load_cache(self):
+        if os.path.exists(self.file_path):
+            with open(self.file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+                entries = content.split(self.ENTRY_SEPARATOR)
+                for entry in entries:
+                    if not entry.strip():
+                        continue
+                    parts = entry.split(self.ITEM_SEPARATOR)
+                    if len(parts) == 2:
+                        query, result = parts
+                        self.cache[query] = result
+
+    def get(self, query):
+        return self.cache.get(query)
+
+    def set(self, query, result):        
+        entry_data = f"{query}{self.ITEM_SEPARATOR}{result}"
+        prepend_separator = bool(self.cache)
+        
+        try:
+            with open(self.file_path, 'a', encoding='utf-8') as f:
+                if prepend_separator:
+                    f.write(self.ENTRY_SEPARATOR)
+                f.write(entry_data)
+            
+            self.cache[query] = result
+            return True
+        except Exception as e:
+            print(f"Error caching result: {e}")
+            return False
 
 def jstype(type_value):        
     if isinstance(type_value, type):         
@@ -99,8 +140,17 @@ def Q(str_prompt, type_value = str, blank = True, **format_model):
         format = " dd/mm/yyyy string" if type_value == 'date' else f'a JSON {jtype}' if jtype != 'string' else jtype      
         str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY {format}. DO NOT OUTPUT ANY COMMENTARY." + str_prompt 
     async def f():            
-        io = await llm.ainvoke(str_prompt)
-        js = io.content.strip().strip('`').replace('json', '')                      
+        if Unishare.llm_cache:            
+            if content := Unishare.llm_cache.get(str_prompt):
+                pass
+            else:
+                io = await llm.ainvoke(str_prompt)
+                content = io.content
+                Unishare.llm_cache.set(str_prompt, content)
+        else:
+            io = await llm.ainvoke(str_prompt)
+            content = io.content
+        js = content.strip().strip('`').replace('json', '')                      
         if type_value == str or type_value == 'date':
             return js  
         try:       
@@ -125,7 +175,7 @@ def Q(str_prompt, type_value = str, blank = True, **format_model):
                     raise TypeError(f'Invalid type for {k}: {type(parsed[k])} != {v}')
         else:
             if not is_type(parsed, type_value):
-                raise TypeError(f'Invalid type: {type(parsed)} != {type_value}')            
+                raise TypeError(f'Invalid type: {type(parsed)} != {type_value}')                    
         return parsed
     return f()
 
@@ -180,6 +230,9 @@ def setup_llmrag():
                     max_retries=2,
                     # other params...
                 )
+        
+        if hasattr(config, 'llm_cache'):
+            Unishare.llm_cache = QueryCache(config.llm_cache)
 
 async def get_property(name, context = '', type = str, options = None):  
     if type == str and re.search(r'date', name, re.IGNORECASE):
