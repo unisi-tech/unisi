@@ -173,9 +173,10 @@ def start(user_type = User, http_handlers = []):
 
     User.type = user_type        
     run_tests(User.init_user())
-
-    server_handlers = [web.get('/ws', websocket_handler), web.static(f'/{config.upload_dir}', upload_dir), 
-        web.get('/{tail:.*}', static_serve), web.post('/', post_handler)] + http_handlers
+                        #http_handlers has to be the first argument
+    server_handlers = http_handlers + [web.get('/ws', websocket_handler), 
+            web.static(f'/{config.upload_dir}', upload_dir), 
+        web.get('/{tail:.*}', static_serve), web.post('/', post_handler)] 
 
     app = web.Application()
     app.add_routes(server_handlers)    

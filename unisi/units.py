@@ -111,11 +111,12 @@ class Unit:
         super().__setattr__(name, value)
 
     def mutate(self, obj):
-        self.__dict__.clear()
-        for key, value in obj.__dict__.items():
-            setattr(self, key, value)
-        if self._mark_changed:
-            self._mark_changed()
+        if self is not obj:
+            self.__dict__.clear()
+            for key, value in obj.__dict__.items():
+                setattr(self, key, value)
+            if self._mark_changed:
+                self._mark_changed()
     
     def accept(self, value):
         if hasattr(self, 'changed'):

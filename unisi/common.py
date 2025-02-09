@@ -120,17 +120,17 @@ class Message:
 
     def fill_paths4(self, user):
         if hasattr(self, 'updates'):
-            invalid = []
+            invisible = []
             for update in self.updates:
                 data = update["data"]
                 path = user.find_path(data)
                 if path:
                     update['path'] = path
                 else:
-                    invalid.append(update)                    
-                    user.log(f'Invalid element update {data.name}, type {data.type}.\n\
-                    Such element not on the screen!')
-            for inv in invalid:
+                    invisible.append(update)                    
+                    user.log(f'Invisible element update {data.name}, type {data.type}.\n\
+                    Such element not on the screen!', type = 'warning')
+            for inv in invisible:
                 self.updates.remove(inv)
 
     def contains(self, unit):

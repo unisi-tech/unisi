@@ -229,7 +229,9 @@ class User:
             match raw:
                 case None: 
                     if self.changed_units:
-                        raw = Message(*self.changed_units, user = self) 
+                        raw = Message(*self.changed_units, user = self)
+                        if not raw.updates:
+                            raw = None
                 case Message():
                     if self.changed_units:
                         message_units = [x['data'] for x in raw.updates]
