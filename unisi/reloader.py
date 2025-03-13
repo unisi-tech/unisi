@@ -26,12 +26,12 @@ else:
         else:
             busy = False
 
-    def reload(sname):
+    def reload(sname, changed_dependency = False):
         user = User.last_user
         if user:
             file = open(f'screens{divpath}{sname}', "r") 
             content = file.read()
-            if file_content[sname] == content:
+            if not changed_dependency and file_content[sname] == content:
                 return
             file_content[sname] = content
             
@@ -85,7 +85,9 @@ else:
                 if name.endswith('.py'):
                     user = User.last_user
                     
+                    changed_dependency = False
                     if user.screen_module and dir not in ['screens','blocks']: 
+                        changed_dependency = True
                         #analyze if dependency exist
                         file = open(user.screen_module.__file__, "r") 
                         arr[-1] = arr[-1][:-3]
@@ -105,12 +107,12 @@ else:
                             global request_file            
                             request_file = short_path 
                         else:                    
-                            fresh_module = reload(name) if dir == 'screens' else None                                            
+                            fresh_module = reload(name, changed_dependency) if dir == 'screens' else None                                            
                             module = user.screen_module
                             if module:
                                 current = module.__file__
                                 if not fresh_module or current != fresh_module.__file__:
-                                    reload(current.split(divpath)[-1]) 
+                                    reload(current.split(divpath)[-1], changed_dependency) 
                                                     
         def on_deleted(self, event):            
             if not event.is_directory and User.last_user:
