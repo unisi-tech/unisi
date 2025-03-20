@@ -119,9 +119,12 @@ def ask_create_test(_, bname):
     if bname == 'Ok':            
         return create_test(test_name.value) if test_name.value else\
             Warning('Test file name is not defined!')
-
+    
 button = Button('_Add test', button_clicked, right = True,
-    icon='format_list_bulleted_add', tooltip='Create autotest')
+        icon='format_list_bulleted_add', tooltip='Create autotest')
+
+if config.autotest:            
+    User.toolbar.append(button)
 
 def check_block(block, hash_elements):
     errors = []
@@ -199,8 +202,8 @@ def run_tests(user):
                 if not test(file,user):
                     ok = False
     if process and ok:
-        print('\n-----Autotests successfully passed.-----\n')    
-    User.toolbar.append(button)
+        print('\n-----Autotests successfully passed.-----\n')  
+    
     
         
 

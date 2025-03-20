@@ -264,7 +264,7 @@ class User:
                             self.voice.start()                              
                         if getattr(s.screen,'prepare', None):
                             s.screen.prepare()
-                        return True 
+                    return True                     
             else:        
                 error = f'Unknown screen name: {message.value}'   
                 self.log(error)
