@@ -138,7 +138,7 @@ def Q(str_prompt, type_value = str, blank = True, **format_model):
     if not re.search(r'json', str_prompt, re.IGNORECASE):           
         jtype = jstype(type_value)
         format = " dd/mm/yyyy string" if type_value == 'date' else f'a JSON {jtype}' if jtype != 'string' else jtype      
-        str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY {format}. DO NOT OUTPUT ANY COMMENTARY." + str_prompt 
+        str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY in format {format}. DO NOT OUTPUT ANY COMMENTARY." + str_prompt 
     async def f():            
         if Unishare.llm_cache:            
             if content := Unishare.llm_cache.get(str_prompt):
@@ -183,9 +183,12 @@ def setup_llmrag():
     import config #the module is loaded before config analysis    
     temperature = getattr(config, 'temperature', 0.0)
     if config.llm:
+        api_key_config = None
+        model = None
         match config.llm:
-            case ['host', address]: 
-                model = None
+            case ['host', address]:                 
+                type = 'host' #provider type is openai for local llms
+            case ['host', address, api_key_config, model]:                 
                 type = 'host' #provider type is openai for local llms
             case [type, model, address]: ...
             case [type, model]: address = None
@@ -195,11 +198,14 @@ def setup_llmrag():
                 
         type = type.lower()
         match type:
-            case 'host':            
+            case 'host':  
+                api_key_from_config = os.environ.get(api_key_config) if api_key_config else None
+                api_key = api_key_from_config if api_key_from_config else 'llm-studio'                         
                 Unishare.llm_model = ChatOpenAI(
-                    api_key = 'llm-studio',
+                    api_key = api_key,
                     temperature = temperature,
-                    openai_api_base = address
+                    openai_api_base = address,
+                    model = model
                 ) 
             case 'openai':
                 Unishare.llm_model = ChatOpenAI(temperature = temperature)
@@ -238,7 +244,7 @@ async def get_property(name, context = '', type = str, options = None):
     if type == str and re.search(r'date', name, re.IGNORECASE):
         type = 'date'
     limits = f', which possible options are {",".join(opt for opt in options)},' if options else ''                    
-    prompt = """Context: {context} . Output ONLY "{name}" explicit value{limits} based on the context. """    
+    prompt = """Output ONLY explicit value{limits} based on the context. Example: Context: Animal: Byrd. Query: Has beak: True. Context: {context}. Query: {name}:"""    
     try:
         value = await Q(prompt, type)
     except Exception as e:        

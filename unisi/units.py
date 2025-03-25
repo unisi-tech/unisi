@@ -139,6 +139,11 @@ class Unit:
         """reduce for external (llm) using if required"""
         return f'{self.name} : {self.value}'
     
+    @property
+    def type_value(self):
+        """return python system type if value not 'date' type"""
+        return type(self.value) if self.type != 'date' else 'date'
+    
     async def emit(self, *_ ):        
         """calcute value by system llm, can be used as a handler"""
         if Unishare.llm_model and (exactly := getattr(self, 'llm', None)) is not None:        
@@ -146,7 +151,7 @@ class Unit:
             #exactly is requirment that all elements have to have valid value
             if not exactly or len(elems) == len(self._llm_dependencies):
                 context = ','.join(elems)    
-                self.value = await get_property(self.name, context, self.type, options = getattr(self, 'options', None))
+                self.value = await get_property(self.name, context, self.type_value, options = getattr(self, 'options', None))
                 return self
             
     def add_changed_handler(self, handler):
