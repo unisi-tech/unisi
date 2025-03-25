@@ -221,7 +221,7 @@ class Table(Unit):
                         if context:                                                    
                             async def assign(index, fld, context):
                                 self.rows[index][self.headers.index(fld)] = await get_property(fld, context)                            
-                            context =  ','.join(f'{fld}:{val}' for fld, val in context.items())
+                            context =  ','.join(f'{fld}: {val}' for fld, val in context.items())
                             tasks.append(asyncio.create_task(assign(index, fld, context)))
             if tasks:
                 await asyncio.gather(*tasks)

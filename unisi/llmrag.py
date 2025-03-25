@@ -184,7 +184,7 @@ def setup_llmrag():
     temperature = getattr(config, 'temperature', 0.0)
     if config.llm:
         api_key_config = None
-        model = None
+        model = ''
         match config.llm:
             case ['host', address]:                 
                 type = 'host' #provider type is openai for local llms
