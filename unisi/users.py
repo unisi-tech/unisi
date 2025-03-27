@@ -19,10 +19,13 @@ class User:
         self.last_message = None                               
         self.changed_units = set()
         self.voice = None
+        self.screen_module = None
 
         if share:            
-            self.screens = share.screens            
-            self.screen_module = share.screen_module if share.screens else []
+            self.screens = share.screens       
+            if share.screens:     
+                self.screen_module = share.screens[0] if config.mirror else share.screen_module
+            
             self.handlers =  share.handlers        
             
             if share.reflections:            
@@ -32,8 +35,7 @@ class User:
             self.reflections = share.reflections
         else:
             self.screens = []        
-            self.reflections = []
-            self.screen_module = None         
+            self.reflections = []            
             self.handlers = {} 
 
         User.last_user = self
