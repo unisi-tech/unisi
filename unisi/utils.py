@@ -58,7 +58,8 @@ Screen.defaults = dict(
     toolbar = [], 
     order = 0,
     reload = config.hot_reload, 
-    lang = config.lang
+    lang = config.lang,
+    voice = not config.mirror,
 )
 
 if config.froze_time == 0:
