@@ -75,7 +75,7 @@ Connect a browser to localhast:8000 which are by default and will see:
 ![image](https://github.com/unisi-tech/unisi/assets/1247062/dafebd1f-ae48-4790-9282-dea83d986749)  
 
 ### 'The fastest way to create Web applications in Python.' is a free crash course 1-hour video how to use UNISI ###
-   https://www.unisi.tech/learn
+   https://youtu.be/MG4JQa0DlAE
 
 ### Handling events ###
 All handlers are functions which have a signature
