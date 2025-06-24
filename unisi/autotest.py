@@ -147,8 +147,8 @@ def check_block(block, hash_elements):
                 errors.append(f'The block {block.name} contains block {child.name}. Blocks cannot contain blocks!')                                                                                                       
             elif child.name in child_names and child.type != 'line':                        
                 errors.append(f'The block {block.name} contains a duplicated element name "{child.name}"!')
-            elif child.type == 'chart' and not hasattr(child, 'view'):
-                errors.append(f'The block {block.name} contains a chart type "{child.name}", but not "view" option!')
+            elif child.type == 'chart' and not hasattr(child, 'view') and not hasattr(child, 'option'):
+                errors.append(f'The block {block.name} contains a chart type "{child.name}", but "view" or "option" does not defined!')
             else:
                 child_names.add(child.name)                
     return errors
