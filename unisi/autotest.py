@@ -185,7 +185,11 @@ def check_module(module):
 def run_tests(user):
     errors = []
     for module in user.screens:
-        errors += check_module(module)
+        module_errors = check_module(module)
+        if module_errors: 
+            errors += module_errors
+        else:
+            module.screen.set_reactivity(user) #because Users.py 95 does not set reactivity for screens for 0 user
     if errors:
         errors.insert(0, f'\n!!----Detected errors in screens:')
         print('\n'.join(errors), '\n')

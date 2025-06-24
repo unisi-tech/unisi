@@ -91,7 +91,8 @@ class User:
             screen.toolbar += User.toolbar
         else: 
             screen.toolbar = User.toolbar  
-        screen.set_reactivity(self)        
+        if User.count > 0:
+            screen.set_reactivity(self)        
         module.screen = screen#ChangedProxy(screen, screen)                                 
         return module
     
