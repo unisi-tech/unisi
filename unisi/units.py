@@ -109,6 +109,8 @@ class Unit:
         if name[0] != "_" and self._mark_changed:            
             self._mark_changed(name, value)
         super().__setattr__(name, value)
+        if name == 'value' and getattr(self, '_user', None) and getattr(self, 'type', None) == 'block':
+            self.set_reactivity(self._user)
 
     def mutate(self, obj):
         if self is not obj:
