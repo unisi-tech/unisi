@@ -53,7 +53,12 @@ class Block(Unit):
             def close(*_):
                 user = self._user if self._user else  Unishare.context_user()
                 delete_unit(user.screen.blocks, self.name)                
-            self.close = close        
+            self.close = close      
+
+    def __setattr__(self, name, value):      
+        super().__setattr__(name, value)
+        if name == 'value' and getattr(self, '_user', None):
+            self.set_reactivity(self._user)  
 
     def set_reactivity(self, user, override = False):
         self._user = user
