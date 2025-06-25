@@ -280,11 +280,13 @@ class Video(Unit):
         set_defaults(self, {'url': self.name, 'ratio' : None})          
 
 class Chart(Unit):
-    '''has to contain src parameter'''
-    def __init__(self,name, option, **kwargs):
-        super().__init__(name, option = option, **kwargs)
+    '''echart chart with 'echart option' parameter as value, handler is optional'''
+    def __init__(self,name, *args, **kwargs):
+        super().__init__(name, *args, **kwargs)
         self.type = 'chart'                
-        
+        self.option = self.value if hasattr(self, 'value') else {}
+        self.value = None
+                
 class Switch(Unit):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)        

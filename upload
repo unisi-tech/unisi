@@ -1,4 +1,4 @@
 pdm build
-twine upload -r pypi dist/unisi-0.3.31-py3-none-any.whl
+twine upload -r pypi dist/unisi-0.3.32-py3-none-any.whl
 
 
