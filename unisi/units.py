@@ -89,9 +89,9 @@ class Unit:
         return not property or not property.startswith('_')
         
     def set_reactivity(self, user, override = False):        
-        changed_call = None
+        changed_call = self._mark_changed
         
-        if not hasattr(self, 'id') and (override or not self._mark_changed): 
+        if not hasattr(self, 'id') and (override or not changed_call): 
             self.__dict__.update({property : ChangedProxy(value, self)  for property, value in self.__dict__.items() 
                 if property[0] != '_' and not isinstance(value, atomics) and not callable(value)})                    
                     

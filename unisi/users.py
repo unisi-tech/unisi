@@ -41,6 +41,12 @@ class User:
         User.last_user = self
         self.monitor(session, share)     
 
+    @property
+    def sorted_changed_units(self):
+        """sort changed units by type, 'block' types have priority"""
+        sorted_units = sorted(self.changed_units, key=lambda u: u.type != 'block')
+        return sorted_units
+        
     async def run_process(self, long_running_task, *args, progress_callback = None, **kwargs):
         if progress_callback and notify_monitor and progress_callback != self.progress: #progress notifies the monitor
             async def new_callback(value):
@@ -232,21 +238,21 @@ class User:
             match raw:
                 case None: 
                     if self.changed_units:
-                        raw = Message(*self.changed_units, user = self)
+                        raw = Message(*self.sorted_changed_units, user = self)
                         if not raw.updates:
                             raw = None
                 case Message():
                     if self.changed_units:
                         message_units = [x['data'] for x in raw.updates]
                         self.changed_units.update(message_units)
-                        raw.set_updates(self.changed_units)
+                        raw.set_updates(self.sorted_changed_units)
                     raw.fill_paths4(self)                                    
                 case Unit():
                     self.changed_units.add(raw)
-                    raw = Message(*self.changed_units, user = self) 
+                    raw = Message(*self.sorted_changed_units, user = self) 
                 case list() | tuple(): #raw is *unit
                     self.changed_units.update(raw)
-                    raw = Message(*self.changed_units, user = self) 
+                    raw = Message(*self.sorted_changed_units, user = self) 
                 case _: ...
                     
         self.changed_units.clear()           
