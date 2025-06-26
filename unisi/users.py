@@ -44,8 +44,7 @@ class User:
     @property
     def sorted_changed_units(self):
         """sort changed units by type, 'block' types have priority"""
-        sorted_units = sorted(self.changed_units, key=lambda u: u.type != 'block')
-        return sorted_units
+        return sorted(self.changed_units, key=lambda u: u.type != 'block') if len(self.changed_units) > 1 else self.changed_units       
         
     async def run_process(self, long_running_task, *args, progress_callback = None, **kwargs):
         if progress_callback and notify_monitor and progress_callback != self.progress: #progress notifies the monitor
@@ -117,7 +116,7 @@ class User:
             self.log(f'User is disconnected, session: {self.session}', type = 'info')            
 
     def set_clean(self):
-        #remove user modules from sys 
+        """remove user modules from sys """
         if os.path.exists(blocks_dir):
             for file in os.listdir(blocks_dir):
                 if file.endswith(".py") and file != '__init__.py':
