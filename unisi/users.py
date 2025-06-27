@@ -44,7 +44,11 @@ class User:
     @property
     def sorted_changed_units(self):
         """sort changed units by type, 'block' types have priority"""
-        return sorted(self.changed_units, key=lambda u: u.type != 'block') if len(self.changed_units) > 1 else self.changed_units       
+        if len(self.changed_units) > 1:
+            not_block = lambda u: u.type != 'block' 
+            if any(not not_block(x) for x in self.changed_units):
+                return sorted(self.changed_units, key=not_block)  
+        return self.changed_units       
         
     async def run_process(self, long_running_task, *args, progress_callback = None, **kwargs):
         if progress_callback and notify_monitor and progress_callback != self.progress: #progress notifies the monitor
@@ -297,7 +301,8 @@ class User:
                 return await self.process_element(elem, message)              
             error = f'Element {message.block}/{message.element} does not exist!'
             self.log(error)
-            return Error(error)        
+            return Error(error)    
+            
     async def process_element(self, elem, message):                
         event = message.event         
         handler = self.handlers.get((elem, event), None)
