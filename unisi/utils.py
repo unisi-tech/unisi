@@ -47,7 +47,8 @@ set_defaults(config,  dict(
     db_dir = None,
     lang = 'en-US',
     public_dirs = [],
-    debug = False
+    debug = False,
+    image = 'icons/favicon-32x32.png'
 ))
 
 Screen.defaults = dict(
@@ -60,6 +61,7 @@ Screen.defaults = dict(
     reload = config.hot_reload, 
     lang = config.lang,
     voice = not config.mirror,
+    image = config.image
 )
 
 if config.froze_time == 0:

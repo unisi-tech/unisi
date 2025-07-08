@@ -134,7 +134,7 @@ def check_block(block, hash_elements):
         errors.append(f"The block with {[str(type(gui)).split('.')[-1] for gui in flatten(block.value)]} does not contain name!")
         block.name = 'Unknown'          
     if not isinstance(block.name, str):
-        errors.append(f"The block with name {block.name} is not a string!")
+        errors.append(f"The block name `{block.name}` is not a string!")
     for child in flatten(block.value):  
         hash_element = hash(child)
         if hash_element in hash_elements:
