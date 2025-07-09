@@ -99,8 +99,7 @@ rewrite = Switch('Overwrite existing', False, type = 'check')
 def button_clicked(_,__):
     if not os.path.exists(testdir):
         os.makedirs(testdir)        
-    test_name.value = User.last_user.screen.name
-    test_name.complete = smart_complete(os.listdir(testdir))
+    test_name.value = User.last_user.screen.name    
     return Dialog('Create autotest..', ask_create_test, test_name, rewrite)
 
 def create_test(fname):

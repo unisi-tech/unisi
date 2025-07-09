@@ -3,7 +3,7 @@ from unisi import *
 name = 'Panda & params'
 order = 1
 
-zoo_table = Table('Zoo Table', panda = table)
+zoo_table = Table('Zoo Table (panda table)', panda = table)
 
 def get_params(button, _):
     return Info(str(block.params))
