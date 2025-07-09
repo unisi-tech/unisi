@@ -197,7 +197,10 @@ class User:
         if property == 'value':
             property = 'changed'
         m = self.last_message
-        if not m or unit.name != m.element or property != m.event or value != m.value:
+        
+        if m and m.event == 'modify' and m.element == unit.name: 
+            return False
+        if not m or m.element != unit.name or property != m.event or value != m.value:
             self.changed_units.add(unit)            
 
     @property
