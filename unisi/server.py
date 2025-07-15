@@ -45,7 +45,8 @@ def make_user(request):
         user_id = session.split('-')[1]
     else:
         user_id = parsed_query.get('id', [User.count])[0]
-        session = f'{generate_random_string()}-{user_id}'        
+        session = f'{generate_random_string()}-{user_id}'      
+          
     if config.share and 'session' in parsed_query:
         user = Unishare.sessions.get(session, None)
         if not user:

@@ -198,7 +198,8 @@ class User:
             property = 'changed'
         m = self.last_message
         
-        if m and m.event == 'modify' and m.element == unit.name: 
+        if m and m.event == 'modify' and m.element == unit.name and (upath := 
+                self.find_path(unit)) and m.block == upath[0]:            
             return False
         if not m or m.element != unit.name or property != m.event or value != m.value:
             self.changed_units.add(unit)            
