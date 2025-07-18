@@ -64,7 +64,7 @@ block = Block('X Block',
 
 
 ### Server start ###
-tests/template/run.py
+my_project/run.py
 ```
 import unisi
 unisi.start() 
