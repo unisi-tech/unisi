@@ -14,7 +14,8 @@ def updated(_, value):
     return Info(f'{_.name} is updated to {value}!')        
 
 def complete(_, value):    
-    return ['aaa', 'bbb', 'ccc']    
+    value, pos = value          
+    return ['aaa', 'bbb', 'ccc']   if pos[1] == 0 else [] 
 
 def changed(_, value):
     _.value = value  

@@ -32,10 +32,10 @@ UNISI is a universal data protocol and compact yet highly efficient framework de
 ### High level - Screen ###
 The program directory has to contain a screens folder which contains all screens which Unisi has to show.
 
-Screen example tests/blocks/main.py
+Screen example my_project/screens/main.py
 ```
 name = "Main"
-blocks = [block] 
+blocks = block 
 ```
 The block example with a table and a selector
 ```
