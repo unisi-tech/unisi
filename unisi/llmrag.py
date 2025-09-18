@@ -10,7 +10,7 @@ from langchain_google_genai import (
 )
 from datetime import datetime
 import os, inspect, re, json
-from typing import get_origin, get_args        
+from typing import get_origin, get_args, Any, Union
 
 class QueryCache:
     ITEM_SEPARATOR = "§¶†‡◊•→±"
@@ -102,24 +102,88 @@ def is_type(variable, expected_type):
     """
     Check if the variable matches the expected type hint.
     """
-    origin = get_origin(expected_type) 
-    if origin is None:
-        return isinstance(variable, expected_type)
-    args = get_args(expected_type)
-    
-    # Check if the type matches the generic type
-    if not isinstance(variable, origin):
-        return False
-        
-    if not args:
+    # Handle explicit mapping of expected keys to types: {'name': str, 'age': int}
+    if isinstance(expected_type, dict):
+        if not isinstance(variable, dict):
+            return False
+        for key_pattern, sub_type in expected_type.items():
+            # direct key match
+            if key_pattern in variable:
+                if not is_type(variable[key_pattern], sub_type):
+                    return False
+                continue            
         return True
-        
-    if origin is list:
-        return all(isinstance(item, args[0]) for item in variable)
-    elif origin is dict:
-        return all(isinstance(k, args[0]) and isinstance(v, args[1]) for k, v in variable.items())
-    
-    return False
+
+    # Handle typing hints (e.g., List[int], Dict[str,int], Union[..., ...], Optional[T], Tuple[T,...])
+    origin = get_origin(expected_type)
+    args = get_args(expected_type)
+
+    # No typing origin: expected_type may be a bare type or typing.Any
+    if origin is None:
+        # typing.Any
+        if expected_type is Any:
+            return True
+        # None as expected type
+        if expected_type is None:
+            return variable is None
+        # expected_type could be a builtin type or a tuple of types
+        if isinstance(expected_type, type) or isinstance(expected_type, tuple):
+            return isinstance(variable, expected_type)
+        # fallback: try isinstance; for other unexpected cases, be permissive
+        try:
+            return isinstance(variable, expected_type)
+        except Exception:
+            return False
+
+    # Handle Union / Optional
+    if origin is Union:
+        return any(is_type(variable, arg) for arg in args)
+
+    # Handle List[...] and Set[...]
+    if origin in (list, set):
+        expected_container = list if origin is list else set
+        if not isinstance(variable, expected_container):
+            return False
+        if not args:
+            return True
+        return all(is_type(item, args[0]) for item in variable)
+
+    # Handle Tuple[...] or tuple
+    if origin is tuple:
+        if not isinstance(variable, tuple):
+            return False
+        if not args:
+            return True
+        # Homogeneous tuple: Tuple[T, ...]
+        if len(args) == 2 and args[1] is Ellipsis:
+            return all(is_type(item, args[0]) for item in variable)
+        # Fixed-length tuple: Tuple[T1, T2, ...]
+        if len(variable) != len(args):
+            return False
+        return all(is_type(item, typ) for item, typ in zip(variable, args))
+
+    # Handle Dict[K, V]
+    if origin is dict:
+        if not isinstance(variable, dict):
+            return False
+        if not args:
+            return True
+        key_type, val_type = args
+        return all(is_type(k, key_type) and is_type(v, val_type) for k, v in variable.items())
+
+    # Handle Literal[...] (available in typing)
+    try:
+        from typing import Literal
+        if origin is Literal:
+            return any(variable == lit for lit in args)
+    except Exception:
+        pass
+
+    # Fallback: check using isinstance against the origin if possible
+    try:
+        return isinstance(variable, origin)
+    except Exception:
+        return False
 
 def remove_comments(json_str):
     # Regular expression to remove single-line comments (// ...)
@@ -128,17 +192,20 @@ def remove_comments(json_str):
     json_str = re.sub(r'/\*.*?\*/', '', json_str, flags=re.DOTALL)
     return json_str
 
-def Q(str_prompt, type_value = str, blank = True, **format_model):
-    """returns LLM async call for a question"""    
+def Q(str_prompt, type_value = str, blank = True, extend = True, format = True, **format_model):
+    """returns LLM async call for a question, `extend = True` adds system prompt, 
+     'identity' in format_model can be used to set the assistant identity"""    
     llm = Unishare.llm_model    
-    if '{' in str_prompt:
+    if format and '{' in str_prompt:
         caller_frame = inspect.currentframe().f_back            
         format_model = caller_frame.f_locals | format_model if format_model else caller_frame.f_locals
         str_prompt = str_prompt.format(**format_model) 
-    if not re.search(r'json', str_prompt, re.IGNORECASE):           
-        jtype = jstype(type_value)
-        format = " dd/mm/yyyy string" if type_value == 'date' else f'a JSON {jtype}' if jtype != 'string' else jtype      
-        str_prompt = f"System: You are an intelligent and extremely smart assistant. Output STRONGLY in format {format}. DO NOT OUTPUT ANY COMMENTARY." + str_prompt 
+    if extend: 
+        if type_value is not None:          
+            jtype = jstype(type_value)
+            format = " dd/mm/yyyy string" if type_value == 'date' else f'a JSON {jtype}' if jtype != 'string' else jtype      
+            str_prompt = f" Output STRONGLY in format {format}. DO NOT OUTPUT ANY COMMENTARY." + str_prompt         
+        str_prompt = format_model.get('identity', 'You are an intelligent and extremely smart assistant.') + str_prompt
     async def f():            
         if Unishare.llm_cache:            
             if content := Unishare.llm_cache.get(str_prompt):
@@ -158,26 +225,15 @@ def Q(str_prompt, type_value = str, blank = True, **format_model):
             parsed = json.loads(clean_js)
         except json.JSONDecodeError as e:
             raise ValueError(f'Invalid JSON: {js}, \n Query: {str_prompt}') 
-        if isinstance(type_value, dict):
-            for k, v in type_value.items():
-                if k not in parsed:
-                    for k2, v2 in parsed.items():
-                        if re.fullmatch(k, k2, re.IGNORECASE) is not None:
-                            parsed[k] = parsed.pop(k2)
-                            break
-                    else:
-                        if blank:
-                            parsed[k] = None
-                            continue                        
-                        raise KeyError(f'Key {k} not found in {parsed}')
-                        
-                if not is_type(parsed[k], v):
-                    raise TypeError(f'Invalid type for {k}: {type(parsed[k])} != {v}')
-        else:
-            if not is_type(parsed, type_value):
-                raise TypeError(f'Invalid type: {type(parsed)} != {type_value}')                    
+        
+        if not is_type(parsed, type_value):
+            raise TypeError(f'Invalid type: {type(parsed)} != {type_value}')                    
         return parsed
     return f()
+
+def Qx(str_prompt, type_value = str):
+    """returns LLM async call for a question, without formatting or extending the prompt"""
+    return Q(str_prompt, type_value, format = False, extend = False)
 
 def setup_llmrag():    
     import config #the module is loaded before config analysis    
@@ -251,4 +307,3 @@ async def get_property(name, context = '', type = str, options = None):
         Unishare.message_logger(e)
         return None
     return value
-    
