@@ -2,7 +2,7 @@ from unisi import *
 from blocks.tblock import config_area, tarea
 
 name = "Blocks"
-order = 0
+order = 1
 
 table = Table('Videos', 0, headers = ['Video', 'Duration',  'Links', 'Mine'], rows = [
     ['opt_sync1_3_0.mp4', '30 seconds',  '@Refer to signal1', True],

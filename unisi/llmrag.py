@@ -3,6 +3,7 @@ from .common import Unishare
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 from langchain_mistralai import ChatMistralAI
+from langchain_xai import ChatXAI
 from langchain_google_genai import (
     ChatGoogleGenerativeAI,
     HarmBlockThreshold,
@@ -253,6 +254,11 @@ def setup_llmrag():
                 return
                 
         type = type.lower()
+        model_kwargs={}
+        reasoning = getattr(config, 'reasoning', None)
+        if reasoning:
+            model_kwargs['reasoning'] = {"effort": reasoning, 'enabled': True}             
+
         match type:
             case 'host':  
                 api_key_from_config = os.environ.get(api_key_config) if api_key_config else None
@@ -261,10 +267,21 @@ def setup_llmrag():
                     api_key = api_key,
                     temperature = temperature,
                     openai_api_base = address,
+                    model_kwargs=model_kwargs,
                     model = model
                 ) 
             case 'openai':
-                Unishare.llm_model = ChatOpenAI(temperature = temperature)
+                
+                Unishare.llm_model = ChatOpenAI(temperature = temperature, model_kwargs=model_kwargs)
+
+            case 'xai':
+                Unishare.llm_model = ChatXAI(
+                    model = model,
+                    temperature = temperature,
+                    max_tokens = None,
+                    timeout = None,
+                    max_retries = 2, 
+                )
 
             case 'groq':
                 Unishare.llm_model = ChatGroq(

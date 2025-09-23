@@ -1,7 +1,7 @@
 from data import table
 from unisi import *
 name = 'Panda & params'
-order = 1
+order = 0
 
 zoo_table = Table('Zoo Table (panda table)', panda = table)
 

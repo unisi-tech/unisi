@@ -6,4 +6,4 @@ autotest = '*'
 hot_reload = True
 pool = 4
 share = True
-image = None
+#image = None
