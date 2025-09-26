@@ -19,7 +19,7 @@ block = ParamBlock('System parameters', Button('Show server params', get_params)
 def html_handler(unit, event):
     return Info(event)
 
-html = HTML('HTML',  '<button>Click me</button> <a href="#">Link</a> <input type="text">', html_handler)
+html = HTML('HTML',  '<button>Click me</button> <a href="#">Link</a> <input type="text">') #, html_handler)
 
 html_block = Block('Block with HTML', [], html, zoo_table)
 
