@@ -85,6 +85,12 @@ def handle(unit, event):
 
 Unishare.handle = handle
 
+Unishare.test_list = []
+
+def test(fn):    
+    Unishare.test_list.append(fn)
+    return fn
+
 async def post_handler(request):
     reader = await request.multipart()
     field = await reader.next()   

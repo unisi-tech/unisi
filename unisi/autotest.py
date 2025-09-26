@@ -181,7 +181,17 @@ def check_module(module):
         errors.insert(0, f"\nErrors in screen {screen.name}, file name {module.__file__}:")
     return errors
     
-def run_tests(user):
+def run_tests(user):    
+    if config.autotest:
+        for test_fn in Unishare.test_list:
+            try:
+                if asyncio.iscoroutinefunction(test_fn):
+                    asyncio.run(test_fn())
+                else: 
+                    test_fn()
+            except Exception as e:
+                user.log(f'Test function {test_fn.__name__} failed with exception: {e}')
+                
     errors = []
     for module in user.screens:
         module_errors = check_module(module)

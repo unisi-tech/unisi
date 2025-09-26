@@ -96,10 +96,10 @@ class User:
             setattr(screen, var, getattr(module, var, val))         
         if not isinstance(screen.blocks, list):
             screen.blocks = [screen.blocks]
-        if screen.toolbar:
+            
+        if User.toolbar and User.toolbar[0] not in screen.toolbar:
             screen.toolbar += User.toolbar
-        else: 
-            screen.toolbar = User.toolbar  
+        
         if User.count > 0:
             screen.set_reactivity(self)        
         module.screen = screen#ChangedProxy(screen, screen)                                 
