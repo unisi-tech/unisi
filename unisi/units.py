@@ -49,7 +49,10 @@ class ChangedProxy:
         self._unit._mark_changed ()
 
     def __iter__(self):
-        return iter(self._obj)
+        for item in self._obj:
+            if not callable(item) and not isinstance(item, atomics):
+                item = ChangedProxy(item, self._unit)
+            yield item        
 
     def __len__(self):
         try:
@@ -69,8 +72,7 @@ class ChangedProxy:
             
     def __getstate__(self):     
         return self._obj
-    
-atomics = (int, float, complex, bool, str, bytes, ChangedProxy, type(None))
+
            
 class Unit:    
     action_list = set(['complete', 'update', 'changed','delete','append', 'modify'])
@@ -108,6 +110,8 @@ class Unit:
         #it is correct condition order 
         if name[0] != "_" and self._mark_changed:            
             self._mark_changed(name, value)
+            if not callable(value) and not isinstance(value, atomics):
+                value = ChangedProxy(value, self)
         super().__setattr__(name, value)        
 
     def mutate(self, obj):
@@ -169,6 +173,8 @@ class Unit:
     
     def __repr__(self):
         return f'{type(self).__name__}({self.name})'
+    
+atomics = (int, float, complex, bool, str, bytes, ChangedProxy, type(None), Unit)
 
 Line = Unit("__Line__", type = 'line')
 
