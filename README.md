@@ -54,10 +54,10 @@ block = Block('X Block',
 | Screen global variables |	Status | Type | Description |
 | :---: | :---: | :---: | :---: | 
 | name  | Has to be defined | str | Unique screen name |
-| blocks | Has to be defined | list |which blocks to show on the screen |
+| blocks | Has to be defined | list[Block] or Block |which blocks to show on the screen |
 | user   | Always defined, read-only | User+ | Access to User(inherited) class which associated with a current user |
 | header | Optional | str | show it instead of app name |
-| toolbar | Optional | list | Unit elements to show in the screen toolbar |
+| toolbar | Optional | list[Unit] | Unit elements to show in the screen toolbar |
 | order | Optional | int | order in the program menu |
 | icon  | Optional | str | MD icon of screen to show in the screen menu |
 | prepare | Optional | def prepare() | Syncronizes Unit/GUI elements one to another and with the program/system data. It is called before screen appearing if defined. |
