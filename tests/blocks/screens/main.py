@@ -55,8 +55,7 @@ bottom_block = Block('Screen topology: Press Shift for multi (de)select nodes an
 
 blocks= [[block,bottom_block],config_area]
 
-async def log(x,y):    
-    user = context_user()
+async def log(x,y):        
     for i in range(3):
         await user.send(Warning(str(i)))
     
