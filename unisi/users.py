@@ -198,8 +198,8 @@ class User:
             property = 'changed'
         m = self.last_message
         
-        if m and m.event == 'modify' and m.element == unit.name and (upath := 
-                self.find_path(unit)) and m.block == upath[0]:            
+        if m and m.event == 'modify' and m.element == unit.name and (epath := 
+                self.find_path(unit), []) and m.block == strpath(epath):            
             return False
         if not m or m.element != unit.name or property != m.event or value != m.value:
             self.changed_units.add(unit)            
@@ -209,36 +209,59 @@ class User:
         return [self.active_dialog, *self.screen.blocks] if self.active_dialog and \
             self.active_dialog.value else self.screen.blocks
 
-    def find_element(self, message):               
-        blname = message.block
+    def find_element(self, message):                       
         elname = message.element
-        if blname == 'toolbar':
+        mb = message.block
+        if mb == 'toolbar':
             for e in self.screen.toolbar:
                 if e.name == elname:                
                     return e
-        else:
+        else:            
+            blnames = message.block.split('@')
             for bl in flatten(self.blocks):
-                if bl.name == blname:
-                    if not elname:
-                        return bl
-                    for c in flatten(bl.value):
-                        if c.name == elname:
-                            return c
+                if bl.name == blnames[0]:
+                    blnames = blnames[1:]
+                    for blname in blnames:
+                        for c in flatten(bl.value):
+                            if c.name == blname and c.type == 'block':
+                                bl = c
+                                break
+                        else:
+                            return None                        
+                    else:
+                        if elname:
+                            for c in flatten(bl.value):
+                                if c.name == elname:
+                                    return c
+                        else:
+                            return bl
+
         
-    def find_path(self, elem) -> list:        
+    def find_path(self, elem, path) -> list:        
+        def find_in_block(block, elem, path):
+            if block == elem:
+                return  [block.name, *path]
+            for c in flatten(block.value):
+                if c == elem:
+                    return [c.name, *path]
+                elif c.type == 'block' and (sub_path := find_in_block(c, elem)):
+                    return sub_path
+            return None
+
         for bl in flatten(self.blocks):        
             if bl == elem:
                 return [bl.name]
-            for c in flatten(bl.value):
-                if c == elem:
-                    return [bl.name, c.name]
+            path = [bl.name]
+            if (sub_path := find_in_block(bl, elem, path)):
+                return sub_path
+            
         for e in self.screen.toolbar:
             if e == elem:                
                 return ['toolbar', e.name]
 
-    def prepare_result(self, raw):
+    def prepare_result(self, raw):        
         reload_screen = any(u.type == 'screen' for u in self.changed_units)
-        if reload_screen or raw is True or raw == Redesign:            
+        if raw is True or raw == Redesign or reload_screen:            
             self.screen.reload = reload_screen or raw == Redesign                              
             raw = self.screen
         else:

@@ -143,7 +143,9 @@ def check_block(block, hash_elements):
             if not isinstance(child, Unit) or not child:
                 errors.append(f'The block {block.name} contains invalid element {child} instead of Unit+ object!') 
             elif isinstance(child, Block):
-                errors.append(f'The block {block.name} contains block {child.name}. Blocks cannot contain blocks!')                                                                                                       
+                errs = check_block(child, hash_elements)
+                if errs:
+                    errors += errs
             elif child.name in child_names and child.type != 'line':                        
                 errors.append(f'The block {block.name} contains a duplicated element name "{child.name}"!')
             elif child.type == 'chart' and not hasattr(child, 'view') and not hasattr(child, 'option'):

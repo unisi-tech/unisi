@@ -20,6 +20,10 @@ def index_of(lst, target):
 async def call_anysync(handler, *params):
     return (await handler(*params)) if asyncio.iscoroutinefunction(handler) else handler(*params)
 
+def strpath(path):
+    "array path to string"
+    return '@'.join(path)
+
 def compose_handlers(*handlers):
     async def compose(obj, value):
         objs = set()        
@@ -123,7 +127,7 @@ class Message:
             invisible = []
             for update in self.updates:
                 data = update["data"]
-                path = user.find_path(data)
+                path = user.find_path(data, [])
                 if path:
                     update['path'] = path
                 else:
