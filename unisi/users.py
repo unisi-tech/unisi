@@ -220,8 +220,8 @@ class User:
             blnames = message.block.split('@')
             for bl in flatten(self.blocks):
                 if bl.name == blnames[-1]:
-                    blnames = blnames[-1::-1] #reverse for easier search from screen to nested blocks
-                    for blname in blnames[1:]:
+                    blnames = blnames[-2:-1] #reverse for easier search from screen to nested blocks
+                    for blname in blnames:
                         for c in flatten(bl.value):
                             if c.name == blname and c.type == 'block':
                                 bl = c
