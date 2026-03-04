@@ -1,3 +1,4 @@
+from torch import Block
 from unisi import *
 import random, copy, time
 from data import long_function
@@ -94,8 +95,9 @@ eblock = Block('New block',
         [Button('Dialog for a process', call_dialog),Range('Scaling', 0, changed, options=[0.0,1.0,0.1])],        
         txt,
         Edit('Number only', 2.5),
-        Edit('Edit string', 'xyz'),
-        Edit('Complete enter update field', '', changed, complete = smart_complete(list_complete), update = updated)
+        Block('Block inside block', Button('Inner button', call_dialog),
+            Edit('Edit string', 'xyz'),
+            Edit('Complete enter update field', '', changed, complete = smart_complete(list_complete), update = updated))            
 )
 
 def add_tree_elem(_, val):

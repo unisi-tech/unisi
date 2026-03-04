@@ -219,9 +219,9 @@ class User:
         else:            
             blnames = message.block.split('@')
             for bl in flatten(self.blocks):
-                if bl.name == blnames[0]:
-                    blnames = blnames[1:]
-                    for blname in blnames:
+                if bl.name == blnames[-1]:
+                    blnames = blnames[-1::-1] #reverse for easier search from screen to nested blocks
+                    for blname in blnames[1:]:
                         for c in flatten(bl.value):
                             if c.name == blname and c.type == 'block':
                                 bl = c
@@ -244,7 +244,7 @@ class User:
             for c in flatten(block.value):
                 if c == elem:
                     return [c.name, *path]
-                elif c.type == 'block' and (sub_path := find_in_block(c, elem)):
+                elif c.type == 'block' and (sub_path := find_in_block(c, elem, path)):
                     return sub_path
             return None
 
@@ -254,10 +254,9 @@ class User:
             path = [bl.name]
             if (sub_path := find_in_block(bl, elem, path)):
                 return sub_path
-            
-        for e in self.screen.toolbar:
-            if e == elem:                
-                return ['toolbar', e.name]
+        
+        if elem in self.screen.toolbar:
+            return ['toolbar', elem.name]
 
     def prepare_result(self, raw):        
         reload_screen = any(u.type == 'screen' for u in self.changed_units)
