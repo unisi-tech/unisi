@@ -218,10 +218,10 @@ class User:
                     return e
         else:            
             blnames = message.block.split('@')
+            root_block_name = blnames[-1]
             for bl in flatten(self.blocks):
-                if bl.name == blnames[-1]:
-                    blnames = blnames[-2:-1] #reverse for easier search from screen to nested blocks
-                    for blname in blnames:
+                if bl.name == root_block_name:
+                    for blname in blnames[-2::-1]: #reverse for searching nested blocks
                         for c in flatten(bl.value):
                             if c.name == blname and c.type == 'block':
                                 bl = c
@@ -235,7 +235,6 @@ class User:
                                     return c
                         else:
                             return bl
-
         
     def find_path(self, elem, path) -> list:        
         def find_in_block(block, elem, path):
@@ -325,7 +324,7 @@ class User:
             elem = self.find_element(message)          
             if elem:                          
                 return await self.process_element(elem, message)              
-            error = f'Element {message.block}/{message.element} does not exist!'
+            error = f'Element {message.element}@{message.block} does not exist!'
             self.log(error)
             return Error(error)    
             
@@ -346,7 +345,7 @@ class User:
         elif event == 'changed':            
             elem.value = message.value                                        
         else:
-            error = f"{message.block}/{message.element} doesn't contain '{event}' method type!"
+            error = f"{message.element}@{message.block} doesn't contain '{event}' method type!"
             self.log(error)                     
             return Error(error)
         
