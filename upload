@@ -1,5 +1,5 @@
 rm -rf dist
-python -m build --no-isolation
+python3 -m build --no-isolation
 twine upload dist/*
 
 
