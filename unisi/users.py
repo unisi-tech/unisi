@@ -199,7 +199,7 @@ class User:
         m = self.last_message
         
         if m and m.event == 'modify' and m.element == unit.name and (epath := 
-                self.find_path(unit), []) and m.block == strpath(epath):            
+                self.find_path(unit, [])) and m.block == strpath(epath):            
             return False
         if not m or m.element != unit.name or property != m.event or value != m.value:
             self.changed_units.add(unit)            
