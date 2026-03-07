@@ -1,7 +1,8 @@
 from data import table
 from unisi import *
+from blocks.tblock import eblock
 name = 'Panda & params'
-order = 0
+order = 1
 
 zoo_table = Table('Zoo Table (panda table)', panda = table)
 
@@ -23,5 +24,5 @@ html = HTML('HTML',  '<button>Click me</button> <a href="#">Link</a> <input type
 
 html_block = Block('Block with HTML', [], html, zoo_table)
 
-blocks = [block, html_block]
+blocks = [[eblock,block], html_block]
 
