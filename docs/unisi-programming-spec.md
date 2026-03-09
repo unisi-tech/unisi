@@ -1,10 +1,6 @@
 # UNISI Framework Programming Documentation and Specification
 
 This document is a programmer-focused specification for building applications with the `unisi` framework.  
-It is based on:
-- `/home/george/Downloads/UNISI Tech (2).pdf`
-- the repository code (`unisi/*.py`)
-- working examples in `tests/blocks`, `tests/db`, and `tests/llm`
 
 ## 1. Purpose and Scope
 
@@ -366,16 +362,7 @@ blocks = [controls]
 - Dialog remains active if callback returns message/update that keeps it open.
 - `prepare()` runs when screen is displayed and is appropriate for sync/rebuild logic.
 
-## 18. Recommended Development Workflow
-
-1. Create `config.py` and `screens/main.py`.
-2. Start with plain `Edit`, `Button`, `Table`.
-3. Add `changed` handlers and explicit return values.
-4. Extract reusable blocks into `blocks/`.
-5. Add `@handle` interception only for overrides.
-6. Enable DB mode (`db_dir`) and LLM mode (`llm`) when needed.
-
-## 19. Example Sources in This Repository
+## 18 Example Sources in This Repository
 
 - `tests/blocks/screens/main.py` (blocks, graph/net, toolbar, interception)
 - `tests/blocks/screens/zoo.py` (ParamBlock, HTML, pandas table)

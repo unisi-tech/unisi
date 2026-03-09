@@ -120,18 +120,6 @@ def changed(elem, value):
 edit = Edit('Involving', 0.6, changed)
 ```
 
-#### Events interception of shared blocks ####
-Interception handlers have the same in/out format as usual handlers.
-#### They are called before the inner element handler call. They cancel the call of inner element handler but you can call it as shown below.
-For example above interception of select_mode changed event will be:
-```
-@handle(select_mode, 'changed')
-def do_not_select_mode_x(selector, value):
-    if value == 'Mode X':
-        return Error('Do not select Mode X in this context', selector) # send old value for update select_mode to the previous state
-    return selector.accept(value) #otherwise accept the value
-```
-
 ### Block details ###
 The width and height of blocks is calculated automatically depending on their children. It is possible to set the block width, or make it scrollable , for example for images list. Possible to add MD icon to the header, if required. width, scroll, height, icon are optional.
 ```

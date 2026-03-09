@@ -99,6 +99,5 @@ UNISI auto-loads all `screens/*.py` modules and builds the menu.
 1. Reusable blocks: create `blocks/` and import into screens.
 2. Data tables: use `Table(...)` with `rows`/`headers`.
 3. Persistent DB tables: set `db_dir` in `config.py`.
-4. LLM fields and queries: set `llm` in `config.py`, then use `llm=...` and `Q(...)`.
-5. Route integration: pass `http_handlers=[...]` into `unisi.start(...)`.
+4. LLM fields and queries: set `llm` in `config.py`, then use `llm=...` and `Q(...)`
 
