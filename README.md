@@ -202,7 +202,7 @@ Button('Name', changed_handler)
 ```
 Icon button, the name has to be started from _ for hiding 
 ```
-Button('_Check', changed = None, icon = None)
+Button('_Check', changed = None, icon = 'check') #any icon name from Material Design Icons(Google)
 ```
 
 ### Load to server Button ###
