@@ -65,4 +65,4 @@ tblock = Block("Geo calculations", [ecountry, button], ecountry_info, tcapitals,
 
 eblock = Block('Text operations', [etopic, Button('Extract info', extract_info)], extext, equestions)
 
-blocks = [[block2, block1], tblock, eblock]
+blocks = [[block2, block1], [tblock, eblock]]
