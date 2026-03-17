@@ -164,4 +164,5 @@ class Screen(Unit):
         super().set_reactivity(user, override)
         for block in flatten(self.blocks):
             block.set_reactivity(user, override)
-
+        for elem in self.toolbar:
+            elem.set_reactivity(user, override)

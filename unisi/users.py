@@ -199,7 +199,7 @@ class User:
         m = self.last_message
         
         if m and m.event == 'modify' and m.element == unit.name and (epath := 
-                self.find_path(unit, [])) and m.block == strpath(epath):            
+                self.find_path(unit)) and m.block == strpath(epath):            
             return False
         if not m or m.element != unit.name or property != m.event or value != m.value:
             self.changed_units.add(unit)            
@@ -236,26 +236,26 @@ class User:
                         else:
                             return bl
         
-    def find_path(self, elem, path) -> list:        
+    def find_path(self, elem) -> list:        
         def find_in_block(block, elem, path):
             if block == elem:
                 return  [block.name, *path]
             for c in flatten(block.value):
                 if c == elem:
-                    return [c.name, *path]
-                elif c.type == 'block' and (sub_path := find_in_block(c, elem, path)):
+                    return [c.name, block.name, *path]
+                elif c.type == 'block' and (sub_path := find_in_block(c, elem, [block.name, *path])):
                     return sub_path
             return None
 
         for bl in flatten(self.blocks):        
             if bl == elem:
                 return [bl.name]
-            path = [bl.name]
-            if (sub_path := find_in_block(bl, elem, path)):
+            
+            if sub_path := find_in_block(bl, elem, []):
                 return sub_path
         
         if elem in self.screen.toolbar:
-            return ['toolbar', elem.name]
+            return [elem.name, 'toolbar']
 
     def prepare_result(self, raw):        
         reload_screen = any(u.type == 'screen' for u in self.changed_units)

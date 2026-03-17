@@ -127,7 +127,7 @@ class Message:
             invisible = []
             for update in self.updates:
                 data = update["data"]
-                path = user.find_path(data, [])
+                path = user.find_path(data)
                 if path:
                     update['path'] = path
                 else:

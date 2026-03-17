@@ -57,9 +57,11 @@ blocks= [[block,bottom_block],config_area]
 async def log(x,y):        
     for i in range(3):
         await user.send(Warning(str(i)))
-    
-toolbar = [Button('_Save', log, icon = 'save', tooltip = 'Save info'),
-        Button('_Ignored', lambda *_: Info('ignored!'), icon = 'delete_forever', tooltip = 'Ignore info!')]
+    ibutton.icon = 'check'
+
+ibutton = Button('_Ignored', lambda *_: Info('ignored!'), icon = 'delete_forever', tooltip = 'Ignore info!')
+
+toolbar = [Button('_Save', log, icon = 'save', tooltip = 'Some info'),ibutton]
 
 def prepare():
     if not toposcreen.topology:
