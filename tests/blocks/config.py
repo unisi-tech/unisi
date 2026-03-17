@@ -5,5 +5,3 @@ logfile = 'log'
 autotest = '*'
 hot_reload = True
 pool = 4
-share = True
-#image = None

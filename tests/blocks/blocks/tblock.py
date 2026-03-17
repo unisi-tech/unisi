@@ -91,11 +91,11 @@ simple_enter = Edit('_Simple Enter update', 'cherokke', update = updated)
 
 list_complete = ['value 21', 'Value 21', 'sum 289', 'absolute 3']
 
-eblock = Block('New block',                        
+eblock = Block('Shared block',                        
         [Button('Dialog for a process', call_dialog),Range('Scaling', 0, changed, options=[0.0,1.0,0.1])],        
         txt,
         Edit('Number only', 2.5),
-        Block('Block inside block', Button('Inner button', call_dialog),
+        Block('Embedded block', Button('Inner button', call_dialog),
             Edit('Edit string', 'xyz'),
             Edit('Complete enter update field', '', changed, complete = smart_complete(list_complete), update = updated))            
 )
