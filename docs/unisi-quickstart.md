@@ -17,9 +17,9 @@ Create this structure:
 
 ```text
 your_app/
-  config.py
+  config.py (optional, auto)
   run.py
-  screens/
+  screens/ (optional, auto)
     main.py
 ```
 
@@ -45,25 +45,22 @@ unisi.start()
 from unisi import *
 
 name = "Main"
-order = 0
 
 message = TextArea("Message", "Ready")
-value = Edit("Value", 0)
 
 def on_change(unit, new_value):
     if new_value < 0:
         return Error("Value must be >= 0", unit)
-    return unit.accept(new_value)
+    unit.accept(new_value)
 
-value.changed = on_change
+value = Edit("Value", 0, on_change)
 
 async def run_action(*_):
     await user.progress("Processing...")
-    message.value = f"Current value: {value.value}"
-    return message
+    #do something
+    message.value = f"Current value: {value.value}"    
 
-block = Block("Quick Start", [Button("Run", run_action)], value, message, icon="api")
-blocks = [block]
+blocks = Block("Quick Start", [Button("Run", run_action)], value, message, icon="api")
 ```
 
 ## 3. Run
@@ -89,14 +86,14 @@ Add more files in `screens/`:
 from unisi import *
 name = "Second"
 order = 1
-blocks = [Block("Second Screen", Text("Hello"))]
+blocks = Block("Second Screen", Text("Hello"))
 ```
 
 UNISI auto-loads all `screens/*.py` modules and builds the menu.
 
 ## 5. Next Steps
 
-1. Reusable blocks: create `blocks/` and import into screens.
+1. Shared blocks and its data: create `blocks/` and import into screens.
 2. Data tables: use `Table(...)` with `rows`/`headers`.
 3. Persistent DB tables: set `db_dir` in `config.py`.
 4. LLM fields and queries: set `llm` in `config.py`, then use `llm=...` and `Q(...)`
