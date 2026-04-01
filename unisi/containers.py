@@ -92,7 +92,7 @@ class Block(Unit):
                 return e
 
 class ParamBlock(Block):
-    def __init__(self, name, *args, row = 3, **params):        
+    def __init__(self, name, *args, changed = None, row = 3, **params):        
         self._mark_changed = None
         if not args:
             args = [[]]        
@@ -105,9 +105,9 @@ class ParamBlock(Block):
             pretty_name = pretty4(param)            
             match val:
                 case True | False:
-                    el = Switch(pretty_name, val)
+                    el = Switch(pretty_name, val, changed)
                 case str() | int() | float():
-                    el = Edit(pretty_name, val)                
+                    el = Edit(pretty_name, val, changed)
                 case tuple() | list():
                     if len(val) != 2:
                         raise ValueError('Composite value has to contain the current value and options value!')
@@ -115,11 +115,11 @@ class ParamBlock(Block):
                     if not isinstance(options, list | tuple | dict):
                         raise ValueError('Options value (the second parameter) has to be a list or tuple!')
                     if len(options) == 3 and all(map(lambda e: isinstance(e, Number), options)):
-                        el = Range(pretty_name, val[0], options = options)
+                        el = Range(pretty_name, val[0], changed, options = options)
                     elif isinstance(options, list | tuple):
-                        el = Select(pretty_name, val[0], options = options, type = 'select')
+                        el = Select(pretty_name, val[0], changed, options = options, type = 'select')
                     else: 
-                        el = Tree(pretty_name, val[0], options = options)
+                        el = Tree(pretty_name, val[0], changed, options = options)
                 case _:
                     raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')
                             

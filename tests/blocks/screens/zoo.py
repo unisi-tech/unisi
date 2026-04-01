@@ -9,7 +9,11 @@ zoo_table = Table('Zoo Table (panda table)', panda = table)
 def get_params(button, _):
     return Info(str(block.params))
 
-block = ParamBlock('System parameters', Button('Show server params', get_params), 
+def block_changed(element, value): 
+    element.value = value
+    return Info(f"{element.name} is {value}.")
+
+block = ParamBlock('System parameters', Button('Show server params', get_params), changed = block_changed,
     per_device_eval_batch_size=16,
     num_train_epochs=10, 
     warmup_ratio=0.1, 
