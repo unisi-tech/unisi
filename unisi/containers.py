@@ -92,7 +92,7 @@ class Block(Unit):
                 return e
 
 class ParamBlock(Block):
-    def __init__(self, name, *args, changed = None, row = 3, **params):        
+    def __init__(self, name, *args, changed = None, row = 3, strict = False, **params):        
         self._mark_changed = None
         if not args:
             args = [[]]        
@@ -121,9 +121,10 @@ class ParamBlock(Block):
                     else: 
                         el = Tree(pretty_name, val[0], changed, options = options)
                 case _:
-                    raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')
-                            
-            self.name2elem[param] = el            
+                    if strict:
+                        raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')
+                    continue                    
+            self.name2elem[param] = el
             if cnt % row == 0:
                 block = []
                 self.value.append(block)
