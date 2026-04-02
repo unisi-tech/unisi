@@ -66,6 +66,10 @@ class Block(Unit):
             super().set_reactivity(user, override)
             for elem in flatten(self.value):
                 elem.set_reactivity(user)
+
+    @property
+    def params(self) -> dict:
+        return {el.name : el.value for el in flatten(self.value)}
                 
     @property
     def compact_view(self) -> str:
@@ -139,8 +143,8 @@ class ParamBlock(Block):
             block.append(el)
         
     @property
-    def params(self):
-        return {name: el.params if isinstance(el, Block) else el.value for name, el in self.name2elem.items()}
+    def params(self) -> dict:        
+        return {name: el.params for name, el in self.name2elem.items()}
 
 class Dialog:  
     def __init__(self, question, callback, *content, commands = ['Ok','Cancel'],

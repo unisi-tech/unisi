@@ -139,6 +139,10 @@ class Unit:
         return super().__hash__()
     
     @property
+    def params(self):
+        return self.value
+
+    @property
     def compact_view(self) -> str:
         """reduce for external (llm) using if required"""
         return f'{self.name} : {self.value}'
