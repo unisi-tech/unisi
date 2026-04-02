@@ -92,7 +92,8 @@ class Block(Unit):
                 return e
 
 class ParamBlock(Block):
-    def __init__(self, name, *args, changed = None, row = 3, strict = False, **params):        
+    def __init__(self, name, *args, changed = None, row = 3, strict = None, **params):
+        """strict == 'recurse' means to recurse into dict values as an embedded ParamBlock"""
         self._mark_changed = None
         if not args:
             args = [[]]        
@@ -121,9 +122,15 @@ class ParamBlock(Block):
                     else: 
                         el = Tree(pretty_name, val[0], changed, options = options)
                 case _:
-                    if strict:
-                        raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')
-                    continue                    
+                    if strict == 'recurse' and isinstance(val, dict):
+                        pb = ParamBlock(pretty_name, changed = changed, strict = strict, row = row, **val)
+                        self.value.append(pb)
+                        self.name2elem[param] = pb
+                        cnt = 0                        
+                    elif strict:
+                        raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')                    
+                    continue
+                    
             self.name2elem[param] = el
             if cnt % row == 0:
                 block = []
@@ -133,7 +140,7 @@ class ParamBlock(Block):
         
     @property
     def params(self):
-        return {name: el.value for name, el in self.name2elem.items()}
+        return {name: el.params if isinstance(el, Block) else el.value for name, el in self.name2elem.items()}
 
 class Dialog:  
     def __init__(self, question, callback, *content, commands = ['Ok','Cancel'],

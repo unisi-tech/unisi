@@ -13,13 +13,15 @@ def block_changed(element, value):
     element.value = value
     return Info(f"{element.name} is {value}.")
 
-block = ParamBlock('System parameters', Button('Show server params', get_params), changed = block_changed,
+block = ParamBlock('System parameters', Button('Show server params', get_params), 
+        changed = block_changed, strict = 'recurse',
     per_device_eval_batch_size=16,
     num_train_epochs=10, 
     warmup_ratio=0.1, 
-    logging_steps= (10,[1,20,1]), 
-    device = ('gpu', ['cpu', 'gpu']),
-    load_best = True)
+    inference = dict(
+        logging_steps= (10,[1,20,1]), 
+        device = ('gpu', ['cpu', 'gpu']),
+        load_best = True))
 
 def html_handler(unit, event):
     return Info(event)
