@@ -96,7 +96,7 @@ class Block(Unit):
                 return e
 
 class ParamBlock(Block):
-    def __init__(self, name, *args, changed = None, row = 3, strict = None, **params):
+    def __init__(self, name, *args, changed = None, row = 3, strict = 'recurse', **params):
         """strict == 'recurse' means to recurse into dict values as an embedded ParamBlock"""
         self._mark_changed = None
         if not args:
@@ -104,7 +104,7 @@ class ParamBlock(Block):
         self.name = name        
         self.type = 'block'
         self.value = list(args)
-        self.name2elem = {}
+        self._name2elem = {}
         cnt = 0        
         for param, val in params.items():                    
             pretty_name = pretty4(param)            
@@ -114,8 +114,9 @@ class ParamBlock(Block):
                 case str() | int() | float():
                     el = Edit(pretty_name, val, changed)
                 case tuple() | list():
-                    if len(val) != 2:
-                        raise ValueError('Composite value has to contain the current value and options value!')
+                    if len(val) != 2 or not isinstance(val[0], dict):
+                        continue
+                        #raise ValueError('Composite value has to contain the current value and options value!')
                     options = val[1]
                     if not isinstance(options, list | tuple | dict):
                         raise ValueError('Options value (the second parameter) has to be a list or tuple!')
@@ -129,13 +130,13 @@ class ParamBlock(Block):
                     if strict == 'recurse' and isinstance(val, dict):
                         pb = ParamBlock(pretty_name, changed = changed, strict = strict, row = row, **val)
                         self.value.append(pb)
-                        self.name2elem[param] = pb
+                        self._name2elem[param] = pb
                         cnt = 0                        
                     elif strict:
                         raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')                    
                     continue
                     
-            self.name2elem[param] = el
+            self._name2elem[param] = el
             if cnt % row == 0:
                 block = []
                 self.value.append(block)
@@ -144,7 +145,7 @@ class ParamBlock(Block):
         
     @property
     def params(self) -> dict:        
-        return {name: el.params for name, el in self.name2elem.items()}
+        return {name: el.params for name, el in self._name2elem.items()}
 
 class Dialog:  
     def __init__(self, question, callback, *content, commands = ['Ok','Cancel'],

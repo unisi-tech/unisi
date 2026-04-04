@@ -283,11 +283,12 @@ class Image(Unit):
             self.url = f'/{self.url}'
 
 class Video(Unit):
-    '''has to contain src parameter'''
+    '''has to contain fragments parameter, value like 
+        { "currentTime": 5.123, "isVideoPlaying": False, "sound": False }'''
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         self.type = 'video'        
-        set_defaults(self, {'url': self.name, 'ratio' : None})          
+        set_defaults(self, {'fragments': []})
 
 class Chart(Unit):
     '''echart chart with 'echart option' parameter as value, handler is optional'''
