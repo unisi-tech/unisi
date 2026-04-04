@@ -269,12 +269,6 @@ It is usefull for image list, gallery, e.t.c
 Image(image_path, value = False, changed_handler = None, label = None, url = None  width = None height = None)
 ```
 
-### Video. ###
-width and height are optional.
-```
-Video(video_url, width = None, height = None)
-```
-
 ### Tree. The element for tree-like data. ###
 ```
 Tree(name, value = None, changed_handler = None, options = {name1: parent1, name2 : None, .})
