@@ -132,8 +132,8 @@ class Message:
                     update['path'] = path
                 else:
                     invisible.append(update)                    
-                    user.log(f'Invisible element update {data.name}, type {data.type}.\n\
-                    Such element not on the screen!', type = 'warning')
+                    #user.log(f'Invisible element update {data.name}, type {data.type}.\n\
+                    #    Such element not on the screen!', type = 'warning') #valid
             for inv in invisible:
                 self.updates.remove(inv)
 

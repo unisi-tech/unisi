@@ -222,7 +222,8 @@ From `unisi/units.py`:
 - `Chart(name, option, changed?)`
 - `HTML(name, html_string, changed?)`
 - `Image(name_or_url, value=False, handler=None, label="", width=300, ...)`
-- `Video(name, ...)`
+- `Video(name, value = { "currentTime": float, "isVideoPlaying": bool, "sound": bool},
+     changed?, fragments=[{url: str, start: float, end: float}])
 - `Graph(name, value?, changed?, nodes=[], edges=[])`
 - `Net(name, ...)` (graph of screen/block/unit topology)
 

@@ -77,11 +77,13 @@ class Block(Unit):
 
     @property
     def scroll_list(self):            
-        return self.value[1] if len(self.value) > 1 and isinstance(self.value[1], (list, tuple)) else []
+        return (self.value[1] if len(self.value) > 1 and isinstance(self.value[1], (list, tuple)) else [])\
+            if self.scroll else []
     
-    @scroll_list.setter
+    @scroll_list.setter   
     def scroll_list(self, lst):
         self.value = ChangedProxy([self.value[0] if self.value else [], lst], self)
+        self.scroll = True
         if hasattr(self,'scaler'):
             sval = self.scaler.value
             if sval != 1:
@@ -114,7 +116,7 @@ class ParamBlock(Block):
                 case str() | int() | float():
                     el = Edit(pretty_name, val, changed)
                 case tuple() | list():
-                    if len(val) != 2 or not isinstance(val[0], dict):
+                    if len(val) != 2 or isinstance(val[0], dict):
                         continue
                         #raise ValueError('Composite value has to contain the current value and options value!')
                     options = val[1]
