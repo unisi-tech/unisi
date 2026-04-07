@@ -224,7 +224,7 @@ From `unisi/units.py`:
 - `Image(name_or_url, value=False, handler=None, label="", width=300, ...)`
 - `Video(name, value = { "position": float, "play": bool, "sound": bool},
      changed?, fragments=[{url: str, start: float, end: float}])
-- `Sound(name, value = { "position": float, "play": bool, "volume": Number},
+- `Sound(name, value = {'url': str, "position": float, "play": bool, "volume": Number},
 - `Graph(name, value?, changed?, nodes=[], edges=[])`
 - `Net(name, ...)` (graph of screen/block/unit topology)
 
