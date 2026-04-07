@@ -284,11 +284,21 @@ class Image(Unit):
 
 class Video(Unit):
     '''has to contain fragments parameter, value like 
-        { "currentTime": 5.123, "isVideoPlaying": False, "sound": False }'''
+        { "position": 5.123, "play": False, "sound": False }'''
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
         self.type = 'video'        
         set_defaults(self, {'fragments': []})
+
+class Sound(Unit):
+    '''value contains the sound properties,  url, play, position, volume'''
+    def __init__(self, name, value = {}, handler = None, **kwargs):
+        super().__init__(name, [], **kwargs)
+        self.value = value
+        self.type='sound'        
+
+        if handler:
+            self.changed = handler                
 
 class Chart(Unit):
     '''echart chart with 'echart option' parameter as value, handler is optional'''
