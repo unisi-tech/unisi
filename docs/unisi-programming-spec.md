@@ -222,7 +222,7 @@ From `unisi/units.py`:
 - `Chart(name, option, changed?)`
 - `HTML(name, html_string, changed?)`
 - `Image(name_or_url, value=False, handler=None, label="", width=300, ...)`
-- `Video(name, value = { "position": float, "play": bool, "sound": bool},
+- `Video(name, value = { "position": float, "play": bool, "volume": Number},
      changed?, fragments=[{url: str, start: float, end: float}])
 - `Sound(name, value = {'url': str, "position": float, "play": bool, "volume": Number},
 - `Graph(name, value?, changed?, nodes=[], edges=[])`
