@@ -94,7 +94,7 @@ class User:
         #set system vars
         for var, val in screen.defaults.items():                                            
             setattr(screen, var, getattr(module, var, val))         
-        if not isinstance(screen.blocks, list):
+        if not isinstance(screen.blocks, list | tuple):
             screen.blocks = [screen.blocks]
             
         if User.toolbar and User.toolbar[0] not in screen.toolbar:

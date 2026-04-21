@@ -52,7 +52,7 @@ def switch_graph(*_):
 bottom_block = Block('Screen topology: Press Shift for multi (de)select nodes and links', 
      Button('Switch graph', switch_graph), toposcreen, closable = True)
 
-blocks= [[block,bottom_block],config_area]
+blocks= [block,bottom_block],config_area
 
 async def log(x,y):        
     for i in range(3):
