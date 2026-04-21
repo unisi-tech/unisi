@@ -27,7 +27,7 @@ pip install unisi
 
 ### Programming ###
 Automatic functionality means that only configuration has to be defined and for all paramaters UNISI has defaults that can be redefined in config.py file.
-UNISI is a universal data protocol and compact yet highly efficient framework designed for serving and proccessing data in UNISI format. The library includes the web version of Unisi and a comprehensive set of tools and resources for web application development. Supports Python 3.10+.
+UNISI is a universal data protocol and compact yet highly efficient framework designed for serving and proccessing data in UNISI format. The library includes the web version of a Unisi client and a comprehensive set of tools and resources for web application development. Supports Python 3.10+.
 
 ### High level - Screen ###
 The program directory has to contain a screens folder which contains all screens which Unisi has to show.
@@ -35,7 +35,6 @@ The program directory has to contain a screens folder which contains all screens
 Screen example my_project/screens/main.py
 ```
 name = "Main"
-blocks = block 
 ```
 The block example with a table and a selector
 ```
@@ -49,6 +48,8 @@ block = Block('X Block',
         Button('Clean table', icon = 'swipe'),
         Select('Select', value='All', options=['All','Based','Group'])
     ], table, icon = 'api')
+
+blocks = block 
 ```
 
 | Screen global variables |	Status | Type | Description |
@@ -78,7 +79,7 @@ Connect a browser to localhast:8000 which are by default and will see:
    https://youtu.be/MG4JQa0DlAE
 
 ### Handling events ###
-All handlers are functions which have a signature
+All handlers are functions with declaration:
 ```
 def handler_x(unit : Unit, value_x) #or
 async def handler_x(unit : Unit, value_x)
@@ -87,12 +88,12 @@ where unit is a Python object the user interacted with and value for the event.
 
 #### UNISI supports synchronous and asynchronous handlers automatically adopting them for using. ####
 
-All Unit objects except Button have a field ‘value’. 
+All Unit objects have a field ‘value’. 
 For an edit field the value is a string or number, for a switch or check button the value is boolean, for table is row id or index, e.t.c.
-When a user changes the value of the Unit object or presses Button, the server calls the ‘changed’ function handler.
+A user changes a Unit object value or presses Button then the server calls the ‘changed’ function handler if defined.
 
 ```
-def clean_table(_, value):
+def clean_table(*_):
     table.rows = []
     
 clean_button = Button('Clean the table’, clean_table)
@@ -108,7 +109,7 @@ Unisi synchronizes units on frontend-end automatically after calling a handler.
 
 If a Unit object doesn't have 'changed' handler the object accepts incoming value automatically to the 'value' variable of a unit.
 
-If 'value' is not acceptable instead of returning an object possible to return Error or Warning or Info. That functions can update a object list passed after the message argument.
+If 'value' is not acceptable then possible to return Error or Warning or Info. They can update a object list passed after the message argument.
 
 ```
 def changed(elem, value):
@@ -145,14 +146,14 @@ Using a shared block in some screen:
 ```
 from blocks.tblock import concept_block
 ...
-blocks = [xblock, concept_block]
+blocks = xblock, concept_block
 ```
 
 #### Layout of blocks. #### 
 If the blocks are simply listed Unisi draws them from left to right or from top to bottom depending on the orientation setting. If a different layout is needed, it can be set according to the following rule: if the vertical area must contain more than one block, then the enumeration in the array will arrange the elements vertically one after another. If such an element enumeration is an array of blocks, then they will be drawn horizontally in the corresponding area.
 
 #### Example ####
-blocks = [ [b1,b2], [b3, [b4, b5]]]
+blocks = [b1,b2], [b3, [b4, b5]]
 #[b1,b2] - the first vertical area, [b3, [b4, b5]] - the second one.
 ![image](https://github.com/user-attachments/assets/16ab9909-08b3-429e-9205-9b388b10aba7)
 
@@ -175,7 +176,7 @@ means the current value of 'device' is 'cpu' and options are ['cpu', 'gpu'] .
 
 
 ### Basic information element - Unit ###
-Normally they have type property which says unisi what data it contains and optionally how to operate and draw the element. 
+Normally they have type property which says UNISI what data it contains and optionally how to operate and draw the element. 
 #### If the element name starts from _ , unisi will hide its name on the screen. ####
 if we need to paint an icon in an element, add 'icon': 'any MD icon name' to the element constructor.
 
@@ -184,7 +185,7 @@ if we need to paint an icon in an element, add 'icon': 'any MD icon name' to the
 Common form for element constructors:
 ```
 Unit('Name', value = some_value, changed = changed_handler)
-#It is possible to use short form, that is equal:
+#use short form, that is equal:
 Unit('Name', some_value, changed_handler)
 ```
 calling the method 
@@ -202,11 +203,11 @@ Button('Name', changed_handler)
 ```
 Icon button, the name has to be started from _ for hiding 
 ```
-Button('_Check', changed = None, icon = 'check') #any icon name from Material Design Icons(Google)
+Button('_Check', changed_handler, icon = 'check') #any icon name from Material Design Icons(Google)
 ```
 
 ### Load to server Button ###
-Special button provides file loading from user device or computer to a Unisi system.
+Special button provides file loading from user device or computer to a UNISI system.
 ```
 UploadButton('Load', handler_when_loading_finish, icon = 'photo_library')
 ```
@@ -217,7 +218,7 @@ handler_when_loading_finish(button_, the_loaded_file_filename) where the_loaded_
 Edit(name,value = '', changed_handler = None) #for string value
 Edit(name, value: number, changed_handler = None) #changed handler gets a number in the value parameter
 ```
-If set edit = False the element will be readonly.
+If unit.edit == False the element will be readonly.
 ```
 Edit('Some field', '', edit = False) 
 #text, it is equal
@@ -238,7 +239,7 @@ It can return None if OK or objects for updating as usual 'changed' handler.
 ### Range ###
 Number field for limited in range values.
 
-Range('Name',  value = 0,  changed_handler = None, options=[min,max, step])
+Range('Name',  value,  changed_handler?, options=[min,max, step])
 
 Example:  
 ```
@@ -248,14 +249,14 @@ Range('Scale content',  1, options=[0.25, 3, 0.25])
 
 ### Radio button ###
 ```
-Switch(name, value = False, changed_handler = None, type = 'radio')
+Switch(name, value = False, changed_handler?, type?)
 value is boolean, changed_handler is an optional handler.
 Optional type can be 'check' for a status button or 'switch' for a switcher . 
 ```
 
 ### Select group. Contains options field. ###
 ```
-Select(name, value = None, changed_handler = None, options = ["choice1","choice2", "choice3"]) 
+Select(name, value?, changed_handler?, options = ["choice1","choice2", "choice3"]) 
 ```
 Optional type parameter can be 'radio','list','select'. Unisi automatically chooses between 'radio' and 'select', if type is omitted.
 If type = 'list' then Unisi build it as vertical select list.
@@ -266,7 +267,7 @@ width,changed,height,header are optional, changed is called if the user select o
 When the user click the image, a check mark is appearing on the image, showning select status of the image.
 It is usefull for image list, gallery, e.t.c
 ```
-Image(image_path, value = False, changed_handler = None, label = None, url = None  width = None height = None)
+Image(image_path, value?, changed_handler?, label?, url?, width?, height?)
 ```
 
 ### Tree. The element for tree-like data. ###
@@ -279,7 +280,7 @@ parent_name is None for root items. changed_handler gets selected item key (name
 ### Table. ###
 Tables is common structure for presenting 2D data and charts. 
 
-Table(name, value = None, changed_handler = None, **options)
+Table(name, value?, changed_handler?, **options)
 
 Optional append, delete, update handlers are called for adding, deleting and updating handlers for a table.
 
@@ -316,7 +317,7 @@ Chart is a table with additional Table constructor parameter 'view' which explai
 ### Graph ###
 Graph supports an interactive graph.
 ```
-graph = Graph('X graph', value = None, changed_handler = None, 
+graph = Graph('X graph', value?, changed_handler?, 
     nodes = [ Node("Node 1"),Node("Node 2", size = 20),None, Node("Node 3", color = "#3CA072")],
     edges = [ Edge(0,1, color = "#3CA072"), Edge(1,3,'extending', size = 6),Edge(3,4, size = 2), Edge(2,4)]])
 ```
@@ -339,27 +340,27 @@ Graph can handle invalid edges and null nodes in the nodes array.
 
 ### Dialog ###
 ```
-Dialog(question, dialog_callback, commands = ['Ok', 'Cancel'], *content)
+Dialog(question, dialog_callback, commands = ['Ok', 'Cancel'], *units)
 ```
 where buttons is a list of the dialog command names,
-Dialog callback has the signature as others with a pushed button name value
+Dialog callback has the signature as the other handlers with a pushed button name value
 ```
 def dialog_callback(current_dialog, command_button_name):
     if command_button_name == 'Ok':
         do_this()
     elif ..
 ```
-content can be filled with Unit elements for additional dialog functionality like a Block.
+units can be filled with Unit elements for additional dialog functionality like a Block.
 
 
 ### Popup windows ###
 They are intended for non-blocking displaying of error messages and informing about some events, for example, incorrect user input and the completion of a long process on the server.
 ```
-Info(info_message, *UnitforUpdades)
-Warning(warning_message, *UnitforUpdades)
-Error(error_message, *UnitforUpdades)
+Info(info_message, *Units2Updade)
+Warning(warning_message, *Units2Updade)
+Error(error_message, *Units2Updade)
 ```
-They are returned by handlers and cause appearing on the top screen colored rectangle window for 3 second. UnitforUpdades is optional Unit enumeration for updating on client side (GUI).
+They are returned by handlers and cause appearing on the top screen colored rectangle window for 3 second. Units2Updade is optional Unit enumeration for updating on client side (GUI).
 
 For long time processes it is possible to create Progress window. It is just call user.progress in any async handler.
 Open window 
@@ -373,7 +374,7 @@ await user.progress(" 1% is done..")
 Progress window is automatically closed when the handler is finished.
 
 ### Milti-user support. ###
-UNISI automatically creates and serves an environment for every user.
+UNISI automatically creates and serves an separate environment for every user.
 The management class is User contains all required methods for processing and handling the user activity. A programmer can redefine methods in the inherited class, point it as system user class and that is all. Such methods suit for history navigation, undo/redo and initial operations. The screen folder contains screens which are recreated for every user. The same about blocks. The code and modules outside that folders are common for all users as usual. By default UNISI uses the system User class and you do not need to point it. 
 ```
 class Hello_user(unisi.User):
@@ -383,7 +384,7 @@ class Hello_user(unisi.User):
 
 unisi.start('Hello app', user_type = Hello_user)
 ```
-In screens and blocks sources we can access the user by 'user' variable
+In screens and blocks sources we can access the user by 'user' variable, which is defined by UNISI on screen init.
 ```
 print(isinstance(user, Hello_user))
 ```
