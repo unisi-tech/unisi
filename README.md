@@ -5,11 +5,11 @@ UNified System Interface, GUI and Remote API
 UNISI technology provides a unified system interface and advanced program functionality, eliminating the need for front-end and most back-end programming. It automates common tasks, as well as unique ones, significantly reducing the necessity for manual programming and effort.
 
 ### Provided automatic functionality ###
- - Automatic WEB GUI Client
+ - WEB GUI Client
  - Client-server data synchronization
  - Unified Remote API
- - Automatic configuring
- - Auto logging
+ - Autoconfiguring
+ - Autologging
  - Multi-user support
  - Hot reloading and updating
  - Integral autotesting
@@ -19,6 +19,7 @@ UNISI technology provides a unified system interface and advanced program functi
  - Database interactions
  - LLM-RAG interactions
  - Voice interaction
+ - Persistence
 
 ### Installing ###
 ```

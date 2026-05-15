@@ -58,6 +58,7 @@ Screen.defaults = dict(
     header = config.appname,                        
     toolbar = [], 
     order = 0,
+    persist = False,
     reload = config.hot_reload, 
     lang = config.lang,
     voice = not config.mirror,
@@ -103,6 +104,5 @@ def start_logging():
     logging.basicConfig(level = logging.WARNING, format = format, handlers = handlers)    
 
 start_logging()
-
 
 

@@ -3,7 +3,9 @@ from blocks.tblock import config_area, tarea
 
 name = "Blocks"
 order = 0
-table = Table('Videos', 0, persist = True, headers = ['Video', 'Duration',  'Links', 'Mine'], rows = [
+persist = True
+
+table = Table('Videos', 0, headers = ['Video', 'Duration',  'Links', 'Mine'], rows = [
     ['opt_sync1_3_0.mp4', '30 seconds',  '@Refer to signal1', True],
     ['opt_sync1_3_0.mp4', '37 seconds',  '@Refer to signal8', False]
 ])
