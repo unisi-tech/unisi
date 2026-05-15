@@ -184,7 +184,6 @@ def _smart_apply_dict(unit, saved_dict, unit_map):
             continue
         object.__setattr__(unit, key, _rebuild_value(value, unit_map))
 
-
 class Persist:
     @staticmethod
     def db_path_for(session_id):
@@ -240,8 +239,7 @@ class Persist:
             return
 
         local_state = {}
-        shared_state = {}
-        screen_ts = 0
+        shared_state = {}        
 
         for namespace, path, value, ts in rows:
             try:
@@ -249,8 +247,7 @@ class Persist:
             except json.JSONDecodeError:
                 continue
             if namespace == screen_name:
-                local_state[path] = state
-                screen_ts = max(screen_ts, ts)
+                local_state[path] = state                
             elif namespace.startswith('blocks.'):
                 current = shared_state.get(path)
                 if current is None or ts > current[1]:
@@ -263,18 +260,22 @@ class Persist:
                 unit_map[_path_key(path)] = unit
 
         paths_to_restore = set(local_state) | set(shared_state)
-        sorted_paths = sorted(paths_to_restore, key=lambda p: p.count('@') + p.count('/'))
+        sorted_paths = sorted(paths_to_restore, key=lambda p: p.count('@') + p.count('/'))     
+        timings = {}   
 
         for path in sorted_paths:
             unit = unit_map.get(path)
-            if not unit:
-                continue
-
-            saved_dict = local_state.get(path)
-            if path in shared_state:
-                shared_dict, shared_ts = shared_state[path]
-                if shared_ts > screen_ts:
-                    saved_dict = shared_dict
-
-            if saved_dict:
-                _smart_apply_dict(unit, saved_dict, unit_map)
+            if unit:                
+                saved_dict = local_state.get(path)                
+                if path in shared_state:
+                    shared_dict, shared_ts = shared_state[path]
+                    
+                    for timing_path, timing_ts in timings.items():
+                        if (path.startswith(timing_path + '@') or path.startswith(timing_path + '/')) and shared_ts < timing_ts:
+                            saved_dict = shared_dict
+                            break                   
+                    else:
+                        saved_dict = shared_dict
+                    timings[path] = shared_ts
+                if saved_dict:
+                    _smart_apply_dict(unit, saved_dict, unit_map)

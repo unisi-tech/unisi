@@ -59,8 +59,7 @@ table = Table('Audios', 1, changed, type = 'chart', headers = ['Audio', 'Duratio
 
 tarea = TextArea('Area', "Alpha Centauri A, also known as Rigil Kentaurus, is the principal member, or primary,\
  of the binary system. It is a solar-like main-sequence star with a similar yellowish colour, whose stellar \
-classification is spectral type G2-V; it is about 10% more massive than the Sun, with a radius about 22% larger.",
-    update = updated)
+classification is spectral type G2-V; it is about 10% more massive than the Sun, with a radius about 22% larger.", changed)
 
 ld = { 
     'Animals' : None,

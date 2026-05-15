@@ -151,7 +151,7 @@ class User:
             screen.toolbar += User.toolbar
         
         screen._origin_module = module.__name__
-        module.screen = screen#ChangedProxy(screen, screen)
+        module.screen = screen
         self.screen_module = module
         self._screen_has_persist = self._restore_persist_screen(module)
         if User.count > 0:
@@ -251,13 +251,12 @@ class User:
         """add unit to changed_units if it is changed outside of message"""
         if property == 'value':
             property = 'changed'
-        m = self.last_message
-        
-        if m and m.event == 'modify' and m.element == unit.name and (epath := 
+        if m := self.last_message:
+            if m.event == 'modify' and m.element == unit.name and (epath := 
                 self.find_path(unit)) and m.block == strpath(epath):            
-            return False
-        if not m or m.element != unit.name or property != m.event or value != m.value:
-            self.changed_units.add(unit)            
+                return False
+            if m.element != unit.name or property != m.event or value != m.value:
+                self.changed_units.add(unit)
 
     @property
     def blocks(self):
@@ -482,7 +481,7 @@ class User:
             
     async def process_element(self, elem, message):                
         event = message.event         
-        if event not in ('complete', 'get'):
+        if elem.type != 'command' and event not in ('complete', 'get'):
             self.touched_units.add(elem)
         handler = self.handlers.get((elem, event), None)
         if handler:
@@ -496,8 +495,9 @@ class User:
                 return result
             #set attribute only for declared properties
             setattr(elem, event, message.value)
-        elif event == 'changed':            
-            elem.value = message.value                                        
+        elif event == 'changed':        
+            if elem.type != 'command': #for command we can not set value, but we can have changed handler
+                elem.value = message.value                                        
         else:
             error = f"{message.element}@{message.block} doesn't contain '{event}' method type!"
             self.log(error)                     
