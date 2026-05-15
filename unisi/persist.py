@@ -6,8 +6,6 @@ import sqlite3
 import sys
 import time
 
-import config
-
 from .common import strpath
 from .units import ChangedProxy, Unit
 
@@ -188,9 +186,17 @@ def _smart_apply_dict(unit, saved_dict, unit_map):
 
 
 class Persist:
+    @staticmethod
+    def db_path_for(session_id):
+        return os.path.join('users', f'{session_id}.db')
+
+    @staticmethod
+    def exists(session_id):
+        return os.path.exists(Persist.db_path_for(session_id))
+
     def __init__(self, session_id):
-        self.user_id = 'common' if getattr(config, 'persist', False) is True else session_id
-        self.db_path = os.path.join('users', 'common.db' if self.user_id == 'common' else f'{session_id}.db')
+        self.user_id = session_id
+        self.db_path = self.db_path_for(session_id)
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
         self.conn.execute('PRAGMA journal_mode=WAL')

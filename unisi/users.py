@@ -47,17 +47,23 @@ class User:
         if self.screen_module and not self.testing:
             self._screen_has_persist = self._screen_has_persist_targets(self.screen_module)
 
-    def _persist_db(self):
-        if self.testing:
+    def _persist_enabled(self):
+        return not self.testing
+
+    def _persist_db(self, create=False):
+        if not self._persist_enabled():
             return None
         if self.db is None:
+            if not create and not Persist.exists(self.session):
+                return None
             self.db = Persist(self.session)
         return self.db
 
     def _has_persist_targets(self, screen, units):
-        if self.testing:
+        if not self._persist_enabled():
             return False
-        return getattr(screen, 'persist', False) or any(getattr(unit, 'persist', False) for unit in units)
+        return bool(getattr(config, 'persist', False)) or getattr(screen, 'persist', False) or any(
+            getattr(unit, 'persist', False) for unit in units)
 
     def _screen_has_persist_targets(self, screen_module=None):
         if not screen_module:
@@ -71,7 +77,7 @@ class User:
         screen_units = list(self._iter_units(screen_module))
         has_persist = self._has_persist_targets(screen, screen_units)
         if has_persist:
-            if db := self._persist_db():
+            if db := self._persist_db(create=False):
                 db.restore_screen(self, screen_module, screen_units)
             self.assign_parent_links(screen_module)
         return has_persist
@@ -186,8 +192,10 @@ class User:
             self.screens.sort(key=lambda s: s.screen.order)            
             main = self.screens[0]
             self.screen_module = main
+            self._screen_has_persist = self._screen_has_persist_targets(main)
             if hasattr(main, 'prepare'):  
                 main.prepare()            
+                self._screen_has_persist = self._screen_has_persist_targets(main)
             self.update_menu()
             self.set_clean()                               
             return True                 
@@ -344,7 +352,7 @@ class User:
         if not units:
             return []
         persist_targets = {}
-        screen_persist = getattr(self.screen, 'persist', False)
+        screen_persist = bool(getattr(config, 'persist', False)) or getattr(self.screen, 'persist', False)
 
         def fast_path(unit):
             if unit is self.screen:
@@ -423,7 +431,7 @@ class User:
                 case _: ...
         persist_data = self._collect_persist_data(persist_units) if self._screen_has_persist else []
         if persist_data:
-            if db := self._persist_db():
+            if db := self._persist_db(create=True):
                 db.save_changed(self.screen_module, persist_data)
         self.changed_units.clear()           
         self.touched_units.clear()
