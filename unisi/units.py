@@ -1,6 +1,22 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
 from .common import *
 from .llmrag import get_property
+import sys
+
+def origin_module():
+    try:
+        frame = sys._getframe(2)
+        while frame:
+            module = frame.f_globals.get('__name__', '')
+            if module and module != __name__ and not module.startswith('unisi.'):
+                return module
+            frame = frame.f_back
+    except (AttributeError, ValueError):
+        pass
+    try:
+        return sys._getframe(1).f_globals.get('__name__', '')
+    except (AttributeError, ValueError):
+        return ''
 
 class ChangedProxy:
     MODIFYING_METHODS = {
@@ -78,6 +94,7 @@ class Unit:
     action_list = set(['complete', 'update', 'changed','delete','append', 'modify'])
     def __init__(self, name, *args, **kwargs):                
         self._mark_changed =  None
+        self._origin_module = origin_module()
         self.name = name
         la = len(args)
         if la:
@@ -170,7 +187,11 @@ class Unit:
         self.changed = compose_handlers(changed_handler, handler) 
     
     def __getstate__(self):         
-        return {n: (True if n in Unit.action_list else v) for n, v in self.__dict__.items() if n[0] != '_'}
+        state = {n: (True if n in Unit.action_list else v) for n, v in self.__dict__.items() if n[0] != '_'}
+        state['__class__'] = type(self).__name__
+        if hasattr(self, '_origin_module'):
+            state['__origin_module__'] = self._origin_module
+        return state
 
     def __str__(self):
         return f'{type(self).__name__}({self.name})'
@@ -248,6 +269,7 @@ class ContentScaler(Range):
 class Button(Unit):
     def __init__(self, name, handler = None, **kwargs):
         self._mark_changed =  None
+        self._origin_module = origin_module()
         self.name = name
         self.value = None
         self.add(kwargs)
@@ -335,5 +357,3 @@ class HTML(Unit):
     def __init__(self,name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)        
         self.type = 'html' 
-                     
-        

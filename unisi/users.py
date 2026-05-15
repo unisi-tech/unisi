@@ -6,6 +6,7 @@ from .voicecom import VoiceCom
 from .containers import Dialog, Screen
 from .multimon import notify_monitor, logging_lock, run_external_process
 from .dbunits import dbshare, dbupdates
+from .persist import Persist
 import sys, asyncio, logging, importlib
 
 class User:          
@@ -15,11 +16,14 @@ class User:
     
     def __init__(self, session: str, share = None):          
         self.session = session        
+        self.db = None
         self.active_dialog = None        
         self.last_message = None                               
         self.changed_units = set()
+        self.touched_units = set()
         self.voice = None
         self.screen_module = None
+        self._screen_has_persist = False
 
         if share:            
             self.screens = share.screens       
@@ -40,6 +44,46 @@ class User:
 
         User.last_user = self
         self.monitor(session, share)     
+        if self.screen_module and not self.testing:
+            self._screen_has_persist = self._screen_has_persist_targets(self.screen_module)
+
+    def _persist_db(self):
+        if self.testing:
+            return None
+        if self.db is None:
+            self.db = Persist(self.session)
+        return self.db
+
+    def _has_persist_targets(self, screen, units):
+        if self.testing:
+            return False
+        return getattr(screen, 'persist', False) or any(getattr(unit, 'persist', False) for unit in units)
+
+    def _screen_has_persist_targets(self, screen_module=None):
+        if not screen_module:
+            return False
+        screen = getattr(screen_module, 'screen', screen_module)
+        return self._has_persist_targets(screen, list(self._iter_units(screen_module)))
+
+    def _restore_persist_screen(self, screen_module):
+        screen = getattr(screen_module, 'screen', screen_module)
+        self.assign_parent_links(screen_module)
+        screen_units = list(self._iter_units(screen_module))
+        has_persist = self._has_persist_targets(screen, screen_units)
+        if has_persist:
+            if db := self._persist_db():
+                db.restore_screen(self, screen_module, screen_units)
+            self.assign_parent_links(screen_module)
+        return has_persist
+
+    def activate_session(self, session):
+        was_testing = self.testing
+        self.session = session
+        self.db = None
+        if was_testing and session != testdir:
+            for screen_module in self.screens:
+                self._restore_persist_screen(screen_module)
+        self._screen_has_persist = self._screen_has_persist_targets(self.screen_module)
 
     @property
     def sorted_changed_units(self):
@@ -100,9 +144,12 @@ class User:
         if User.toolbar and User.toolbar[0] not in screen.toolbar:
             screen.toolbar += User.toolbar
         
+        screen._origin_module = module.__name__
+        module.screen = screen#ChangedProxy(screen, screen)
+        self.screen_module = module
+        self._screen_has_persist = self._restore_persist_screen(module)
         if User.count > 0:
             screen.set_reactivity(self)        
-        module.screen = screen#ChangedProxy(screen, screen)                                 
         return module
     
     async def delete(self):
@@ -257,7 +304,99 @@ class User:
         if elem in self.screen.toolbar:
             return [elem.name, 'toolbar']
 
+    def _iter_layout_units(self, value):
+        if isinstance(value, ChangedProxy):
+            value = value._obj
+        if isinstance(value, list | tuple):
+            for item in value:
+                yield from self._iter_layout_units(item)
+        elif isinstance(value, Unit):
+            yield value
+            if getattr(value, 'type', None) == 'block' and hasattr(value, 'value'):
+                yield from self._iter_layout_units(value.value)
+
+    def _iter_units(self, screen_module=None):
+        screen = getattr(screen_module, 'screen', screen_module) if screen_module else self.screen
+        for block in self._iter_layout_units(screen.blocks):
+            yield block
+        for elem in self._iter_layout_units(screen.toolbar):
+            yield elem
+
+    def assign_parent_links(self, screen_module=None):
+        screen = getattr(screen_module, 'screen', screen_module) if screen_module else self.screen
+
+        def assign(value, parent):
+            if isinstance(value, ChangedProxy):
+                value = value._obj
+            if isinstance(value, list | tuple):
+                for item in value:
+                    assign(item, parent)
+            elif isinstance(value, Unit):
+                object.__setattr__(value, '_parent', parent)
+                if getattr(value, 'type', None) == 'block' and hasattr(value, 'value'):
+                    assign(value.value, value)
+
+        object.__setattr__(screen, '_parent', None)
+        assign(screen.blocks, screen)
+        assign(screen.toolbar, screen)
+
+    def _collect_persist_data(self, units):
+        if not units:
+            return []
+        persist_targets = {}
+        screen_persist = getattr(self.screen, 'persist', False)
+
+        def fast_path(unit):
+            if unit is self.screen:
+                return None
+            path = []
+            current = unit
+            reached_screen = False
+            while current:
+                name = getattr(current, 'name', None)
+                if name:
+                    path.append(name)
+                if getattr(current, '_parent', None) is self.screen:
+                    reached_screen = True
+                    if current in getattr(self.screen, 'toolbar', ()):
+                        path.append('toolbar')
+                    break
+                current = getattr(current, '_parent', None)
+            return path[::-1] if reached_screen and path else None
+
+        for unit in units:
+            path = fast_path(unit)
+            if not path:
+                continue
+
+            pr_obj = None
+            pr_path = None
+            if screen_persist:
+                pr_obj = unit
+                pr_path = path
+            else:
+                current = unit
+                while current:
+                    if getattr(current, 'persist', False):
+                        pr_obj = current
+                        pr_path = fast_path(current)
+                        break
+                    current = getattr(current, '_parent', None)
+
+            if pr_obj and pr_path:
+                path_key = strpath(pr_path)
+                if path_key not in persist_targets:
+                    state = pr_obj.__getstate__()
+                    state.setdefault('__class__', type(pr_obj).__name__)
+                    if hasattr(pr_obj, '_origin_module'):
+                        state.setdefault('__origin_module__', pr_obj._origin_module)
+                    state['id'] = path_key
+                    persist_targets[path_key] = (pr_obj, state)
+
+        return list(persist_targets.values())
+
     def prepare_result(self, raw):        
+        persist_units = set(self.changed_units) | set(self.touched_units)
         reload_screen = any(u.type == 'screen' for u in self.changed_units)
         if raw is True or raw == Redesign or reload_screen:            
             self.screen.reload = reload_screen or raw == Redesign                              
@@ -282,8 +421,12 @@ class User:
                     self.changed_units.update(raw)
                     raw = Message(*self.sorted_changed_units, user = self) 
                 case _: ...
-                    
+        persist_data = self._collect_persist_data(persist_units) if self._screen_has_persist else []
+        if persist_data:
+            if db := self._persist_db():
+                db.save_changed(self.screen_module, persist_data)
         self.changed_units.clear()           
+        self.touched_units.clear()
         return raw
     
     def screen_process(self, message):
@@ -294,6 +437,7 @@ class User:
                     if self.screen_module != s:
                         self.changed_units.add(s.screen)
                         self.screen_module = s   
+                        self._screen_has_persist = self._screen_has_persist_targets(s)
                         if screen_change_message:
                             break                    
                         if self.voice:
@@ -330,6 +474,8 @@ class User:
             
     async def process_element(self, elem, message):                
         event = message.event         
+        if event not in ('complete', 'get'):
+            self.touched_units.add(elem)
         handler = self.handlers.get((elem, event), None)
         if handler:
             return await self.eval_handler(handler, elem, message.value)                                                                    

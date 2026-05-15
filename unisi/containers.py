@@ -6,6 +6,7 @@ from numbers import Number
 class Block(Unit):    
     def __init__(self, name, *elems, **options):    
         self._mark_changed = None        
+        self._origin_module = origin_module()
         self.name = name        
         self.type = 'block'
         self.value = list(elems)       
@@ -101,6 +102,7 @@ class ParamBlock(Block):
     def __init__(self, name, *args, changed = None, row = 3, strict = 'recurse', **params):
         """strict == 'recurse' means to recurse into dict values as an embedded ParamBlock"""
         self._mark_changed = None
+        self._origin_module = origin_module()
         if not args:
             args = [[]]        
         self.name = name        
@@ -172,6 +174,7 @@ class Dialog:
 class Screen(Unit):
     def __init__(self, name):
         self._mark_changed = None        
+        self._origin_module = origin_module()
         self.name = name                
         self.type = 'screen'                                  
 

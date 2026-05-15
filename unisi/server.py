@@ -61,7 +61,7 @@ def make_user(request):
         ok = user.screens
     elif not User.count:
         user = User.last_user        
-        user.session = session
+        user.activate_session(session)
         user.monitor(session)
         ok = True
     else:
