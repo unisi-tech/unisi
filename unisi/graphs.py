@@ -77,93 +77,75 @@ def unit2image(unit):
 
 class Net(Graph):    
     """Graph of Units"""
-    replace4state = dict(nodes = '_nodes', edges = '_edges', value = '_value')
-    def __init__(self, name, value = graph_default_value, topology = Topology(),  **kwargs):        
+    def __init__(self, name, value=graph_default_value, topology=Topology(), **kwargs):        
         Unit.__init__(self, name, **kwargs)        
         self.type = 'graph'         
         self.value = value
-        self.topology = topology       
-        self._inside_converter = False
+        self.topology = topology
+        self._build_from_topology()
+
         changed_handler = getattr(self, 'changed', None)
-        
-        def changed_converter(_, value):                        
-            self._inside_converter = True
-            self._value = value
+
+        def changed_converter(_, value):
             narray = self._narray
-            value = dict(nodes = [self._narray[i] for i in value['nodes']], edges = 
-                [Edge(narray[self._edges[i].source], narray[self._edges[i].target]) for i in value['edges']])
+            value = dict(
+                nodes=[narray[i] for i in value['nodes']], 
+                edges=[Edge(narray[self._edges[i].source], narray[self._edges[i].target]) for i in value['edges']]
+            )
             if changed_handler:
-                result = changed_handler(_, value)
-            else:
-                result = None
-                self.value = value
-            self._inside_converter = False
-            return result
+                return changed_handler(_, value)
+            self.value = value
+
         self.changed = changed_converter
 
-    def specific_changed_register(self, property = None, value = None):
-        """ mark serial info as invalid """
-        if property:
-            if property.startswith('_'):
-                return False
-            elif property == 'value' and self._inside_converter:
-                return False
-            else:
-                self.delattr('_nodes')
-                self.delattr('_value')                            
-        return True
+    def _build_from_topology(self):
+        nodes, narray, earray = [], [], []
+        for sunit, links in self.topology.items():
+            sindex = index_of(narray, sunit)
+            if sindex == -1:
+                sindex = len(narray)
+                narray.append(sunit)
+                nodes.append(Node(sunit.name, image=unit2image(sunit), color='white', size=15))
+            for dunit in links:
+                dindex = index_of(narray, dunit)
+                if dindex == -1:
+                    dindex = len(narray)
+                    narray.append(dunit)
+                    nodes.append(Node(dunit.name, image=unit2image(dunit), color='white', size=15))
+                earray.append(Edge(sindex, dindex))
+        self._nodes = nodes
+        self._edges = earray
+        self._narray = narray
 
     def elements(self, stubs=True):
-        if not hasattr(self, '_nodes'):
-            self.__getstate__()
-        return self.narray
-    
+        return self._narray
+
     def __getstate__(self):
-        if not hasattr(self, '_nodes'):
-            nodes = []            
-            narray = []
-            earray = []
-            for sunit, links in self.topology.items():
-                sindex = index_of(narray,sunit)
-                if sindex == -1:
-                    sindex = len(narray)
-                    narray.append(sunit)
-                    nodes.append(Node(sunit.name, image = unit2image(sunit), 
-                            color = 'white', size = 15))
-                for dunit  in links:
-                    dindex = index_of(narray,dunit)
-                    if dindex == -1:
-                        dindex = len(narray)
-                        narray.append(dunit)
-                        nodes.append(Node(dunit.name, image = unit2image(dunit), 
-                            color = 'white', size = 15))
-                    earray.append(Edge(sindex, dindex))
-            self._nodes = nodes
-            self._edges = earray
-            self._narray = narray            
-        
-        if not hasattr(self, '_value'):
-            self._value = dict(nodes = [index_of(self._narray,unit) for unit in self.value['nodes']], 
-            edges = [Edge(index_of(self._narray, e.source), index_of(self._narray, e.target)) for e in self.value['edges']])            
-        return {name: getattr(self,Net.replace4state.get(name, name)) for name in ['nodes', 'edges', *self.__dict__.keys()] 
-                                                                        if name != 'topology' and name[0] != '_'}    
+        _value = dict(
+            nodes=[index_of(self._narray, unit) for unit in self.value['nodes']],
+            edges=[Edge(index_of(self._narray, e.source), index_of(self._narray, e.target)) for e in self.value['edges']]
+        )
+        state = {name: getattr(self, name) for name in self.__dict__
+                 if name[0] != '_' and name not in ('topology', 'value')}
+        state.update(nodes=self._nodes, edges=self._edges, value=_value)
+        return state
 
     def make_topology(self, unit: Unit | Iterable):
         topo = Topology()
         def dive(unit):
             match unit:
                 case Iterable():
-                    node = Unit('Union', type = 'union')            
+                    node = Unit('Union', type='union')
                     for obj in unit:
                         if obj:
-                            topo[node][dive(obj)] = {}                
+                            topo[node][dive(obj)] = {}
                     return node
                 case Block():
                     for obj in unit.value:
                         if obj:
-                            topo[unit][dive(obj)] = {}                
+                            topo[unit][dive(obj)] = {}
                 case _: ...
             return unit
         dive(unit)
         self.topology = topo
-        self.specific_changed_register()
+        self._build_from_topology()
