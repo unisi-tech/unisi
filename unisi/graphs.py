@@ -86,15 +86,22 @@ class Net(Graph):
 
         changed_handler = getattr(self, 'changed', None)
 
-        def changed_converter(_, value):
+        def changed_converter(_, value):            
+            self.selected = value
             narray = self._narray
-            value = dict(
+            current = self.value
+            if isinstance(current, dict):
+                prev_nodes = current.get('nodes', [])
+                if prev_nodes and isinstance(prev_nodes[0], int):
+                    unit_nodes = [narray[i] for i in prev_nodes if 0 <= i < len(narray)]
+                    object.__setattr__(self, 'value', dict(nodes=unit_nodes, edges=[]))
+            unit_value = dict(
                 nodes=[narray[i] for i in value['nodes']], 
                 edges=[Edge(narray[self._edges[i].source], narray[self._edges[i].target]) for i in value['edges']]
             )
             if changed_handler:
-                return changed_handler(_, value)
-            self.value = value
+                return changed_handler(_, unit_value)
+            self.value = unit_value
 
         self.changed = changed_converter
 
@@ -121,10 +128,7 @@ class Net(Graph):
         return self._narray
 
     def __getstate__(self):
-        _value = dict(
-            nodes=[index_of(self._narray, unit) for unit in self.value['nodes']],
-            edges=[Edge(index_of(self._narray, e.source), index_of(self._narray, e.target)) for e in self.value['edges']]
-        )
+        _value = getattr(self, 'selected', graph_default_value)
         state = {name: getattr(self, name) for name in self.__dict__
                  if name[0] != '_' and name not in ('topology', 'value')}
         state.update(nodes=self._nodes, edges=self._edges, value=_value)
