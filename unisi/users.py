@@ -249,7 +249,8 @@ class User:
     
     def register_changed_unit(self, unit, property = None, value = None):
         """add unit to changed_units if it is changed outside of message"""
-        if property == 'value':
+        is_value_change = property == 'value'
+        if is_value_change:
             property = 'changed'
         if m := self.last_message:
             if m.event == 'modify' and m.element == unit.name and (epath := 
@@ -257,6 +258,8 @@ class User:
                 return False
             if m.element != unit.name or property != m.event or value != m.value:
                 self.changed_units.add(unit)
+        if is_value_change and getattr(unit, 'type', None) == 'block':
+            self._refresh_parents_for_block(unit)
 
     @property
     def blocks(self):
@@ -332,6 +335,8 @@ class User:
     def assign_parent_links(self, screen_module=None):
         screen = getattr(screen_module, 'screen', screen_module) if screen_module else self.screen
 
+        parents = {}
+
         def assign(value, parent):
             if isinstance(value, ChangedProxy):
                 value = value._obj
@@ -339,13 +344,35 @@ class User:
                 for item in value:
                     assign(item, parent)
             elif isinstance(value, Unit):
-                object.__setattr__(value, '_parent', parent)
+                parents[value] = parent
                 if getattr(value, 'type', None) == 'block' and hasattr(value, 'value'):
                     assign(value.value, value)
 
-        object.__setattr__(screen, '_parent', None)
+        parents[screen] = None
         assign(screen.blocks, screen)
         assign(screen.toolbar, screen)
+        object.__setattr__(screen, '_parents', parents)
+
+    def _refresh_parents_for_block(self, block):
+        """Incrementally update _parents for a block whose value has changed."""
+        screen = self.screen
+        parents = getattr(screen, '_parents', None)
+        if parents is None:
+            # _parents not built yet — full rebuild
+            self.assign_parent_links()
+            return
+        def assign(value, parent):
+            if isinstance(value, ChangedProxy):
+                value = value._obj
+            if isinstance(value, list | tuple):
+                for item in value:
+                    assign(item, parent)
+            elif isinstance(value, Unit):
+                parents[value] = parent
+                if getattr(value, 'type', None) == 'block' and hasattr(value, 'value'):
+                    assign(value.value, value)
+        if getattr(block, 'type', None) == 'block' and hasattr(block, 'value'):
+            assign(block.value, block)
 
     def _collect_persist_data(self, units):
         if not units:
@@ -356,6 +383,7 @@ class User:
         def fast_path(unit):
             if unit is self.screen:
                 return None
+            parents = getattr(self.screen, '_parents', {})
             path = []
             current = unit
             reached_screen = False
@@ -363,12 +391,13 @@ class User:
                 name = getattr(current, 'name', None)
                 if name:
                     path.append(name)
-                if getattr(current, '_parent', None) is self.screen:
+                parent = parents.get(current)
+                if parent is self.screen:
                     reached_screen = True
                     if current in getattr(self.screen, 'toolbar', ()):
                         path.append('toolbar')
                     break
-                current = getattr(current, '_parent', None)
+                current = parent
             return path[::-1] if reached_screen and path else None
 
         for unit in units:
@@ -388,7 +417,7 @@ class User:
                         pr_obj = current
                         pr_path = fast_path(current)
                         break
-                    current = getattr(current, '_parent', None)
+                    current = getattr(self.screen, '_parents', {}).get(current)
 
             if pr_obj and pr_path:
                 path_key = strpath(pr_path)

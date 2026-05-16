@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS state (
 )
 """
 
-SKIP_RESTORE_KEYS = {'id', 'path', 'tag', 'parent', '_parent', '__class__', '__origin_module__', *Unit.action_list}
+SKIP_RESTORE_KEYS = {'id', 'path', 'tag', 'parent', '__class__', '__origin_module__', *Unit.action_list}
 
 TYPE_MODULES = (
     'unisi.units',
@@ -92,14 +92,14 @@ def _class_for(saved_dict):
     return cls
 
 
-def _unit_path_key(unit):
+def _unit_path_key(unit, parents):
     path = []
     current = unit
     while current:
         name = getattr(current, 'name', None)
         if name:
             path.append(name)
-        parent = getattr(current, '_parent', None)
+        parent = parents.get(current)
         if parent is None:
             return None
         if getattr(parent, 'type', None) == 'screen':
@@ -110,7 +110,7 @@ def _unit_path_key(unit):
     return None
 
 
-def _json_ready(value):
+def _json_ready(value, parents):
     if isinstance(value, ChangedProxy):
         value = value._obj
     if isinstance(value, Unit):
@@ -118,17 +118,17 @@ def _json_ready(value):
         state.setdefault('__class__', type(value).__name__)
         if hasattr(value, '_origin_module'):
             state.setdefault('__origin_module__', value._origin_module)
-        if path := _unit_path_key(value):
+        if path := _unit_path_key(value, parents):
             state['id'] = path
-        return _json_ready(state)
+        return _json_ready(state, parents)
     if isinstance(value, list | tuple | set):
-        return [item for item in (_json_ready(v) for v in value) if item is not _SKIP_JSON]
+        return [item for item in (_json_ready(v, parents) for v in value) if item is not _SKIP_JSON]
     if isinstance(value, dict):
         data = {}
         for key, val in value.items():
             if isinstance(key, str) and key.startswith('_') and key not in ('__class__', '__origin_module__'):
                 continue
-            item = _json_ready(val)
+            item = _json_ready(val, parents)
             if item is not _SKIP_JSON:
                 data[key] = item
         return data
@@ -137,11 +137,11 @@ def _json_ready(value):
     if hasattr(value, '__getstate__') and not isinstance(value, type):
         state = value.__getstate__()
         if isinstance(state, dict):
-            return _json_ready(state)
+            return _json_ready(state, parents)
     if hasattr(value, '__dict__') and not isinstance(value, type):
         if type(value).__name__ in ('User', 'Persist'):
             return _SKIP_JSON
-        return _json_ready(value.__dict__)
+        return _json_ready(value.__dict__, parents)
     if value is None or isinstance(value, int | float | bool | str):
         return value
     return str(value)
@@ -208,6 +208,8 @@ class Persist:
 
         screen_name = _screen_name(current_screen)
         screen_module = _screen_module(current_screen)
+        screen = getattr(current_screen, 'screen', current_screen)
+        parents = getattr(screen, '_parents', {})
         ts = time.time()
         rows = []
 
@@ -215,7 +217,7 @@ class Persist:
             origin = getattr(root_obj, '_origin_module', '')
             namespace = origin if origin and origin != screen_module else screen_name
             path = _path_key(serialized_dict.get('id') or serialized_dict.get('path') or getattr(root_obj, 'name', ''))
-            rows.append((self.user_id, namespace, path, json.dumps(_json_ready(serialized_dict), ensure_ascii=False), ts))
+            rows.append((self.user_id, namespace, path, json.dumps(_json_ready(serialized_dict, parents), ensure_ascii=False), ts))
 
         self.conn.executemany(
             'INSERT OR REPLACE INTO state(user_id, namespace, path, value, ts) VALUES (?, ?, ?, ?, ?)',
@@ -254,8 +256,10 @@ class Persist:
                     shared_state[path] = (state, ts)
 
         unit_map = {}
+        screen = getattr(screen_module, 'screen', screen_module)
+        parents = getattr(screen, '_parents', {})
         for unit in screen_units:
-            path = _unit_path_key(unit)
+            path = _unit_path_key(unit, parents)
             if path:
                 unit_map[_path_key(path)] = unit
 
