@@ -63,6 +63,7 @@ blocks = block
 | order | Optional | int | order in the program menu |
 | icon  | Optional | str | MD icon of screen to show in the screen menu |
 | prepare | Optional | def prepare() | Syncronizes Unit/GUI elements one to another and with the program/system data. It is called before screen appearing if defined. |
+| persist  | Optional | boolean | Persist all units on screen for the user |
 
 
 ### Server start ###
@@ -192,6 +193,7 @@ Unit('Name', some_value, changed_handler)
 calling the method 
 def accept(self, value) 
 causes  a call changed handler if it defined, otherwise just save value to the element 'value'.
+persist = True in a Unit constructor make Unit persistent.
 
 ### Button ###
 Normal button.
