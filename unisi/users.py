@@ -59,17 +59,17 @@ class User:
             self.db = Persist(self.session)
         return self.db
 
-    def _has_persist_targets(self, screen, units):
-        if not self._persist_enabled():
-            return False
-        return bool(getattr(config, 'persist', False)) or getattr(screen, 'persist', False) or any(
-            getattr(unit, 'persist', False) for unit in units)
-
     def _screen_has_persist_targets(self, screen_module=None):
-        if not screen_module:
+        if not screen_module or not self._persist_enabled():
             return False
         screen = getattr(screen_module, 'screen', screen_module)
-        return self._has_persist_targets(screen, list(self._iter_units(screen_module)))
+        return bool(getattr(config, 'persist', False)) or getattr(screen, 'persist', False) or \
+            any(getattr(u, 'persist', False) for u in self._iter_units(screen_module))
+
+    def _has_persist_targets(self, screen, units):
+        return self._persist_enabled() and (
+            bool(getattr(config, 'persist', False)) or getattr(screen, 'persist', False) or
+            any(getattr(u, 'persist', False) for u in units))
 
     def _mark_persist_units(self):
         """Set _persist=True on every unit that appears in at least one persist screen.
@@ -98,16 +98,6 @@ class User:
     def _unit_has_persist_screen(self, unit):
         """True if unit should be persisted: explicit persist flag or marked via _persist."""
         return getattr(unit, 'persist', False) or getattr(unit, '_persist', False)
-
-    def _restore_persist_screen(self, screen_module):
-        screen = getattr(screen_module, 'screen', screen_module)
-        screen_units = list(self._iter_units(screen_module))
-        has_persist = self._has_persist_targets(screen, screen_units)
-        if has_persist:
-            if db := self._persist_db(create=False):
-                db.restore_screen(self, screen_module, screen_units)
-            self.assign_parent_links(screen_module)
-        return has_persist
 
     def activate_session(self, session):
         was_testing = self.testing
@@ -201,19 +191,15 @@ class User:
 
     def set_clean(self):
         """remove user modules from sys """
-        if os.path.exists(blocks_dir):
-            for file in os.listdir(blocks_dir):
-                if file.endswith(".py") and file != '__init__.py':
-                    name = f'{blocks_dir}.{file[0:-3]}'
-                    if name in sys.modules:
-                        sys.modules[name].user = self
-                        del sys.modules[name]                          
+        for file in py_files(blocks_dir):
+            name = f'{blocks_dir}.{file[:-3]}'
+            if name in sys.modules:
+                sys.modules[name].user = self
+                del sys.modules[name]
+
     def load(self):              
-        if os.path.exists(screens_dir):
-            for file in os.listdir(screens_dir):
-                if file.endswith(".py") and file != '__init__.py':
-                    module = self.load_screen(file)                
-                    self.screens.append(module)                
+        for file in py_files(screens_dir):
+            self.screens.append(self.load_screen(file))                
         
         if self.screens:                        
             self.screens.sort(key=lambda s: s.screen.order)
@@ -346,43 +332,16 @@ class User:
         if elem in self.screen.toolbar:
             return [elem.name, 'toolbar']
 
-    def _iter_layout_units(self, value):
-        if isinstance(value, ChangedProxy):
-            value = value._obj
-        if isinstance(value, list | tuple):
-            for item in value:
-                yield from self._iter_layout_units(item)
-        elif isinstance(value, Unit):
-            yield value
-            if getattr(value, 'type', None) == 'block' and hasattr(value, 'value'):
-                yield from self._iter_layout_units(value.value)
-
     def _iter_units(self, screen_module=None):
         screen = getattr(screen_module, 'screen', screen_module) if screen_module else self.screen
-        for block in self._iter_layout_units(screen.blocks):
-            yield block
-        for elem in self._iter_layout_units(screen.toolbar):
-            yield elem
+        yield from iter_layout_units(screen.blocks)
+        yield from iter_layout_units(screen.toolbar)
 
     def assign_parent_links(self, screen_module=None):
         screen = getattr(screen_module, 'screen', screen_module) if screen_module else self.screen
-
-        parents = {}
-
-        def assign(value, parent):
-            if isinstance(value, ChangedProxy):
-                value = value._obj
-            if isinstance(value, list | tuple):
-                for item in value:
-                    assign(item, parent)
-            elif isinstance(value, Unit):
-                parents[value] = parent
-                if getattr(value, 'type', None) == 'block' and hasattr(value, 'value'):
-                    assign(value.value, value)
-
-        parents[screen] = None
-        assign(screen.blocks, screen)
-        assign(screen.toolbar, screen)
+        parents = {screen: None}
+        fill_parents(screen.blocks, screen, parents)
+        fill_parents(screen.toolbar, screen, parents)
         object.__setattr__(screen, '_parents', parents)
 
     def _refresh_parents_for_block(self, block):
@@ -390,21 +349,10 @@ class User:
         screen = self.screen
         parents = getattr(screen, '_parents', None)
         if parents is None:
-            # _parents not built yet — full rebuild
             self.assign_parent_links()
             return
-        def assign(value, parent):
-            if isinstance(value, ChangedProxy):
-                value = value._obj
-            if isinstance(value, list | tuple):
-                for item in value:
-                    assign(item, parent)
-            elif isinstance(value, Unit):
-                parents[value] = parent
-                if getattr(value, 'type', None) == 'block' and hasattr(value, 'value'):
-                    assign(value.value, value)
         if getattr(block, 'type', None) == 'block' and hasattr(block, 'value'):
-            assign(block.value, block)
+            fill_parents(block.value, block, parents)
 
     def _collect_persist_data(self, units):
         if not units:

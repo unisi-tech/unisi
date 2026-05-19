@@ -97,6 +97,39 @@ def cache_url(url):
     file.close() 
     return fname
 
+def iter_layout_units(value):
+    """Recursively yield all Unit objects in a layout tree."""
+    from .units import Unit, ChangedProxy
+    if isinstance(value, ChangedProxy):
+        value = value._obj
+    if isinstance(value, list | tuple):
+        for item in value:
+            yield from iter_layout_units(item)
+    elif isinstance(value, Unit):
+        yield value
+        if getattr(value, 'type', None) == 'block' and hasattr(value, 'value'):
+            yield from iter_layout_units(value.value)
+
+def fill_parents(value, parent, parents):
+    """Recursively populate parents dict {unit: containing_unit}."""
+    from .units import Unit, ChangedProxy
+    if isinstance(value, ChangedProxy):
+        value = value._obj
+    if isinstance(value, list | tuple):
+        for item in value:
+            fill_parents(item, parent, parents)
+    elif isinstance(value, Unit):
+        parents[value] = parent
+        if getattr(value, 'type', None) == 'block' and hasattr(value, 'value'):
+            fill_parents(value.value, value, parents)
+
+def py_files(directory):
+    """Yield .py filenames in directory, excluding __init__.py."""
+    if os.path.exists(directory):
+        for file in os.listdir(directory):
+            if file.endswith('.py') and file != '__init__.py':
+                yield file
+
 def start_logging(): 
     format = "%(asctime)s - %(levelname)s - %(message)s"
     logfile = config.logfile
@@ -104,5 +137,3 @@ def start_logging():
     logging.basicConfig(level = logging.WARNING, format = format, handlers = handlers)    
 
 start_logging()
-
-
