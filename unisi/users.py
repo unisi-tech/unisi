@@ -40,7 +40,7 @@ class User:
         else:
             self.screens = []        
             self.reflections = []            
-            self.handlers = {} 
+            self.handlers = {}
 
         User.last_user = self
         self.monitor(session, share)     
@@ -71,9 +71,36 @@ class User:
         screen = getattr(screen_module, 'screen', screen_module)
         return self._has_persist_targets(screen, list(self._iter_units(screen_module)))
 
+    def _mark_persist_units(self):
+        """Set _persist=True on every unit that appears in at least one persist screen.
+        Called once after all screens are loaded (block modules still in sys.modules).
+        Uses object.__setattr__ so the flag stays out of serialization (_-prefix).
+        """
+        for screen_module in self.screens:
+            screen = getattr(screen_module, 'screen', screen_module)
+            if getattr(screen, 'persist', False) or getattr(config, 'persist', False):
+                for unit in self._iter_units(screen_module):
+                    object.__setattr__(unit, '_persist', True)
+
     def _restore_persist_screen(self, screen_module):
         screen = getattr(screen_module, 'screen', screen_module)
-        self.assign_parent_links(screen_module)
+        screen_units = list(self._iter_units(screen_module))
+        has_persist = self._has_persist_targets(screen, screen_units)
+        # Also restore if the screen contains shared-block units marked _persist
+        has_shared = not has_persist and any(
+            getattr(u, '_persist', False) for u in screen_units)
+        if has_persist or has_shared:
+            if db := self._persist_db(create=False):
+                db.restore_screen(self, screen_module, screen_units)
+            self.assign_parent_links(screen_module)
+        return has_persist
+
+    def _unit_has_persist_screen(self, unit):
+        """True if unit should be persisted: explicit persist flag or marked via _persist."""
+        return getattr(unit, 'persist', False) or getattr(unit, '_persist', False)
+
+    def _restore_persist_screen(self, screen_module):
+        screen = getattr(screen_module, 'screen', screen_module)
         screen_units = list(self._iter_units(screen_module))
         has_persist = self._has_persist_targets(screen, screen_units)
         if has_persist:
@@ -153,7 +180,7 @@ class User:
         screen._origin_module = module.__name__
         module.screen = screen
         self.screen_module = module
-        self._screen_has_persist = self._restore_persist_screen(module)
+        self.assign_parent_links(module)
         if User.count > 0:
             screen.set_reactivity(self)        
         return module
@@ -189,7 +216,12 @@ class User:
                     self.screens.append(module)                
         
         if self.screens:                        
-            self.screens.sort(key=lambda s: s.screen.order)            
+            self.screens.sort(key=lambda s: s.screen.order)
+            # Pass 1: mark _persist on units that appear in persist screens
+            self._mark_persist_units()
+            # Pass 2: restore all screens (shared blocks restored on non-persist screens too)
+            for module in self.screens:
+                self._restore_persist_screen(module)
             main = self.screens[0]
             self.screen_module = main
             self._screen_has_persist = self._screen_has_persist_targets(main)
@@ -413,7 +445,7 @@ class User:
             else:
                 current = unit
                 while current:
-                    if getattr(current, 'persist', False):
+                    if getattr(current, 'persist', False) or getattr(current, '_persist', False):
                         pr_obj = current
                         pr_path = fast_path(current)
                         break
@@ -457,7 +489,12 @@ class User:
                     self.changed_units.update(raw)
                     raw = Message(*self.sorted_changed_units, user = self) 
                 case _: ...
-        persist_data = self._collect_persist_data(persist_units) if self._screen_has_persist else []
+        should_persist = self._screen_has_persist or (
+            self._persist_enabled() and any(
+                self._unit_has_persist_screen(u) for u in persist_units
+            )
+        )
+        persist_data = self._collect_persist_data(persist_units) if should_persist else []
         if persist_data:
             if db := self._persist_db(create=True):
                 db.save_changed(self.screen_module, persist_data)
