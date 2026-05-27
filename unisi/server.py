@@ -60,14 +60,6 @@ def make_user(request):
     elif config.mirror and User.count:
         user = User.type(session, User.last_user, screen=requested_screen)
         ok = user.screens
-    elif not User.count:
-        user = User.last_user        
-        user.activate_session(session)
-        user.monitor(session)
-        if requested_screen:
-            ok = user.set_screen(requested_screen)
-        else:
-            ok = True
     else:
         user = User.type(session, screen=requested_screen)
         ok = user.screens
@@ -192,4 +184,3 @@ def start(user_type = User, http_handlers = []):
     app = web.Application()
     app.add_routes(server_handlers)    
     web.run_app(app, port = port)
-    

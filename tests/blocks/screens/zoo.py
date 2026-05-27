@@ -1,7 +1,7 @@
 from data import table
 from unisi import *
 from blocks.tblock import eblock
-name = 'Panda & params'
+name = 'Panda params'
 order = 1
 
 zoo_table = Table('Zoo Table (panda table)', panda = table)

@@ -381,8 +381,12 @@ class User(ModulesMixin, UserPersistMixin):
     def init_user():
         """make initial user for autotest and evaluating dbsharing"""
         user = User.type(testdir)
+        already_prepared = {id(m) for m in user.screens}
         for info in user.screen_registry:
-            user.ensure_screen(info.name or info.file)
+            module = user.ensure_screen(info.name or info.file)
+            if module and id(module) not in already_prepared and hasattr(module, 'prepare'):
+                module.prepare()
+                already_prepared.add(id(module))
         #register shared db map once
         user.calc_dbsharing()
         return user
