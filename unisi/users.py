@@ -6,98 +6,180 @@ from .voicecom import VoiceCom
 from .containers import Dialog, Screen
 from .multimon import notify_monitor, logging_lock, run_external_process
 from .dbunits import dbshare, dbupdates
-from .persist import Persist
+from .persist import Persist, UserPersistMixin
 import sys, asyncio, logging, importlib
 
-class User:          
+class User(UserPersistMixin):
     last_user = None
-    toolbar = []    
+    toolbar = []
     count = 0
-    
-    def __init__(self, session: str, share = None):          
-        self.session = session        
-        self.db = None
-        self.active_dialog = None        
-        self.last_message = None                               
+
+    def __init__(self, session: str, share = None):
+        self.session = session
+        self._init_persist()
+        self.active_dialog = None
+        self.last_message = None
         self.changed_units = set()
         self.touched_units = set()
         self.voice = None
         self.screen_module = None
-        self._screen_has_persist = False
 
-        if share:            
-            self.screens = share.screens       
-            if share.screens:     
+        if share:
+            self.screens = share.screens
+            if share.screens:
                 self.screen_module = share.screens[0] if config.mirror else share.screen_module
-            
-            self.handlers =  share.handlers        
-            
-            if share.reflections:            
+
+            self.handlers = share.handlers
+
+            if share.reflections:
                 share.reflections.append(self)
             else:
-                share.reflections = [share, self]                    
+                share.reflections = [share, self]
             self.reflections = share.reflections
         else:
-            self.screens = []        
-            self.reflections = []            
+            self.screens = []
+            self.reflections = []
             self.handlers = {}
 
         User.last_user = self
-        self.monitor(session, share)     
+        self.monitor(session, share)
         if self.screen_module and not self.testing:
             self._screen_has_persist = self._screen_has_persist_targets(self.screen_module)
 
-    def _persist_enabled(self):
-        return not self.testing
+    @property
+    def _global_persist(self):
+        """Expose config.persist to UserPersistMixin without importing config there."""
+        return bool(getattr(config, 'persist', False))
 
-    def _persist_db(self, create=False):
-        if not self._persist_enabled():
-            return None
-        if self.db is None:
-            if not create and not Persist.exists(self.session):
-                return None
-            self.db = Persist(self.session)
-        return self.db
+    @property
+    def sorted_changed_units(self):
+        """sort changed units by type, 'block' types have priority"""
+        if len(self.changed_units) > 1:
+            not_block = lambda u: u.type != 'block'
+            if any(not not_block(x) for x in self.changed_units):
+                return sorted(self.changed_units, key=not_block)
+        return self.changed_units
 
-    def _screen_has_persist_targets(self, screen_module=None):
-        if not screen_module or not self._persist_enabled():
-            return False
-        screen = getattr(screen_module, 'screen', screen_module)
-        return bool(getattr(config, 'persist', False)) or getattr(screen, 'persist', False) or \
-            any(getattr(u, 'persist', False) for u in self._iter_units(screen_module))
+    async def run_process(self, long_running_task, *args, progress_callback = None, **kwargs):
+        if progress_callback and notify_monitor and progress_callback != self.progress: #progress notifies the monitor
+            async def new_callback(value):
+                asyncio.gather(notify_monitor('e', self.session, self.last_message), progress_callback(value))
+            progress_callback = new_callback
+        return await run_external_process(long_running_task, *args, progress_callback = progress_callback, **kwargs)
 
-    def _has_persist_targets(self, screen, units):
-        return self._persist_enabled() and (
-            bool(getattr(config, 'persist', False)) or getattr(screen, 'persist', False) or
-            any(getattr(u, 'persist', False) for u in units))
+    async def broadcast(self, message):
+        screen = self.screen_module
+        if type(message) != str:
+            message = toJson(self.prepare_result(message))
+        await asyncio.gather(*[user.send(message)
+            for user in self.reflections
+                if user is not self and screen is user.screen_module])
 
-    def _mark_persist_units(self):
-        """Set _persist=True on every unit that appears in at least one persist screen.
-        Called once after all screens are loaded (block modules still in sys.modules).
-        Uses object.__setattr__ so the flag stays out of serialization (_-prefix).
-        """
-        for screen_module in self.screens:
-            screen = getattr(screen_module, 'screen', screen_module)
-            if getattr(screen, 'persist', False) or getattr(config, 'persist', False):
-                for unit in self._iter_units(screen_module):
-                    object.__setattr__(unit, '_persist', True)
+    async def reflect(self, message, result):
+        if self.reflections and not message.screen_type:
+            if result:
+                await self.broadcast(result)
+            if message:
+                msg_object = self.find_element(message)
+                if not isinstance(result, Message) or not result.contains(msg_object):
+                    await self.broadcast(msg_object)
 
-    def _restore_persist_screen(self, screen_module):
-        screen = getattr(screen_module, 'screen', screen_module)
-        screen_units = list(self._iter_units(screen_module))
-        has_persist = self._has_persist_targets(screen, screen_units)
-        # Also restore if the screen contains shared-block units marked _persist
-        has_shared = not has_persist and any(
-            getattr(u, '_persist', False) for u in screen_units)
-        if has_persist or has_shared:
-            if db := self._persist_db(create=False):
-                db.restore_screen(self, screen_module, screen_units)
-            self.assign_parent_links(screen_module)
-        return has_persist
+    async def progress(self, value, *updates):
+        """open or update progress window if str != null else close it """
+        if not self.testing:
+            msg = TypeMessage('progress', str(value), *updates, user = self)
+            await asyncio.gather(self.send(msg), self.reflect(None, msg))
+            if notify_monitor:
+                await notify_monitor('e', self.session, self.last_message)
 
-    def _unit_has_persist_screen(self, unit):
-        """True if unit should be persisted: explicit persist flag or marked via _persist."""
-        return getattr(unit, 'persist', False) or getattr(unit, '_persist', False)
+    def load_screen(self, file):
+        name = file[:-3]
+        path = f'{screens_dir}{divpath}{file}'
+        spec = importlib.util.spec_from_file_location(name, path)
+        module = importlib.util.module_from_spec(spec)
+        module.user = self
+
+        spec.loader.exec_module(module)
+        screen = Screen(getattr(module, 'name', ''))
+        #set system vars
+        for var, val in screen.defaults.items():
+            setattr(screen, var, getattr(module, var, val))
+        if not isinstance(screen.blocks, list | tuple):
+            screen.blocks = [screen.blocks]
+
+        if User.toolbar and User.toolbar[0] not in screen.toolbar:
+            screen.toolbar += User.toolbar
+
+        screen._origin_module = module.__name__
+        module.screen = screen
+        self.screen_module = module
+        self.assign_parent_links(module)
+        if User.count > 0:
+            screen.set_reactivity(self)
+        return module
+
+    async def delete(self):
+        uss = Unishare.sessions
+        if uss and uss.get(self.session):
+            del uss[self.session]
+        if self.reflections: #reflections is common array
+            if len(self.reflections) == 2:
+                self.reflections.clear() #1 element in user.reflections has no sense
+            else:
+                self.reflections.remove(self)
+        if notify_monitor:
+            await notify_monitor('-', self.session, self.last_message)
+        if config.share:
+            self.log(f'User is disconnected, session: {self.session}', type = 'info')
+
+    def set_clean(self):
+        """remove user modules from sys """
+        for file in py_files(blocks_dir):
+            name = f'{blocks_dir}.{file[:-3]}'
+            if name in sys.modules:
+                sys.modules[name].user = self
+                del sys.modules[name]
+
+    def load(self):
+        for file in py_files(screens_dir):
+            self.screens.append(self.load_screen(file))
+
+        if self.screens:
+            self.screens.sort(key=lambda s: s.screen.order)
+            # Pass 1: mark _persist on units that appear in persist screens
+            self._mark_persist_units()
+            # Pass 2: restore all screens (shared blocks restored on non-persist screens too)
+            for module in self.screens:
+                self._restore_persist_screen(module)
+            main = self.screens[0]
+            self.screen_module = main
+            self._screen_has_persist = self._screen_has_persist_targets(main)
+            if hasattr(main, 'prepare'):
+                main.prepare()
+                self._screen_has_persist = self._screen_has_persist_targets(main)
+            self.update_menu()
+            self.set_clean()
+            return True
+
+    def update_menu(self):
+        menu = [[getattr(s, 'name', ''), getattr(s, 'icon', None)] for s in self.screens]
+        for s in self.screens:
+            s.screen.menu = menu
+
+    @property
+    def testing(self):
+        return self.session == testdir
+
+    @property
+    def id(self):
+        return self.session.split('-')[-1]
+
+    @property
+    def screen(self):
+        return self.screen_module.screen if self.screen_module else empty_app
+
+    def set_screen(self, name):
+        return self.screen_process(ArgObject(block = 'root', element = None, value = name))
 
     def activate_session(self, session):
         was_testing = self.testing
@@ -108,171 +190,41 @@ class User:
                 self._restore_persist_screen(screen_module)
         self._screen_has_persist = self._screen_has_persist_targets(self.screen_module)
 
-    @property
-    def sorted_changed_units(self):
-        """sort changed units by type, 'block' types have priority"""
-        if len(self.changed_units) > 1:
-            not_block = lambda u: u.type != 'block' 
-            if any(not not_block(x) for x in self.changed_units):
-                return sorted(self.changed_units, key=not_block)  
-        return self.changed_units       
-        
-    async def run_process(self, long_running_task, *args, progress_callback = None, **kwargs):
-        if progress_callback and notify_monitor and progress_callback != self.progress: #progress notifies the monitor
-            async def new_callback(value):
-                asyncio.gather(notify_monitor('e', self.session, self.last_message), progress_callback(value))                
-            progress_callback = new_callback
-        return await run_external_process(long_running_task, *args, progress_callback = progress_callback, **kwargs)
-
-    async def broadcast(self, message):
-        screen = self.screen_module
-        if type(message) != str:
-            message = toJson(self.prepare_result(message))  
-        await asyncio.gather(*[user.send(message)
-            for user in self.reflections
-                if user is not self and screen is user.screen_module])        
-        
-    async def reflect(self, message, result):
-        if self.reflections and not message.screen_type:                        
-            if result:
-                await self.broadcast(result)        
-            if message:                    
-                msg_object = self.find_element(message)                                     
-                if not isinstance(result, Message) or not result.contains(msg_object):                                                        
-                    await self.broadcast(msg_object)    
-
-    async def progress(self, value, *updates):
-        """open or update progress window if str != null else close it """  
-        if not self.testing:           
-            msg = TypeMessage('progress', str(value), *updates, user = self)            
-            await asyncio.gather(self.send(msg), self.reflect(None, msg))
-            if notify_monitor:
-                await notify_monitor('e', self.session, self.last_message) 
-                                           
-    def load_screen(self, file):                     
-        name = file[:-3]        
-        path = f'{screens_dir}{divpath}{file}'                
-        spec = importlib.util.spec_from_file_location(name,path)
-        module = importlib.util.module_from_spec(spec)        
-        module.user = self  
-                
-        spec.loader.exec_module(module)            
-        screen = Screen(getattr(module, 'name', ''))        
-        #set system vars
-        for var, val in screen.defaults.items():                                            
-            setattr(screen, var, getattr(module, var, val))         
-        if not isinstance(screen.blocks, list | tuple):
-            screen.blocks = [screen.blocks]
-            
-        if User.toolbar and User.toolbar[0] not in screen.toolbar:
-            screen.toolbar += User.toolbar
-        
-        screen._origin_module = module.__name__
-        module.screen = screen
-        self.screen_module = module
-        self.assign_parent_links(module)
-        if User.count > 0:
-            screen.set_reactivity(self)        
-        return module
-    
-    async def delete(self):
-        uss = Unishare.sessions
-        if uss and uss.get(self.session):
-            del uss[self.session]        
-        if self.reflections: #reflections is common array
-            if len(self.reflections) == 2: 
-                self.reflections.clear() #1 element in user.reflections has no sense
-            else:
-                self.reflections.remove(self)  
-        if notify_monitor:
-            await notify_monitor('-', self.session, self.last_message)   
-        if config.share:
-            self.log(f'User is disconnected, session: {self.session}', type = 'info')            
-
-    def set_clean(self):
-        """remove user modules from sys """
-        for file in py_files(blocks_dir):
-            name = f'{blocks_dir}.{file[:-3]}'
-            if name in sys.modules:
-                sys.modules[name].user = self
-                del sys.modules[name]
-
-    def load(self):              
-        for file in py_files(screens_dir):
-            self.screens.append(self.load_screen(file))                
-        
-        if self.screens:                        
-            self.screens.sort(key=lambda s: s.screen.order)
-            # Pass 1: mark _persist on units that appear in persist screens
-            self._mark_persist_units()
-            # Pass 2: restore all screens (shared blocks restored on non-persist screens too)
-            for module in self.screens:
-                self._restore_persist_screen(module)
-            main = self.screens[0]
-            self.screen_module = main
-            self._screen_has_persist = self._screen_has_persist_targets(main)
-            if hasattr(main, 'prepare'):  
-                main.prepare()            
-                self._screen_has_persist = self._screen_has_persist_targets(main)
-            self.update_menu()
-            self.set_clean()                               
-            return True                 
-
-    def update_menu(self):
-        menu = [[getattr(s, 'name', ''),getattr(s,'icon', None)] for s in self.screens]        
-        for s in self.screens:
-            s.screen.menu = menu
-
-    @property
-    def testing(self):        
-        return  self.session == testdir
-    
-    @property
-    def id(self):        
-        return  self.session.split('-')[-1]
-    
-    @property
-    def screen(self):        
-        return  self.screen_module.screen if self.screen_module else empty_app
-
-    def set_screen(self,name): 
-        return self.screen_process(ArgObject(block = 'root', element = None, value = name))
-    
     async def result4message(self, message):
-        result = None        
-        self.last_message = message     
-        if dialog := self.active_dialog:            
+        result = None
+        self.last_message = message
+        if dialog := self.active_dialog:
             if message.element is None: #dialog command button is pressed
-                self.active_dialog = None    
-                if self.reflections:            
-                    await self.broadcast(close_message)                                    
+                self.active_dialog = None
+                if self.reflections:
+                    await self.broadcast(close_message)
                 result = await self.eval_handler(dialog.changed, dialog, message.value)
             else:
                 el = self.find_element(message)
                 if el:
-                    result = await self.process_element(el, message)                        
+                    result = await self.process_element(el, message)
         else:
-            result = await self.process(message)           
+            result = await self.process(message)
         if result and isinstance(result, Dialog):
             self.active_dialog = result
         return result
 
     async def eval_handler(self, handler, *params):
         if notify_monitor:
-            await notify_monitor('+', self.session, self.last_message)        
+            await notify_monitor('+', self.session, self.last_message)
         result = await call_anysync(handler, *params)
         if notify_monitor:
-            await notify_monitor('-', self.session, None)        
+            await notify_monitor('-', self.session, None)
         return result
-    
+
     def register_changed_unit(self, unit, property = None, value = None):
         """add unit to changed_units if it is changed outside of message"""
         is_value_change = property == 'value'
         if is_value_change:
             property = 'changed'
         if m := self.last_message:
-            if m.event == 'modify' and m.element == unit.name and (epath := 
-                self.find_path(unit)) and m.block == strpath(epath):            
+            if m.event == 'modify' and m.element == unit.name and (epath :=
+                self.find_path(unit)) and m.block == strpath(epath):
                 return False
             if m.element != unit.name or property != m.event or value != m.value:
                 self.changed_units.add(unit)
@@ -284,14 +236,14 @@ class User:
         return [self.active_dialog, *self.screen.blocks] if self.active_dialog and \
             self.active_dialog.value else self.screen.blocks
 
-    def find_element(self, message):                       
+    def find_element(self, message):
         elname = message.element
         mb = message.block
         if mb == 'toolbar':
             for e in self.screen.toolbar:
-                if e.name == elname:                
+                if e.name == elname:
                     return e
-        else:            
+        else:
             blnames = message.block.split('@')
             root_block_name = blnames[-1]
             for bl in flatten(self.blocks):
@@ -302,7 +254,7 @@ class User:
                                 bl = c
                                 break
                         else:
-                            return None                        
+                            return None
                     else:
                         if elname:
                             for c in flatten(bl.value):
@@ -310,11 +262,11 @@ class User:
                                     return c
                         else:
                             return bl
-        
-    def find_path(self, elem) -> list:        
+
+    def find_path(self, elem) -> list:
         def find_in_block(block, elem, path):
             if block == elem:
-                return  [block.name, *path]
+                return [block.name, *path]
             for c in flatten(block.value):
                 if c == elem:
                     return [c.name, block.name, *path]
@@ -322,13 +274,12 @@ class User:
                     return sub_path
             return None
 
-        for bl in flatten(self.blocks):        
+        for bl in flatten(self.blocks):
             if bl == elem:
                 return [bl.name]
-            
             if sub_path := find_in_block(bl, elem, []):
                 return sub_path
-        
+
         if elem in self.screen.toolbar:
             return [elem.name, 'toolbar']
 
@@ -354,72 +305,15 @@ class User:
         if getattr(block, 'type', None) == 'block' and hasattr(block, 'value'):
             fill_parents(block.value, block, parents)
 
-    def _collect_persist_data(self, units):
-        if not units:
-            return []
-        persist_targets = {}
-        screen_persist = bool(getattr(config, 'persist', False)) or getattr(self.screen, 'persist', False)
-
-        def fast_path(unit):
-            if unit is self.screen:
-                return None
-            parents = getattr(self.screen, '_parents', {})
-            path = []
-            current = unit
-            reached_screen = False
-            while current:
-                name = getattr(current, 'name', None)
-                if name:
-                    path.append(name)
-                parent = parents.get(current)
-                if parent is self.screen:
-                    reached_screen = True
-                    if current in getattr(self.screen, 'toolbar', ()):
-                        path.append('toolbar')
-                    break
-                current = parent
-            return path[::-1] if reached_screen and path else None
-
-        for unit in units:
-            path = fast_path(unit)
-            if not path:
-                continue
-
-            pr_obj = None
-            pr_path = None
-            if screen_persist:
-                pr_obj = unit
-                pr_path = path
-            else:
-                current = unit
-                while current:
-                    if getattr(current, 'persist', False) or getattr(current, '_persist', False):
-                        pr_obj = current
-                        pr_path = fast_path(current)
-                        break
-                    current = getattr(self.screen, '_parents', {}).get(current)
-
-            if pr_obj and pr_path:
-                path_key = strpath(pr_path)
-                if path_key not in persist_targets:
-                    state = pr_obj.__getstate__()
-                    state.setdefault('__class__', type(pr_obj).__name__)
-                    if hasattr(pr_obj, '_origin_module'):
-                        state.setdefault('__origin_module__', pr_obj._origin_module)
-                    state['id'] = path_key
-                    persist_targets[path_key] = (pr_obj, state)
-
-        return list(persist_targets.values())
-
-    def prepare_result(self, raw):        
+    def prepare_result(self, raw):
         persist_units = set(self.changed_units) | set(self.touched_units)
         reload_screen = any(u.type == 'screen' for u in self.changed_units)
-        if raw is True or raw == Redesign or reload_screen:            
-            self.screen.reload = reload_screen or raw == Redesign                              
+        if raw is True or raw == Redesign or reload_screen:
+            self.screen.reload = reload_screen or raw == Redesign
             raw = self.screen
         else:
             match raw:
-                case None: 
+                case None:
                     if self.changed_units:
                         raw = Message(*self.sorted_changed_units, user = self)
                         if not raw.updates:
@@ -429,27 +323,19 @@ class User:
                         message_units = [x['data'] for x in raw.updates]
                         self.changed_units.update(message_units)
                         raw.set_updates(self.sorted_changed_units)
-                    raw.fill_paths4(self)                                    
+                    raw.fill_paths4(self)
                 case Unit():
                     self.changed_units.add(raw)
-                    raw = Message(*self.sorted_changed_units, user = self) 
+                    raw = Message(*self.sorted_changed_units, user = self)
                 case list() | tuple(): #raw is *unit
                     self.changed_units.update(raw)
-                    raw = Message(*self.sorted_changed_units, user = self) 
+                    raw = Message(*self.sorted_changed_units, user = self)
                 case _: ...
-        should_persist = self._screen_has_persist or (
-            self._persist_enabled() and any(
-                self._unit_has_persist_screen(u) for u in persist_units
-            )
-        )
-        persist_data = self._collect_persist_data(persist_units) if should_persist else []
-        if persist_data:
-            if db := self._persist_db(create=True):
-                db.save_changed(self.screen_module, persist_data)
-        self.changed_units.clear()           
+        self._save_persist_if_needed(persist_units)
+        self.changed_units.clear()
         self.touched_units.clear()
         return raw
-    
+
     def screen_process(self, message):
         screen_change_message = message.screen and self.screen.name != message.screen
         if screen_change_message or message.screen_type:
@@ -457,81 +343,81 @@ class User:
                 if s.name == message.value:
                     if self.screen_module != s:
                         self.changed_units.add(s.screen)
-                        self.screen_module = s   
+                        self.screen_module = s
                         self._screen_has_persist = self._screen_has_persist_targets(s)
                         if screen_change_message:
-                            break                    
+                            break
                         if self.voice:
-                            self.voice.set_screen(s.screen)       
-                            self.voice.start()                              
-                        if getattr(s.screen,'prepare', None):
+                            self.voice.set_screen(s.screen)
+                            self.voice.start()
+                        if getattr(s.screen, 'prepare', None):
                             s.screen.prepare()
-                    return True                     
-            else:        
-                error = f'Unknown screen name: {message.value}'   
+                    return True
+            else:
+                error = f'Unknown screen name: {message.value}'
                 self.log(error)
                 return Error(error)
 
-    async def process(self, message):        
+    async def process(self, message):
         if screen_result := self.screen_process(message):
             return screen_result
-        elif message.voice_type:            
+        elif message.voice_type:
             if not self.voice:
-                self.voice = VoiceCom(self)                
-            if message.event == 'listen':                
+                self.voice = VoiceCom(self)
+            if message.event == 'listen':
                 if message.value:
-                    self.voice.start()  
+                    self.voice.start()
                 else:
                     self.voice.stop()
             else:
-                return await self.voice.process_string(message.value)            
-        else:        
-            elem = self.find_element(message)          
-            if elem:                          
-                return await self.process_element(elem, message)              
+                return await self.voice.process_string(message.value)
+        else:
+            elem = self.find_element(message)
+            if elem:
+                return await self.process_element(elem, message)
             error = f'Element {message.element}@{message.block} does not exist!'
             self.log(error)
-            return Error(error)    
-            
-    async def process_element(self, elem, message):                
-        event = message.event         
+            return Error(error)
+
+    async def process_element(self, elem, message):
+        event = message.event
         if elem.type != 'command' and event not in ('complete', 'get'):
             self.touched_units.add(elem)
         handler = self.handlers.get((elem, event), None)
         if handler:
-            return await self.eval_handler(handler, elem, message.value)                                                                    
-        if hasattr(elem, event):                
+            return await self.eval_handler(handler, elem, message.value)
+        if hasattr(elem, event):
             attr = getattr(elem, event)
             if is_callable(attr):
                 result = await self.eval_handler(attr, elem, message.value)
-                if event in ('complete', 'append', 'get'):                        
-                    result = Answer(event, message, result)                
+                if event in ('complete', 'append', 'get'):
+                    result = Answer(event, message, result)
                 return result
             #set attribute only for declared properties
             setattr(elem, event, message.value)
-        elif event == 'changed':        
+        elif event == 'changed':
             if elem.type != 'command': #for command we can not set value, but we can have changed handler
-                elem.value = message.value                                        
+                elem.value = message.value
         else:
             error = f"{message.element}@{message.block} doesn't contain '{event}' method type!"
-            self.log(error)                     
+            self.log(error)
             return Error(error)
-        
+
     def monitor(self, session, share = None):
         if config.share and session != testdir:
-            self.log(f'User is connected, session: {session}, share: {share.session if share else None}', type = 'info')            
+            self.log(f'User is connected, session: {session}, share: {share.session if share else None}', type = 'info')
 
-    def sync_send(self, obj):                    
+    def sync_send(self, obj):
         asyncio.run(self.send(obj))
-    
-    def log(self, message, type = 'error'):        
+
+    def log(self, message, type = 'error'):
         scr = self.screen.name if self.screens else 'void'
         message = f"session: {self.session}, screen: {scr}, message: {self.last_message}\n  {message}"
         with logging_lock:
             if type == 'error':
                 logging.error(message)
             elif type == 'warning':
-                logging.warning(message)    
+                logging.warning(message)
             else:
                 func = logging.getLogger().setLevel
                 func(level = logging.INFO)
@@ -541,7 +427,7 @@ class User:
     def init_user():
         """make initial user for autotest and evaluating dbsharing"""
         user = User.type(testdir)
-        user.load()    
+        user.load()
         #register shared db map once
         user.calc_dbsharing()
         return user
@@ -554,7 +440,7 @@ class User:
             for block in flatten(screen.blocks):
                 for elem in flatten(block.value):
                     if hasattr(elem, 'id'):
-                        dbshare[elem.id][screen.name].append({'element': elem.name, 'block': block.name})                                
+                        dbshare[elem.id][screen.name].append({'element': elem.name, 'block': block.name})
 
     async def sync_dbupdates(self):
         sync_calls = []
@@ -563,11 +449,11 @@ class User:
                 if update:
                     screen2el_bl = dbshare[id]
                     exclude = update.get('exclude', False)
-                    for user in Unishare.sessions.values():                
+                    for user in Unishare.sessions.values():
                         if not exclude or user is not self:
                             scr_name = user.screen.name
                             if scr_name in screen2el_bl:
-                                for elem_block in screen2el_bl[scr_name]: 
+                                for elem_block in screen2el_bl[scr_name]:
                                     update4user = {**update, **elem_block}
                                     sync_calls.append(user.send(update4user))
         dbupdates.clear()

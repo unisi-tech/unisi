@@ -184,6 +184,7 @@ def _smart_apply_dict(unit, saved_dict, unit_map):
             continue
         object.__setattr__(unit, key, _rebuild_value(value, unit_map))
 
+
 class Persist:
     @staticmethod
     def db_path_for(session_id):
@@ -241,7 +242,7 @@ class Persist:
             return
 
         local_state = {}
-        shared_state = {}        
+        shared_state = {}
 
         for namespace, path, value, ts in rows:
             try:
@@ -249,7 +250,7 @@ class Persist:
             except json.JSONDecodeError:
                 continue
             if namespace == screen_name:
-                local_state[path] = state                
+                local_state[path] = state
             elif namespace.startswith('blocks.'):
                 current = shared_state.get(path)
                 if current is None or ts > current[1]:
@@ -264,22 +265,155 @@ class Persist:
                 unit_map[_path_key(path)] = unit
 
         paths_to_restore = set(local_state) | set(shared_state)
-        sorted_paths = sorted(paths_to_restore, key=lambda p: p.count('@') + p.count('/'))     
-        timings = {}   
+        sorted_paths = sorted(paths_to_restore, key=lambda p: p.count('@') + p.count('/'))
+        timings = {}
 
         for path in sorted_paths:
             unit = unit_map.get(path)
-            if unit:                
-                saved_dict = local_state.get(path)                
+            if unit:
+                saved_dict = local_state.get(path)
                 if path in shared_state:
                     shared_dict, shared_ts = shared_state[path]
-                    
                     for timing_path, timing_ts in timings.items():
                         if (path.startswith(timing_path + '@') or path.startswith(timing_path + '/')) and shared_ts < timing_ts:
                             saved_dict = shared_dict
-                            break                   
+                            break
                     else:
                         saved_dict = shared_dict
                     timings[path] = shared_ts
                 if saved_dict:
                     _smart_apply_dict(unit, saved_dict, unit_map)
+
+
+class UserPersistMixin:
+    """Persist-related behaviour for User.
+    Expects from host class:
+      self.session, self.testing, self.screens,
+      self.screen (property), self.screen_module,
+      self._iter_units(), self.assign_parent_links(),
+      self._global_persist (property, defined in User via config).
+    """
+
+    def _init_persist(self):
+        self.db = None
+        self._screen_has_persist = False
+
+    def _persist_enabled(self):
+        return not self.testing
+
+    def _persist_db(self, create=False):
+        if not self._persist_enabled():
+            return None
+        if self.db is None:
+            if not create and not Persist.exists(self.session):
+                return None
+            self.db = Persist(self.session)
+        return self.db
+
+    def _screen_has_persist_targets(self, screen_module=None):
+        if not screen_module or not self._persist_enabled():
+            return False
+        screen = getattr(screen_module, 'screen', screen_module)
+        return self._global_persist or getattr(screen, 'persist', False) or \
+            any(getattr(u, 'persist', False) for u in self._iter_units(screen_module))
+
+    def _has_persist_targets(self, screen, units):
+        return self._persist_enabled() and (
+            self._global_persist or getattr(screen, 'persist', False) or
+            any(getattr(u, 'persist', False) for u in units))
+
+    def _mark_persist_units(self):
+        """Set _persist=True on every unit that appears in at least one persist screen.
+        Called once after all screens are loaded (block modules still in sys.modules).
+        Uses object.__setattr__ so the flag stays out of serialization (_-prefix).
+        """
+        for screen_module in self.screens:
+            screen = getattr(screen_module, 'screen', screen_module)
+            if getattr(screen, 'persist', False) or self._global_persist:
+                for unit in self._iter_units(screen_module):
+                    object.__setattr__(unit, '_persist', True)
+
+    def _restore_persist_screen(self, screen_module):
+        screen = getattr(screen_module, 'screen', screen_module)
+        screen_units = list(self._iter_units(screen_module))
+        has_persist = self._has_persist_targets(screen, screen_units)
+        # Also restore if the screen contains shared-block units marked _persist
+        has_shared = not has_persist and any(
+            getattr(u, '_persist', False) for u in screen_units)
+        if has_persist or has_shared:
+            if db := self._persist_db(create=False):
+                db.restore_screen(self, screen_module, screen_units)
+            self.assign_parent_links(screen_module)
+        return has_persist
+
+    def _unit_has_persist_screen(self, unit):
+        """True if unit should be persisted: explicit persist flag or marked via _persist."""
+        return getattr(unit, 'persist', False) or getattr(unit, '_persist', False)
+
+    def _collect_persist_data(self, units):
+        if not units:
+            return []
+        persist_targets = {}
+        screen_persist = self._global_persist or getattr(self.screen, 'persist', False)
+
+        def fast_path(unit):
+            if unit is self.screen:
+                return None
+            parents = getattr(self.screen, '_parents', {})
+            path = []
+            current = unit
+            reached_screen = False
+            while current:
+                name = getattr(current, 'name', None)
+                if name:
+                    path.append(name)
+                parent = parents.get(current)
+                if parent is self.screen:
+                    reached_screen = True
+                    if current in getattr(self.screen, 'toolbar', ()):
+                        path.append('toolbar')
+                    break
+                current = parent
+            return path[::-1] if reached_screen and path else None
+
+        for unit in units:
+            path = fast_path(unit)
+            if not path:
+                continue
+
+            pr_obj = None
+            pr_path = None
+            if screen_persist:
+                pr_obj = unit
+                pr_path = path
+            else:
+                current = unit
+                while current:
+                    if getattr(current, 'persist', False) or getattr(current, '_persist', False):
+                        pr_obj = current
+                        pr_path = fast_path(current)
+                        break
+                    current = getattr(self.screen, '_parents', {}).get(current)
+
+            if pr_obj and pr_path:
+                path_key = strpath(pr_path)
+                if path_key not in persist_targets:
+                    state = pr_obj.__getstate__()
+                    state.setdefault('__class__', type(pr_obj).__name__)
+                    if hasattr(pr_obj, '_origin_module'):
+                        state.setdefault('__origin_module__', pr_obj._origin_module)
+                    state['id'] = path_key
+                    persist_targets[path_key] = (pr_obj, state)
+
+        return list(persist_targets.values())
+
+    def _save_persist_if_needed(self, persist_units):
+        """Save changed persist units to DB. Called at the end of prepare_result."""
+        should_persist = self._screen_has_persist or (
+            self._persist_enabled() and any(
+                self._unit_has_persist_screen(u) for u in persist_units))
+        if should_persist:
+            persist_data = self._collect_persist_data(persist_units)
+            if persist_data:
+                if db := self._persist_db(create=True):
+                    db.save_changed(self.screen_module, persist_data)
