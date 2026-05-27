@@ -6,7 +6,7 @@ from .voicecom import VoiceCom
 from .containers import Dialog
 from .multimon import notify_monitor, logging_lock, run_external_process
 from .dbunits import dbshare, dbupdates
-from .persist import Persist, UserPersistMixin
+from .persist import UserPersistMixin
 from .modules import ModulesMixin
 import asyncio, logging
 

@@ -1,5 +1,4 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
-import ast
 import importlib
 import sys
 import threading
@@ -17,44 +16,6 @@ class ScreenInfo:
     order: int = 0
 
 
-def _literal_assignments(path):
-    values = {}
-    try:
-        with open(path, 'r') as file:
-            tree = ast.parse(file.read(), filename=path)
-    except (OSError, SyntaxError):
-        return values
-
-    for node in tree.body:
-        target = None
-        value = None
-        if isinstance(node, ast.Assign):
-            if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-                target = node.targets[0].id
-                value = node.value
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            target = node.target.id
-            value = node.value
-
-        if target in ('name', 'icon', 'order') and value is not None:
-            try:
-                values[target] = ast.literal_eval(value)
-            except (ValueError, TypeError):
-                pass
-    return values
-
-
-def screen_info_from_file(file):
-    path = f'{screens_dir}{divpath}{file}'
-    values = _literal_assignments(path)
-    return ScreenInfo(
-        name=values.get('name', ''),
-        file=file,
-        icon=values.get('icon', Screen.defaults.get('icon')),
-        order=values.get('order', Screen.defaults.get('order', 0)),
-    )
-
-
 def screen_info_from_module(module):
     return ScreenInfo(
         name=getattr(module, 'name', ''),
@@ -69,8 +30,7 @@ class ModulesMixin:
 
     @classmethod
     def build_screen_registry(cls):
-        registry = [screen_info_from_file(file) for file in py_files(screens_dir)]
-        registry.sort(key=lambda info: info.order)
+        registry = [ScreenInfo(name='', file=file) for file in py_files(screens_dir)]
         return registry
 
     def _init_screen_registry(self):
