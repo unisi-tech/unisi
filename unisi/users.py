@@ -3,18 +3,21 @@ from .utils import *
 from .units import *
 from .common import *
 from .voicecom import VoiceCom
-from .containers import Dialog, Screen
+from .containers import Dialog
 from .multimon import notify_monitor, logging_lock, run_external_process
 from .dbunits import dbshare, dbupdates
 from .persist import Persist, UserPersistMixin
-import sys, asyncio, logging, importlib
+from .modules import ModulesMixin
+import asyncio, logging
 
-class User(UserPersistMixin):
+class User(ModulesMixin, UserPersistMixin):
     last_user = None
+    screen_registry = []
+    _screen_registry_ready = False
     toolbar = []
     count = 0
 
-    def __init__(self, session: str, share = None):
+    def __init__(self, session: str, share = None, screen: str | None = None):
         self.session = session
         self._init_persist()
         self.active_dialog = None
@@ -23,6 +26,8 @@ class User(UserPersistMixin):
         self.touched_units = set()
         self.voice = None
         self.screen_module = None
+        self.modules = dict(getattr(share, 'modules', {})) if share else {}
+        self._init_screen_registry()
 
         if share:
             self.screens = share.screens
@@ -42,6 +47,11 @@ class User(UserPersistMixin):
             self.handlers = {}
 
         User.last_user = self
+        if share and screen:
+            if selected := self.ensure_screen(screen):
+                self.screen_module = selected
+        elif not share:
+            self.load_lazy(screen)
         self.monitor(session, share)
         if self.screen_module and not self.testing:
             self._screen_has_persist = self._screen_has_persist_targets(self.screen_module)
@@ -92,32 +102,6 @@ class User(UserPersistMixin):
             if notify_monitor:
                 await notify_monitor('e', self.session, self.last_message)
 
-    def load_screen(self, file):
-        name = file[:-3]
-        path = f'{screens_dir}{divpath}{file}'
-        spec = importlib.util.spec_from_file_location(name, path)
-        module = importlib.util.module_from_spec(spec)
-        module.user = self
-
-        spec.loader.exec_module(module)
-        screen = Screen(getattr(module, 'name', ''))
-        #set system vars
-        for var, val in screen.defaults.items():
-            setattr(screen, var, getattr(module, var, val))
-        if not isinstance(screen.blocks, list | tuple):
-            screen.blocks = [screen.blocks]
-
-        if User.toolbar and User.toolbar[0] not in screen.toolbar:
-            screen.toolbar += User.toolbar
-
-        screen._origin_module = module.__name__
-        module.screen = screen
-        self.screen_module = module
-        self.assign_parent_links(module)
-        if User.count > 0:
-            screen.set_reactivity(self)
-        return module
-
     async def delete(self):
         uss = Unishare.sessions
         if uss and uss.get(self.session):
@@ -132,37 +116,8 @@ class User(UserPersistMixin):
         if config.share:
             self.log(f'User is disconnected, session: {self.session}', type = 'info')
 
-    def set_clean(self):
-        """remove user modules from sys """
-        for file in py_files(blocks_dir):
-            name = f'{blocks_dir}.{file[:-3]}'
-            if name in sys.modules:
-                sys.modules[name].user = self
-                del sys.modules[name]
-
-    def load(self):
-        for file in py_files(screens_dir):
-            self.screens.append(self.load_screen(file))
-
-        if self.screens:
-            self.screens.sort(key=lambda s: s.screen.order)
-            # Pass 1: mark _persist on units that appear in persist screens
-            self._mark_persist_units()
-            # Pass 2: restore all screens (shared blocks restored on non-persist screens too)
-            for module in self.screens:
-                self._restore_persist_screen(module)
-            main = self.screens[0]
-            self.screen_module = main
-            self._screen_has_persist = self._screen_has_persist_targets(main)
-            if hasattr(main, 'prepare'):
-                main.prepare()
-                self._screen_has_persist = self._screen_has_persist_targets(main)
-            self.update_menu()
-            self.set_clean()
-            return True
-
     def update_menu(self):
-        menu = [[getattr(s, 'name', ''), getattr(s, 'icon', None)] for s in self.screens]
+        menu = [[info.name, info.icon] for info in self.screen_registry]
         for s in self.screens:
             s.screen.menu = menu
 
@@ -179,7 +134,7 @@ class User(UserPersistMixin):
         return self.screen_module.screen if self.screen_module else empty_app
 
     def set_screen(self, name):
-        return self.screen_process(ArgObject(block = 'root', element = None, value = name))
+        return self.screen_process(ArgObject(block = 'root', element = None, value = name, screen_type = True))
 
     def activate_session(self, session):
         was_testing = self.testing
@@ -339,24 +294,23 @@ class User(UserPersistMixin):
     def screen_process(self, message):
         screen_change_message = message.screen and self.screen.name != message.screen
         if screen_change_message or message.screen_type:
-            for s in self.screens:
-                if s.name == message.value:
-                    if self.screen_module != s:
-                        self.changed_units.add(s.screen)
-                        self.screen_module = s
-                        self._screen_has_persist = self._screen_has_persist_targets(s)
-                        if screen_change_message:
-                            break
-                        if self.voice:
-                            self.voice.set_screen(s.screen)
-                            self.voice.start()
-                        if getattr(s.screen, 'prepare', None):
-                            s.screen.prepare()
-                    return True
-            else:
+            s = self.ensure_screen(message.value)
+            if not s:
                 error = f'Unknown screen name: {message.value}'
                 self.log(error)
                 return Error(error)
+            if self.screen_module != s:
+                self.changed_units.add(s.screen)
+                self.screen_module = s
+                self._screen_has_persist = self._screen_has_persist_targets(s)
+                if screen_change_message:
+                    return
+                if self.voice:
+                    self.voice.set_screen(s.screen)
+                    self.voice.start()
+                if getattr(s.screen, 'prepare', None):
+                    s.screen.prepare()
+            return True
 
     async def process(self, message):
         if screen_result := self.screen_process(message):
@@ -427,7 +381,8 @@ class User(UserPersistMixin):
     def init_user():
         """make initial user for autotest and evaluating dbsharing"""
         user = User.type(testdir)
-        user.load()
+        for info in user.screen_registry:
+            user.ensure_screen(info.name or info.file)
         #register shared db map once
         user.calc_dbsharing()
         return user

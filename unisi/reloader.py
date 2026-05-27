@@ -8,8 +8,8 @@ else:
     import os, sys, traceback
     from watchdog.observers import Observer
     from watchdog.events import PatternMatchingEventHandler
-    from .users import User, Redesign
-    from .utils import divpath, app_dir
+    from .users import User, Redesign, empty_app
+    from .utils import blocks_dir, divpath, app_dir, screens_dir
     from .autotest import check_module
     import re, collections
 
@@ -29,7 +29,7 @@ else:
     def reload(sname, changed_dependency = False):
         user = User.last_user
         if user:
-            file = open(f'screens{divpath}{sname}', "r") 
+            file = open(f'{screens_dir}{divpath}{sname}', "r")
             content = file.read()
             if not changed_dependency and file_content[sname] == content:
                 return
@@ -65,9 +65,7 @@ else:
                     user.set_screen(module.name)                    
 
             user.screens.sort(key=lambda s: s.screen.order)           
-            menu = [[getattr(s, 'name', ''),getattr(s,'icon', None)] for s in user.screens]               
-            for s in user.screens:
-                s.screen.menu = menu
+            user.update_menu()
             user.set_clean() 
             if hasattr(user,'send'):
                 user.sync_send(Redesign)
@@ -86,7 +84,7 @@ else:
                     user = User.last_user
                     
                     changed_dependency = False
-                    if user.screen_module and dir not in ['screens','blocks']: 
+                    if user.screen_module and dir not in [screens_dir, blocks_dir]:
                         changed_dependency = True
                         #analyze if dependency exist
                         file = open(user.screen_module.__file__, "r") 
@@ -102,12 +100,18 @@ else:
                                 short_path = short_path[len(app_dir) + 1:]
                             dir, name = short_path.split(divpath)                            
 
-                    if dir in ['screens','blocks']:                             
+                    if dir in [screens_dir, blocks_dir]:
                         if busy:
                             global request_file            
-                            request_file = short_path 
+                            if dir == blocks_dir:
+                                user._drop_private_module(f'{blocks_dir}.{name[:-3]}')
+                                request_file = user.screen_module.__file__.split(divpath)[-1] if user.screen_module else None
+                            else:
+                                request_file = name
                         else:                    
-                            fresh_module = reload(name, changed_dependency) if dir == 'screens' else None                                            
+                            if dir == blocks_dir:
+                                user._drop_private_module(f'{blocks_dir}.{name[:-3]}')
+                            fresh_module = reload(name, changed_dependency) if dir == screens_dir else None
                             module = user.screen_module
                             if module:
                                 current = module.__file__
@@ -120,19 +124,27 @@ else:
                 arr = event.src_path.split(divpath) 
                 name = arr[-1]
                 dir = arr[-2]  
-                if name.endswith('.py') and dir == 'screens':
-                    delfile = f'{dir}{divpath}{name}'
+                if name.endswith('.py') and dir == screens_dir:
+                    user._remove_screen_info(name)
                     for i, s in enumerate(user.screens):
                         if s.__file__ == event.src_path:
                             user.screens.remove(s)
                             if user.screen_module is s:
                                 if user.screens:                                                                        
                                     fname = user.screens[0].__file__.split(divpath)[-1]
-                                    module = reload(fname)
+                                    module = reload(fname) or user.screens[0]
                                     user.set_screen(module.name)
                                     user.update_menu()   
                                     if hasattr(user,'send'):                             
                                         user.sync_send(Redesign)      
+                                elif user.screen_registry:
+                                    info = user.screen_registry[0]
+                                    module = user.ensure_screen(info.name or info.file)
+                                    if module:
+                                        user.set_screen(module.name)
+                                        user.update_menu()
+                                        if hasattr(user,'send'):
+                                            user.sync_send(Redesign)
                                 else:   
                                     if hasattr(user,'send'):                                                   
                                         user.sync_send(empty_app)                                                        
@@ -142,10 +154,14 @@ else:
                                 if hasattr(user,'send'):
                                     user.sync_send(Redesign)                                                        
                             break
-    
+                    user.update_menu()
+                elif name.endswith('.py') and dir == blocks_dir:
+                    user._drop_private_module(f'{blocks_dir}.{name[:-3]}')
+                    if user.screen_module:
+                        reload(user.screen_module.__file__.split(divpath)[-1], True)
+
     event_handler = ScreenEventHandler()
     observer = Observer()
     path = os.getcwd()
     observer.schedule(event_handler, path, recursive = True)
     observer.start()
-    

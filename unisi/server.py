@@ -40,6 +40,7 @@ if config.db_dir:
 
 def make_user(request):
     parsed_query = parse_qs(request.query_string)
+    requested_screen = parsed_query.get('screen', [None])[0]
     if 'session' in parsed_query:
         session = parsed_query['session'][0]
         user_id = session.split('-')[1]
@@ -53,20 +54,23 @@ def make_user(request):
             error = f'Session id "{session}" is unknown. Connection refused!'
             with logging_lock:
                 logging.error(error)
-            return None, Error(error)
-        user = User.type(session, user)
+                return None, Error(error)
+        user = User.type(session, user, screen=requested_screen)
         ok = user.screens
     elif config.mirror and User.count:
-        user = User.type(session, User.last_user)
+        user = User.type(session, User.last_user, screen=requested_screen)
         ok = user.screens
     elif not User.count:
         user = User.last_user        
         user.activate_session(session)
         user.monitor(session)
-        ok = True
+        if requested_screen:
+            ok = user.set_screen(requested_screen)
+        else:
+            ok = True
     else:
-        user = User.type(session)
-        ok = user.load()                  
+        user = User.type(session, screen=requested_screen)
+        ok = user.screens
     User.count += 1
     Unishare.sessions[session] = user 
     return user, ok
