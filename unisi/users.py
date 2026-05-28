@@ -261,7 +261,7 @@ class User(ModulesMixin, UserPersistMixin):
             fill_parents(block.value, block, parents)
 
     def prepare_result(self, raw):
-        persist_units = set(self.changed_units) | set(self.touched_units)
+        persist_units = self.changed_units | self.touched_units
         reload_screen = any(u.type == 'screen' for u in self.changed_units)
         if raw is True or raw == Redesign or reload_screen:
             self.screen.reload = reload_screen or raw == Redesign
