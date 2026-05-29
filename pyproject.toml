@@ -1,6 +1,6 @@
 [project]
 name = "unisi"
-version = "0.6.4"
+version = "0.6.5"
 description = "Unified System Interface, GUI and Remote API"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -20,13 +20,8 @@ dependencies = [
   "websocket-client",
   "cymple",
   "kuzu",
-  "langchain",
-  "langchain-groq",
-  "langchain-community",
-  "langchain-openai",
-  "langchain-google-genai",
-  "langchain_mistralai",
-  "langchain-xai",
+  "litellm", 
+  "diskcache",
   "word2number"
 ]
 

@@ -28,11 +28,12 @@ async def geo_code():
     country = ecountry.value.strip()
     if country:
         await user.progress(f'Information about {country}...')
-        country_info = await Q("Provide information about {country}.", dict(capital = str, population = int, currency = str))
+        country_info = await Q(f"Provide information about {country}.", dict(capital = str, population = int, currency = str))
         ecountry_info.value = str(country_info)
     await user.progress(f'Information about Europe...')
     country2capital = await Q("What are the capitals of the European countries?", dict[str, str])        
-    tcapitals.rows = [[country, capital] for country, capital in country2capital.items()]    
+    cdata = [[country, capital] for country, capital in country2capital.items()]    
+    tcapitals.rows = cdata
         
 text = "Alpha Centauri A, also known as Rigil Kentaurus, is the principal member, or primary,\
  of the binary system. It is a solar-like main-sequence star with a similar yellowish colour, whose stellar \
