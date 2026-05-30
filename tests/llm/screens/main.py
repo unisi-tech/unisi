@@ -11,7 +11,7 @@ ename = Edit('Name')
 
 ebirth = Edit('Date of birth', llm = True)
 
-block2 = Block('Enter any name', [ename, Button('Calculate birth date', ebirth.emit)], [ebirth, Edit('Occupation', llm = ename)]) 
+block2 = Block('Enter any name', ename, Button('Calculate birth date', ebirth.emit), ebirth, Edit('Occupation', llm = ename)) 
 
 ecountry = Edit('Country', "France")
 
