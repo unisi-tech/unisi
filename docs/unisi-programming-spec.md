@@ -43,7 +43,7 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `profile` | int | `0` | Profiling mode |
 | `llm` | tuple/list/None | `None` | LLM provider config |
 | `llm_cache` | str (optional) | unset | Cache file for LLM calls |
-| `db_dir` | str/None | `None` | DB path for persistent tables |
+| `db_path` | str/None | `None` | DB file path for persistent tables (or set `UNISI_DB_PATH` env var) |
 | `lang` | str | `"en-US"` | UI language |
 | `public_dirs` | list[str] | `[]` | Extra static roots |
 | `image` | str | `"icons/favicon-32x32.png"` | App icon |
@@ -253,7 +253,7 @@ Pandas mode:
 Table("Zoo Table", panda=df)
 ```
 
-Persistent DB mode (requires `config.db_dir`):
+Persistent DB mode (requires `config.db_path` or `UNISI_DB_PATH` env var):
 - provide `id` and `fields` or compatible DB schema
 - supports `ids`, `filter`, `search`, linking
 
@@ -359,7 +359,7 @@ blocks = [controls]
 ## 17. Behavior Notes and Constraints
 
 - Screen and block names should be unique in their active context.
-- For DB-backed `Table`, `config.db_dir` must be set; otherwise creation fails.
+- For DB-backed `Table`, `config.db_path` (or `UNISI_DB_PATH`) must be set; otherwise creation fails.
 - If a handler is missing, `changed` events assign incoming value directly.
 - Dialog remains active if callback returns message/update that keeps it open.
 - `prepare()` runs when screen is displayed and is appropriate for sync/rebuild logic.

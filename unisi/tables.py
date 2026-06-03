@@ -76,7 +76,7 @@ class Table(Unit):
             if Unishare.db:
                 Unishare.db.set_db_list(self)
             else:
-                raise AssertionError('Config db_dir is not defined!')            
+                raise AssertionError('Config db_path is not defined!')            
             self.get = get_chunk
             has_link = hasattr(self, 'link')
             set_defaults(self, {'filter': has_link, 'ids': False, 'search': ''})
@@ -98,7 +98,7 @@ class Table(Unit):
                     lstvalue = val if isinstance(val, list) else [val] if val != None else []
                     if lstvalue:
                         link_ids = [link_table.rows[val][-1] for val in lstvalue]
-                        link_rows = self.rows.dbtable.calc_linked_rows(rel_name, link_ids, self.filter, self.search)
+                        link_rows = self.rows.dbtable.calc_linked_rows(rel_name, link_ids, link_table.id, self.filter, self.search)
                     else:
                         link_rows = Dblist(self.rows.dbtable, cache = [])
                     if self.filter:                    

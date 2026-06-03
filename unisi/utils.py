@@ -44,7 +44,7 @@ set_defaults(config,  dict(
     froze_time= None,
     monitor_tick = 0.005,
     pool = None,
-    db_dir = None,
+    db_path = None,
     lang = 'en-US',
     public_dirs = [],
     debug = False,

@@ -942,6 +942,13 @@ def _init_db() -> "Database | None":
     if not db_path:
         return None
 
+    # If the path resolves to an existing directory (e.g. the old Kuzu
+    # db_dir pointed at a folder), treat it as the database *directory*
+    # and create a SQLite file inside it.
+    abs_path = os.path.abspath(db_path)
+    if os.path.isdir(abs_path):
+        db_path = os.path.join(abs_path, "unisi.db")
+
     # Lazy import avoids circular dependency: common.py is imported by
     # other unisi modules, and we don't want common → db → common cycles
     # at module-load time.
