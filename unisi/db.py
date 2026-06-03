@@ -810,6 +810,17 @@ class Dbtable:
 
     # ── relation helpers (junction tables) ───────────────────────────────── #
 
+    def set_fk(self, row_id: int, link_id: int | None) -> bool:
+        """Many-to-one: set link_id for a single row."""
+        return self.db.execute(
+            f"UPDATE [{self.id}] SET [{self.LINK_ID}] = ? WHERE ID = ?",
+            (_adapt_value(link_id), row_id),
+        ) is not None
+
+    def clear_fk(self, row_id: int) -> bool:
+        """Many-to-one: clear link_id (set NULL) for a single row."""
+        return self.set_fk(row_id, None)
+
     def default_index_name2(self, link_table: str) -> str:
         return f"{self.id}2{link_table}"
 
@@ -819,45 +830,47 @@ class Dbtable:
         )
         return {row[0] for row in cur.fetchall()}
 
-    def get_rel_fields2(
+    LINK_ID = "link_id"   # fixed FK column name for many-to-one relations
+
+    def setup_fk(self, tname: str) -> None:
+        """
+        Many-to-one: ensure [link_id] FK column exists in this table.
+
+        Adds [link_id INTEGER REFERENCES [{tname}](ID)] if absent.
+        No migration — the column is simply added when missing.
+        """
+        existing = self.db.get_table_fields(self.id) or {}
+        if self.LINK_ID not in existing:
+            self.db.execute(
+                f"ALTER TABLE [{self.id}] "
+                f"ADD COLUMN [{self.LINK_ID}] INTEGER REFERENCES [{tname}](ID)"
+            )
+            self.table_fields[self.LINK_ID] = "INTEGER"
+            self.node_columns.append(self.LINK_ID)
+            self._all_columns = self.node_columns + ["ID"]
+
+    def setup_junction(
         self,
         tname: str,
-        fields: dict = None,
+        fields: dict,
         relname: str = None,
     ) -> tuple[str, dict]:
         """
-        Return (rel_table_name, fields_dict), creating the junction table if needed.
+        Many-to-many: ensure junction table exists with optional payload fields.
 
-        For SQLite the simplest relation is a plain junction table with just
-        src_id / tgt_id (no extra payload columns).  Extra fields (formerly
-        Kuzu edge properties) are still supported when *fields* is non-empty.
-
-        The default junction-table name is ``{self.id}2{tname}``.
+        Returns (junction_table_name, normalised_fields_dict).
         """
         if not relname:
             relname = self.default_index_name2(tname)
 
-        if fields is not None:
-            fields = normalize_field_types(fields)
+        fields = normalize_field_types(fields)
 
         existing = self.db.get_table_fields(relname)
         if existing is not None:
-            # Junction table already exists.
-            if isinstance(fields, dict) and fields:
-                # Caller specifies extra fields — check compatibility.
-                if _equal_field_dicts(existing, fields):
-                    return relname, existing
-                else:
-                    # Schema changed — drop and recreate.
-                    self.db.delete_table(relname)
-            else:
-                # No extra fields requested (simple link = utable case).
-                # Accept whatever is already there.
-                return relname, existing if existing else {}
-
-        # Table does not exist (or was just dropped) — create it.
-        if fields is None:
-            fields = {}
+            if _equal_field_dicts(existing, fields):
+                return relname, existing
+            # Schema changed — drop and recreate.
+            self.db.delete_table(relname)
 
         extra = (
             ", " + ", ".join(f"[{k}] {v}" for k, v in fields.items())
@@ -872,6 +885,18 @@ class Dbtable:
             f")"
         )
         return relname, fields
+
+    def calc_linked_rows_fk(self, link_ids) -> "Dblist":
+        """Many-to-one: return rows WHERE link_id IN (link_ids)."""
+        ids = list(link_ids)
+        ph  = ", ".join("?" for _ in ids)
+        cur = self.db.execute(
+            f"SELECT {self._select_cols()} FROM [{self.id}] "
+            f"WHERE [{self.LINK_ID}] IN ({ph}) ORDER BY ID",
+            ids,
+        )
+        lst = [self._row_to_list(r) for r in cur.fetchall()] if cur else []
+        return Dblist(self, cache=lst)
 
     def add_link(
         self,

@@ -34,9 +34,16 @@ def delete_table_row(table, value):
             link_table, rel_props, rel_name = table.rows.link
             if not isinstance(value, list):                                
                 value = [value]
-            link_ids = [table.rows[index][-1] for index in value]
-            table.rows.dbtable.delete_links(link_table.id, link_ids = link_ids, index_name = rel_name)
-            table.__link_table_selection_changed__(link_table, link_table.value)
+            if rel_name is None:
+                # many-to-one: clear link_id on the row
+                for index in value:
+                    table.rows.dbtable.clear_fk(table.rows[index][-1])
+                table.__link_table_selection_changed__(link_table, link_table.value)
+            else:
+                # many-to-many: delete junction rows
+                link_ids = [table.rows[index][-1] for index in value]
+                table.rows.dbtable.delete_links(link_table.id, link_ids=link_ids, index_name=rel_name)
+                table.__link_table_selection_changed__(link_table, link_table.value)
             return table
         elif isinstance(value, list):                    
             value.sort(reverse = True)
@@ -54,10 +61,18 @@ def append_table_row(table, search_str = ''):
         new_row = table.rows.append(new_row)        
         if hasattr(table, 'link') and table.filter:
             link_table, _, rel_name = table.rows.link
-            for linked_id in link_table.selected_list:
-                relation = table.rows.dbtable.add_link(new_row[-1], link_table.id,
-                     linked_id, link_index_name = rel_name) 
-                new_row.extend(relation)                     
+            for linked_idx in link_table.selected_list:
+                master_id = link_table.rows[linked_idx][-1]
+                if rel_name is None:
+                    # many-to-one: stamp link_id on the new row
+                    table.rows.dbtable.set_fk(new_row[-1], master_id)
+                    new_row[table.rows.dbtable.node_columns.index(table.rows.dbtable.LINK_ID)] = master_id
+                else:
+                    # many-to-many: insert junction row
+                    relation = table.rows.dbtable.add_link(
+                        new_row[-1], link_table.id, master_id, link_index_name=rel_name)
+                    if relation:
+                        new_row.extend(relation)
                 break      
     else:           
         table.rows.append(new_row)
@@ -87,11 +102,22 @@ class Table(Unit):
                     case [link_table, prop_types, rel_name]: ...
                     case [link_table, prop_types]: ...
                     case link_table: ...
-                rel_name, rel_fields = self.rows.dbtable.get_rel_fields2(link_table.id, prop_types, rel_name)
                 if not hasattr(link_table, 'id'):
                     raise AttributeError('Linked table has to be persistent!')
-                # store link info on dbtable so it survives rows reassignment
-                self.rows.dbtable.link_info = link_table, list(prop_types.keys()), rel_name
+
+                many_to_one = not prop_types  # link = utable → many-to-one
+
+                if many_to_one:
+                    # ── Many-to-one: FK column link_id in this table ──────
+                    self.rows.dbtable.setup_fk(link_table.id)
+                    rel_fields = {}
+                    self.rows.dbtable.link_info = link_table, [], None
+                else:
+                    # ── Many-to-many: junction table ──────────────────────
+                    rel_name, rel_fields = self.rows.dbtable.setup_junction(
+                        link_table.id, prop_types, rel_name or None)
+                    self.rows.dbtable.link_info = link_table, list(prop_types.keys()), rel_name
+
                 self.rows.link = self.rows.dbtable.link_info
                 self.link = rel_fields
                 
@@ -99,8 +125,11 @@ class Table(Unit):
                 def link_table_selection_changed(master_table, val, init = False):
                     lstvalue = val if isinstance(val, list) else [val] if val != None else []
                     if lstvalue:
-                        link_ids = [link_table.rows[val][-1] for val in lstvalue]
-                        link_rows = self.rows.dbtable.calc_linked_rows(rel_name, link_ids, link_table.id, self.filter, self.search)
+                        link_ids = [link_table.rows[v][-1] for v in lstvalue]
+                        if many_to_one:
+                            link_rows = self.rows.dbtable.calc_linked_rows_fk(link_ids)
+                        else:
+                            link_rows = self.rows.dbtable.calc_linked_rows(rel_name, link_ids, link_table.id, self.filter, self.search)
                     else:
                         link_rows = Dblist(self.rows.dbtable, cache = [])
                     if self.filter:                    
@@ -128,17 +157,26 @@ class Table(Unit):
                 @Unishare.handle(self,'changed')
                 def changed_selection_causes__changing_links(self, new_value):                   
                     if link_table.value is not None and link_table.value != []:
-                        #if link table is in multi mode, links are not editable 
                         if not self.filter and not isinstance(link_table.value, list | tuple):
-                            if  self.editing:
-                                actual = set(new_value if isinstance(new_value, list) else [] if new_value is None else [new_value])
-                                old = set(self.value if isinstance(self.value, list) else ([] if self.value is None else [self.value]))                        
-                                deselected = old - actual                        
-                                if deselected:
-                                    self.rows.dbtable.delete_links(link_table.id, link_table.value, deselected)                            
-                                selected = actual - old
-                                if selected:
-                                    self.rows.dbtable.add_links(link_table.id, selected, link_table.value)                                                        
+                            if self.editing:
+                                if many_to_one:
+                                    # set/clear link_id on the newly selected row
+                                    master_id = link_table.rows[link_table.value][-1]
+                                    actual = set(new_value if isinstance(new_value, list) else [] if new_value is None else [new_value])
+                                    old = set(self.value if isinstance(self.value, list) else ([] if self.value is None else [self.value]))
+                                    for idx in actual - old:
+                                        self.rows.dbtable.set_fk(self.rows[idx][-1], master_id)
+                                    for idx in old - actual:
+                                        self.rows.dbtable.clear_fk(self.rows[idx][-1])
+                                else:
+                                    actual = set(new_value if isinstance(new_value, list) else [] if new_value is None else [new_value])
+                                    old = set(self.value if isinstance(self.value, list) else ([] if self.value is None else [self.value]))                        
+                                    deselected = old - actual                        
+                                    if deselected:
+                                        self.rows.dbtable.delete_links(link_table.id, link_table.value, deselected)                            
+                                    selected = actual - old
+                                    if selected:
+                                        self.rows.dbtable.add_links(link_table.id, selected, link_table.value)                                                        
                             else:
                                 return Warning('The linked table is not in edit mode', self)
                     return self.accept(new_value)    
