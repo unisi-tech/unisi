@@ -81,6 +81,50 @@ def sqlite_data_type(value: Any) -> str:
 
 number_types = {"REAL", "INTEGER"}
 
+# Map Python built-in types to SQLite declared types.
+_PYTHON_TYPE_MAP: dict[type, str] = {
+    bool:     "BOOLEAN",
+    int:      "INTEGER",
+    float:    "REAL",
+    str:      "TEXT",
+    bytes:    "BLOB",
+    list:     "JSON",
+    tuple:    "JSON",
+    dict:     "JSON",
+    datetime: "TIMESTAMP",
+    date:     "DATE",
+    Decimal:  "DECIMAL",
+    uuid.UUID:"UUID",
+}
+
+def normalize_field_types(fields: dict) -> dict:
+    """
+    Normalise a field-spec dict so every value is an uppercase SQLite type string.
+
+    Accepts:
+      - Python types:      {'age': int, 'name': str}
+      - SQLite strings:    {'age': 'INTEGER', 'name': 'TEXT'}
+      - Mixed:             {'age': int, 'note': 'TEXT'}
+    """
+    result = {}
+    for col, spec in fields.items():
+        if isinstance(spec, type):
+            sql_type = _PYTHON_TYPE_MAP.get(spec)
+            if sql_type is None:
+                raise TypeError(
+                    f"Unsupported Python type {spec!r} for column '{col}'. "
+                    f"Supported: {list(_PYTHON_TYPE_MAP.keys())}"
+                )
+            result[col] = sql_type
+        elif isinstance(spec, str):
+            result[col] = spec.upper()
+        else:
+            raise TypeError(
+                f"Column spec for '{col}' must be a Python type or SQLite type string, "
+                f"got {type(spec)!r}"
+            )
+    return result
+
 
 def _adapt_value(value: Any) -> Any:
     """Convert a Python value to an sqlite3-safe type for parameter binding."""
@@ -459,6 +503,9 @@ class Database:
         if not id:
             return None
 
+        if fields is not None:
+            fields = normalize_field_types(fields)
+
         if rows and fields is None:
             if not headers:
                 self.message_logger("headers are not defined!")
@@ -778,35 +825,52 @@ class Dbtable:
         fields: dict = None,
         relname: str = None,
     ) -> tuple[str, dict]:
-        """Return (rel_table_name, fields_dict), creating the junction table if needed."""
+        """
+        Return (rel_table_name, fields_dict), creating the junction table if needed.
+
+        For SQLite the simplest relation is a plain junction table with just
+        src_id / tgt_id (no extra payload columns).  Extra fields (formerly
+        Kuzu edge properties) are still supported when *fields* is non-empty.
+
+        The default junction-table name is ``{self.id}2{tname}``.
+        """
         if not relname:
             relname = self.default_index_name2(tname)
 
+        if fields is not None:
+            fields = normalize_field_types(fields)
+
         existing = self.db.get_table_fields(relname)
         if existing is not None:
-            if isinstance(fields, dict):
+            # Junction table already exists.
+            if isinstance(fields, dict) and fields:
+                # Caller specifies extra fields — check compatibility.
                 if _equal_field_dicts(existing, fields):
                     return relname, existing
                 else:
+                    # Schema changed — drop and recreate.
                     self.db.delete_table(relname)
             else:
-                fields = existing
-        elif fields is None:
+                # No extra fields requested (simple link = utable case).
+                # Accept whatever is already there.
+                return relname, existing if existing else {}
+
+        # Table does not exist (or was just dropped) — create it.
+        if fields is None:
             fields = {}
 
-        if relname not in self._existing_tables():
-            extra = (
-                ", " + ", ".join(f"[{k}] {v}" for k, v in fields.items())
-                if fields else ""
-            )
-            self.db.execute(
-                f"CREATE TABLE [{relname}] ("
-                f"src_id INTEGER REFERENCES [{self.id}](ID) ON DELETE CASCADE, "
-                f"tgt_id INTEGER REFERENCES [{tname}](ID)  ON DELETE CASCADE"
-                f"{extra}, "
-                f"ID INTEGER PRIMARY KEY AUTOINCREMENT"
-                f")"
-            )
+        extra = (
+            ", " + ", ".join(f"[{k}] {v}" for k, v in fields.items())
+            if fields else ""
+        )
+        self.db.execute(
+            f"CREATE TABLE [{relname}] ("
+            f"src_id INTEGER REFERENCES [{self.id}](ID) ON DELETE CASCADE, "
+            f"tgt_id INTEGER REFERENCES [{tname}](ID)  ON DELETE CASCADE"
+            f"{extra}, "
+            f"ID INTEGER PRIMARY KEY AUTOINCREMENT"
+            f")"
+        )
         return relname, fields
 
     def add_link(

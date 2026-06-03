@@ -31,7 +31,7 @@ def accept_cell_value(table, dval: dict):
 def delete_table_row(table, value):    
     if table.selected_list:
         if hasattr(table, 'link') and table.filter:
-            link_table, rel_props, rel_name = table.rows.dbtable.list.link
+            link_table, rel_props, rel_name = table.rows.link
             if not isinstance(value, list):                                
                 value = [value]
             link_ids = [table.rows[index][-1] for index in value]
@@ -53,7 +53,7 @@ def append_table_row(table, search_str = ''):
     if getattr(table,'id', None):          
         new_row = table.rows.append(new_row)        
         if hasattr(table, 'link') and table.filter:
-            link_table, _, rel_name = table.rows.dbtable.list.link
+            link_table, _, rel_name = table.rows.link
             for linked_id in link_table.selected_list:
                 relation = table.rows.dbtable.add_link(new_row[-1], link_table.id,
                      linked_id, link_index_name = rel_name) 
@@ -90,7 +90,9 @@ class Table(Unit):
                 rel_name, rel_fields = self.rows.dbtable.get_rel_fields2(link_table.id, prop_types, rel_name)
                 if not hasattr(link_table, 'id'):
                     raise AttributeError('Linked table has to be persistent!')
-                self.rows.link = link_table, list(prop_types.keys()), rel_name
+                # store link info on dbtable so it survives rows reassignment
+                self.rows.dbtable.link_info = link_table, list(prop_types.keys()), rel_name
+                self.rows.link = self.rows.dbtable.link_info
                 self.link = rel_fields
                 
                 @Unishare.handle(link_table,'changed')
@@ -103,6 +105,7 @@ class Table(Unit):
                         link_rows = Dblist(self.rows.dbtable, cache = [])
                     if self.filter:                    
                         self.clean_selection()
+                        link_rows.link = self.rows.dbtable.link_info
                         self.rows = link_rows
                     else: 
                         selected_ids = [link_rows[i][-1] for i in range(len(link_rows))]
