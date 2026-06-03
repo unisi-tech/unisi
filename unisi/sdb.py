@@ -513,16 +513,22 @@ class Dbtable:
 
         inserted: list[list] = []
         try:
-            self.db._conn.execute("BEGIN")
-            for d in dicts:
-                params = tuple(_adapt_value(d.get(c)) for c in cols)
-                cur = self.db._conn.execute(sql, params)
-                raw = cur.fetchone()
-                if raw is not None:
-                    inserted.append(self._row_to_list(raw))
-            self.db._conn.execute("COMMIT")
+            # Use the connection as a context manager rather than explicit
+            # BEGIN / COMMIT.  Explicit BEGIN raises
+            # "cannot start a transaction within a transaction" if Python's
+            # sqlite3 module has already opened an implicit transaction (which
+            # happens whenever a DML statement ran without an intervening
+            # commit).  The context manager detects this correctly: it joins
+            # an existing transaction if one is open, or starts a new one, and
+            # always issues COMMIT on clean exit or ROLLBACK on any exception.
+            with self.db._conn:
+                for d in dicts:
+                    params = tuple(_adapt_value(d.get(c)) for c in cols)
+                    cur = self.db._conn.execute(sql, params)
+                    raw = cur.fetchone()
+                    if raw is not None:
+                        inserted.append(self._row_to_list(raw))
         except sqlite3.Error as e:
-            self.db._conn.execute("ROLLBACK")
             self.db.message_logger(f"append_rows failed: {e}")
             return []
 

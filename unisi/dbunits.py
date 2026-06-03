@@ -8,6 +8,15 @@ dbshare = defaultdict(lambda: defaultdict(list))
 # Using deque(maxlen=...) prevents unbounded memory growth: old updates are
 # silently dropped once the queue is full, which is acceptable because the
 # frontend reconciles state on reconnect.
+#
+# ⚠️  JSON serialisation note: collections.deque is NOT serialisable by the
+# standard json module.  Code that sends updates to the frontend must convert
+# to list first:
+#
+#     updates = list(dbupdates[table_id])   # before json.dumps / websocket send
+#
+# unisi/users.py already does this correctly via "for update in updates"
+# (iteration, not serialisation).  External consumers must do the same.
 DBUPDATES_MAXLEN = 500
 dbupdates: dict[str, deque] = defaultdict(lambda: deque(maxlen=DBUPDATES_MAXLEN))
 
