@@ -18,7 +18,6 @@ dependencies = [
   "watchdog",
   "websockets",
   "websocket-client",
-  "cymple",
   "kuzu",
   "litellm", 
   "diskcache",
