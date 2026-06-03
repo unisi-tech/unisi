@@ -8,4 +8,4 @@ from .containers import *
 from .proxy import *
 from .dbunits import *
 from .graphs import *
-from .kdb import Database, Dbtable
+from .db import Database, Dbtable, db

@@ -7,7 +7,7 @@ from .autotest import recorder, run_tests
 from .common import  *
 from .llmrag import setup_llmrag
 from .dbunits import dbupdates
-from .kdb import Database
+from .db import db
 from config import port, upload_dir
 import traceback, json, random, string
 from urllib.parse import parse_qs
@@ -35,8 +35,8 @@ Unishare.context_user = context_user
 Unishare.message_logger = message_logger
 User.type = User    
 
-if config.db_dir:
-    Unishare.db = Database(config.db_dir, message_logger) 
+if db:
+    Unishare.db = db
 
 def make_user(request):
     parsed_query = parse_qs(request.query_string)

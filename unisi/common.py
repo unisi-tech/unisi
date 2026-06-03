@@ -179,6 +179,7 @@ def delete_unit(units, name):
             return True
     return False
 
+
 empty_app = ArgObject(
     blocks = [],
     header = "No screens",
@@ -189,7 +190,3 @@ empty_app = ArgObject(
     toolbar = [],
     type = "screen"
 )
-
-
-
-

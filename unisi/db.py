@@ -1,12 +1,19 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
 """
-sdb.py — SQLite backend for the UNISI db layer.
+db.py — The single, built-in SQLite database module for UNISI.
 
-Public API mirrors kdb.py (Database + Dbtable) so Dblist and all
-higher-level code work with both backends without modification.
+Contains:
+  • Type system, adapters, and converters for extended Python ↔ SQLite types.
+  • Smart Schema Evolution (interactive_migration_choice) for safe migrations.
+  • Database and Dbtable classes.
+  • Auto-initialisation: ``from unisi.db import db`` yields a ready-to-use
+    Database instance (or None when no path is configured).
 
-Extended type support vs. Kuzu
-──────────────────────────────
+Usage:
+    from unisi.db import db
+
+Type support
+────────────
   Python type    │ Declared column type │ Storage
   ───────────────┼──────────────────────┼─────────────────────────────
   bool           │ BOOLEAN              │ INTEGER 0 / 1
@@ -31,7 +38,7 @@ Relations are junction tables:
       <optional extra fields>
   )
 ON DELETE CASCADE ensures that deleting a node row automatically removes
-its outgoing and incoming links — equivalent to Kuzu's DETACH DELETE.
+its outgoing and incoming links.
 
 Variable-count IN clauses
 ─────────────────────────
@@ -41,10 +48,11 @@ calc_linked_rows / delete_links accept arbitrary iterables of IDs; callers
 with very large sets (> ~1000 on older SQLite) should batch externally.
 """
 
-import sqlite3
+import difflib
 import json
 import os
 import shutil
+import sqlite3
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -117,7 +125,6 @@ def _convert_value(value: Any, declared_type: str) -> Any:
             if isinstance(value, datetime): return value
             return datetime.fromisoformat(value)
     except (ValueError, TypeError, AttributeError):
-        # Return the raw value rather than crashing the whole row fetch.
         return value
     return value
 
@@ -141,6 +148,7 @@ sqlite3.register_converter("JSON",      lambda v: json.loads(v))
 sqlite3.register_converter("BOOLEAN",   lambda v: bool(int(v)))
 sqlite3.register_converter("DECIMAL",   lambda v: Decimal(v.decode()))
 sqlite3.register_converter("UUID",      lambda v: uuid.UUID(v.decode()))
+
 def _conv_date(v):
     try:
         return date.fromisoformat(v.decode()) if v else None
@@ -157,15 +165,110 @@ sqlite3.register_converter("DATE",      _conv_date)
 sqlite3.register_converter("TIMESTAMP", _conv_timestamp)
 
 
+# ── Smart Schema Evolution ────────────────────────────────────────────────────
+
+# Type compatibility groups: any type within a group can be safely cast to another.
+_TYPE_COMPAT = {
+    "INTEGER": "numeric", "REAL": "numeric", "BOOLEAN": "numeric",
+    "TEXT": "text", "JSON": "text", "UUID": "text", "DECIMAL": "text",
+    "DATE": "text", "TIMESTAMP": "text",
+}
+
+
+def _types_compatible(t1: str, t2: str) -> bool:
+    """Return True if two declared SQLite column types are safely inter-convertible."""
+    g1 = _TYPE_COMPAT.get(t1.upper(), t1.upper())
+    g2 = _TYPE_COMPAT.get(t2.upper(), t2.upper())
+    return g1 == g2
+
+
+def interactive_migration_choice(
+    table_id: str, old_fields: dict, new_fields: dict
+) -> tuple | None:
+    """
+    Analyse a schema change and interactively ask the user how to proceed.
+
+    Returns:
+        None                     – user cancelled
+        ("recreate", {})         – drop and rebuild (data lost)
+        ("exact",   {new→old})   – migrate exact matches only
+        ("max",     {new→old})   – migrate exact + fuzzy matches
+    """
+    old_keys_lower = {k.lower(): k for k in old_fields}
+    new_keys_lower = {k.lower(): k for k in new_fields}
+
+    # ── exact matches (case-insensitive) ──────────────────────────────────
+    exact_matches: dict[str, str] = {}
+    for nk_lower, nk in new_keys_lower.items():
+        if nk_lower in old_keys_lower:
+            ok = old_keys_lower[nk_lower]
+            exact_matches[nk] = ok
+
+    # ── fuzzy matches (Levenshtein heuristic, cutoff 0.6) ─────────────────
+    fuzzy_matches: dict[str, str] = {}
+    remaining_old = {k for k in old_fields if k not in exact_matches.values()}
+    remaining_new = {k for k in new_fields if k not in exact_matches}
+
+    for nk in remaining_new:
+        candidates = difflib.get_close_matches(nk, remaining_old, n=1, cutoff=0.6)
+        if candidates:
+            ok = candidates[0]
+            if _types_compatible(new_fields[nk], old_fields[ok]):
+                fuzzy_matches[nk] = ok
+                remaining_old.discard(ok)
+
+    # ── console prompt ────────────────────────────────────────────────────
+    print("\n" + "=" * 64)
+    print(f"  SCHEMA CHANGE DETECTED  —  table [{table_id}]")
+    print("=" * 64)
+    print(f"  Old fields : {list(old_fields.keys())}")
+    print(f"  New fields : {list(new_fields.keys())}")
+    if exact_matches:
+        print(f"  Exact matches  : {exact_matches}")
+    if fuzzy_matches:
+        print(f"  Fuzzy matches  : {fuzzy_matches}")
+    print()
+    print("  [1] Cancel (abort, keep old table untouched)")
+    print("  [2] Recreate table (DROP old data, build fresh)")
+    print("  [3] Migrate exact matches only")
+    print("  [4] Maximum migration (exact + similar fields)")
+    print()
+
+    try:
+        choice = input("  Your choice [1-4]: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        return None
+
+    if choice == "1":
+        print("  → Cancelled. Keeping old table as-is.")
+        return None
+    elif choice == "2":
+        print("  → Recreating table (old data will be lost).")
+        return ("recreate", {})
+    elif choice == "3":
+        print(f"  → Migrating exact matches: {exact_matches}")
+        return ("exact", exact_matches)
+    elif choice == "4":
+        combined = {**exact_matches, **fuzzy_matches}
+        print(f"  → Maximum migration: {combined}")
+        return ("max", combined)
+    else:
+        print("  → Unknown option. Cancelling.")
+        return None
+
+
 # ── Database ──────────────────────────────────────────────────────────────────
 
 class Database:
     """
-    SQLite backend.  Public API is identical to kdb.Database.
+    SQLite backend — the single, built-in database engine for UNISI.
+
+    Features: WAL journal mode, native SQL-injection protection via
+    parameterised queries, ON DELETE CASCADE for junction tables, and
+    Smart Schema Evolution with interactive migration prompts.
     """
 
     def __init__(self, dbpath: str, message_logger=print) -> None:
-        # Per-instance table registry (mirrors the fix applied to kdb.py).
         self.tables: dict[str, "Dbtable"] = {}
         self.dbpath = dbpath
         self.message_logger = message_logger
@@ -180,7 +283,6 @@ class Database:
         )
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
-        # ON DELETE CASCADE in junction tables requires FK enforcement.
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.commit()
 
@@ -256,6 +358,96 @@ class Database:
 
     # ── table factory ────────────────────────────────────────────────────── #
 
+    def _find_backup_name(self, table_id: str) -> str:
+        """Return a free backup table name like {table_id}_OLD_1, _OLD_2, …"""
+        existing = {
+            row[0]
+            for row in self._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        n = 1
+        while True:
+            name = f"{table_id}_OLD_{n}"
+            if name not in existing:
+                return name
+            n += 1
+
+    def _migrate_table(
+        self,
+        table_id: str,
+        old_fields: dict,
+        new_fields: dict,
+        limit: int,
+        rows,
+    ) -> "Dbtable | None":
+        """
+        Perform an interactive schema migration: backup → recreate → copy data.
+
+        Called when get_table() detects a field mismatch.
+        The old table is always preserved as {table_id}_OLD_N for safety —
+        it is never dropped automatically.
+
+        Returns the new Dbtable on success, or None if the user cancelled.
+        """
+        result = interactive_migration_choice(table_id, old_fields, new_fields)
+        if result is None:
+            # User cancelled — return a Dbtable wrapping the old (unchanged) table.
+            return self.tables.get(table_id) or Dbtable(table_id, self, limit, old_fields)
+
+        action, mapping = result
+
+        if action == "recreate":
+            # Drop old table entirely and create fresh (data is lost).
+            self.delete_table(table_id)
+            return self.create_table(table_id, new_fields, limit, rows)
+
+        # ── exact / max migration ─────────────────────────────────────────
+        backup_name = self._find_backup_name(table_id)
+        try:
+            self._conn.execute("PRAGMA foreign_keys=OFF")
+
+            # 1. Rename old table to backup (old data is preserved here).
+            self._conn.execute(
+                f"ALTER TABLE [{table_id}] RENAME TO [{backup_name}]"
+            )
+            self._conn.commit()
+
+            # 2. Create the new table with the updated schema.
+            new_table = self.create_table(table_id, new_fields, limit)
+
+            # 3. Build the column mapping for data transfer.
+            new_cols = list(mapping.keys())
+            old_cols = [mapping[nc] for nc in new_cols]
+            new_cols_str = ", ".join(f"[{c}]" for c in new_cols)
+            old_cols_str = ", ".join(f"[{c}]" for c in old_cols)
+
+            # 4. Copy data (including the ID column to preserve relationships).
+            self._conn.execute(
+                f"INSERT INTO [{table_id}] ({new_cols_str}, [ID]) "
+                f"SELECT {old_cols_str}, [ID] FROM [{backup_name}]"
+            )
+            self._conn.commit()
+
+            # 5. Refresh list to reflect migrated data.
+            new_table.init_list()
+
+            # Backup table is intentionally kept — never dropped.
+            self.message_logger(
+                f"Table '{table_id}' migrated successfully ({len(new_cols)} "
+                f"columns transferred, ID preserved). "
+                f"Backup kept as '{backup_name}'.",
+                "info",
+            )
+            return new_table
+
+        except Exception as e:
+            self.message_logger(f"Migration error for '{table_id}': {e}")
+            return None
+        finally:
+            self._conn.execute("PRAGMA foreign_keys=ON")
+            self._conn.commit()
+
     def get_table(
         self,
         id: str = None,
@@ -300,10 +492,8 @@ class Database:
         existing_fields = self.get_table_fields(id)
         if existing_fields is not None:
             if fields is not None and not _equal_field_dicts(existing_fields, fields):
-                if self.delete_table(id):
-                    self.message_logger(
-                        f"Table '{id}' dropped due to schema mismatch.", "warning"
-                    )
+                # Schema mismatch — invoke Smart Schema Evolution.
+                return self._migrate_table(id, existing_fields, fields, limit, rows)
             else:
                 return self.tables.get(id) or Dbtable(id, self, limit, existing_fields)
 
@@ -336,7 +526,7 @@ class Database:
         table_id: str,
         row_id: int,
         props: dict,
-        in_node: bool = True,   # ignored for SQLite (no separate rel tables)
+        in_node: bool = True,
     ) -> bool:
         set_clause = ", ".join(f"[{k}] = ?" for k in props)
         params = [_adapt_value(v) for v in props.values()] + [row_id]
@@ -371,7 +561,7 @@ class Database:
 
 class Dbtable:
     """
-    Wraps a single SQLite table.  API mirrors kdb.Dbtable.
+    Wraps a single SQLite table.
 
     Column order: [user_fields …, ID]
     Every row returned as a plain Python list in that order.
@@ -563,7 +753,7 @@ class Dbtable:
         """
         Delete all rows.
 
-        *detach* is accepted for API parity with kdb; in SQLite the equivalent
+        *detach* is accepted for API compatibility; in SQLite the equivalent
         is handled automatically by ON DELETE CASCADE on junction tables.
         """
         result = self.db.execute(f"DELETE FROM [{self.id}]")
@@ -609,8 +799,6 @@ class Dbtable:
                 ", " + ", ".join(f"[{k}] {v}" for k, v in fields.items())
                 if fields else ""
             )
-            # ON DELETE CASCADE: deleting a source or target node automatically
-            # removes its junction rows — equivalent to Kuzu DETACH DELETE.
             self.db.execute(
                 f"CREATE TABLE [{relname}] ("
                 f"src_id INTEGER REFERENCES [{self.id}](ID) ON DELETE CASCADE, "
@@ -725,3 +913,47 @@ class Dbtable:
         cur = self.db.execute(query, ids)
         lst = [self._row_to_list(r) for r in cur.fetchall()] if cur else []
         return Dblist(self, cache=lst)
+
+
+# ── Auto-initialisation ───────────────────────────────────────────────────────
+
+def _init_db() -> "Database | None":
+    """
+    Resolve the database path and return an initialised Database instance.
+
+    Priority order:
+      1. ``config.db_path`` (from the user's config module)
+      2. ``UNISI_DB_PATH`` environment variable
+      3. None (database disabled)
+    """
+    db_path: str | None = None
+
+    # 1. Try the user's config module (may not exist for all projects).
+    try:
+        import config as _config
+        db_path = getattr(_config, "db_path", None)
+    except ImportError:
+        pass
+
+    # 2. Fall back to environment variable.
+    if not db_path:
+        db_path = os.environ.get("UNISI_DB_PATH")
+
+    if not db_path:
+        return None
+
+    # Lazy import avoids circular dependency: common.py is imported by
+    # other unisi modules, and we don't want common → db → common cycles
+    # at module-load time.
+    from .common import Unishare
+
+    def _logger(message, type="error"):
+        if callable(Unishare.message_logger):
+            Unishare.message_logger(message, type)
+        else:
+            print(f"[{type}] {message}")
+
+    return Database(db_path, message_logger=_logger)
+
+
+db: Database | None = _init_db()

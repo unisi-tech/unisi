@@ -451,7 +451,7 @@ The system tracks current tasks and their execution time. If a task takes longer
 
 ### Database interactions ###
 Programming database interactions usually requests knowledge of concrete DBMS, specific of its language, programming and administrative details, and a lot of time for setting and programming. UNISI automates all DBMS operations and a regular programmer or user event does not need to know how exactly the system gets and updates the program data. UNISI hides complexity of DBMS programming under inherited-from-list objects that project operations on its data into DBMS. 
-UNISI database operates with named tables and graphs based on tables. The only difference between temporal data and persistent data is that the latter has an ID property, which serves as its system name. The UNISI DBMS supports tables, graphs, and Cypher queries on them.
+UNISI database operates with named tables based on SQLite (zero-dependency, high performance, WAL mode). The only difference between temporal data and persistent data is that the latter has an ID property, which serves as its system name. UNISI supports smart schema migrations that automatically detect field changes and offer interactive data migration options.
 A link to another persistent table can be established using the 'link' option. This can be set as:
 - A table variable.
 - A tuple containing a table variable and link properties (name to type dictionary).
@@ -469,8 +469,8 @@ UNISI supports now the following data types for persistent tables and links:
 - Date
 - Bytes
 Table options multimode = True and value define relation type 1 -> 1 if equals None or 1 -> many if equals [].
-UNISI is compatible with any database that implements the Database and Dbtable methods. Internally UNISI operates using the Kuzu graph database.
-For using the functionality db_dir  in config.py has to be defined as a path to the database directory.
+UNISI uses SQLite as its exclusive database backend — zero-dependency, high speed, WAL mode, and native SQL-injection protection via parameterised queries.
+For using the functionality db_path  in config.py has to be defined as a path to the database file, or set the UNISI_DB_PATH environment variable.
 
 ### LLM-RAG interactions ###
 UNISI supports LLM-RAG transparent interactions without the need of programming prompts and LLM details. Screen data  contains all required data for processing queries to LLM and decode a result. A user has to define only what data from LLM is required by setting ‘llm’ parameter in Unit constructor.  All other jobs are automated by UNISI.

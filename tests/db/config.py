@@ -4,4 +4,4 @@ hot_reload   = True
 logfile  = 'log'
 autotest = '*'
 appname = 'Unisi app'
-db_dir = "./sysdb"
+db_path = "./sysdb"
