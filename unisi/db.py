@@ -672,6 +672,81 @@ class Dbtable:
         )
         return [self._row_to_list(r) for r in cur.fetchall()] if cur else []
 
+    # ── search ───────────────────────────────────────────────────────────── #
+
+    # Column types where LIKE search makes sense (text-representable).
+    _SEARCHABLE_TYPES = {
+        "TEXT", "INTEGER", "REAL", "BOOLEAN",
+        "DECIMAL", "UUID", "DATE", "TIMESTAMP",
+    }
+
+    def _build_search_where(
+        self,
+        search: str,
+        table_alias: str = "",
+    ) -> tuple[str, list]:
+        """
+        Build a ``WHERE (col1 LIKE ? OR col2 LIKE ?)`` fragment and its
+        parameter list for a case-insensitive substring search across all
+        searchable columns.
+
+        Non-searchable types (BLOB, JSON) are skipped to avoid false
+        positives and SQLite LIKE errors on binary data.
+
+        Args:
+            search:      The search string supplied by the client.
+            table_alias: Optional table alias prefix (e.g. ``"a."``).
+
+        Returns:
+            (where_fragment, params)
+            where_fragment is empty string ``""`` when *search* is blank.
+        """
+        if not search:
+            return "", []
+
+        pattern = f"%{search}%"
+        prefix = f"{table_alias}." if table_alias else ""
+
+        conditions = []
+        params: list = []
+        for col in self.node_columns:
+            col_type = self.table_fields.get(col, "TEXT").upper()
+            if col_type in self._SEARCHABLE_TYPES:
+                conditions.append(f"CAST({prefix}[{col}] AS TEXT) LIKE ?")
+                params.append(pattern)
+
+        if not conditions:
+            return "", []
+
+        return "(" + " OR ".join(conditions) + ")", params
+
+    def search_rows(self, search: str) -> "Dblist":
+        """
+        Return a *Dblist* (cache mode) of every row whose searchable columns
+        contain *search* as a case-insensitive substring.
+
+        Rows are fetched in a single paginated query capped at
+        ``self.limit`` to avoid loading an unbounded result set into memory
+        at once.  The ``Dblist.cache`` holds the matching rows; the caller
+        can compare ``len(result)`` against ``self.limit`` to detect
+        truncation and optionally inform the UI.
+
+        Returns an empty Dblist when *search* is blank (fallback to the
+        caller to reload the normal list).
+        """
+        where, params = self._build_search_where(search)
+        if not where:
+            return Dblist(self, cache=[])
+
+        cur = self.db.execute(
+            f"SELECT {self._select_cols()} FROM [{self.id}] "
+            f"WHERE {where} "
+            f"ORDER BY ID LIMIT ?",
+            params + [self.limit],
+        )
+        rows = [self._row_to_list(r) for r in cur.fetchall()] if cur else []
+        return Dblist(self, cache=rows)
+
     # ── write ────────────────────────────────────────────────────────────── #
 
     def assign_row(self, row_array: list) -> bool:
@@ -886,14 +961,22 @@ class Dbtable:
         )
         return relname, fields
 
-    def calc_linked_rows_fk(self, link_ids) -> "Dblist":
-        """Many-to-one: return rows WHERE link_id IN (link_ids)."""
+    def calc_linked_rows_fk(self, link_ids, search: str = "") -> "Dblist":
+        """Many-to-one: return rows WHERE link_id IN (link_ids).
+
+        When *search* is non-empty, only rows whose searchable columns
+        contain the search string (case-insensitive substring) are included.
+        """
         ids = list(link_ids)
         ph  = ", ".join("?" for _ in ids)
+
+        search_where, search_params = self._build_search_where(search)
+        extra_where = f" AND {search_where}" if search_where else ""
+
         cur = self.db.execute(
             f"SELECT {self._select_cols()} FROM [{self.id}] "
-            f"WHERE [{self.LINK_ID}] IN ({ph}) ORDER BY ID",
-            ids,
+            f"WHERE [{self.LINK_ID}] IN ({ph}){extra_where} ORDER BY ID",
+            ids + search_params,
         )
         lst = [self._row_to_list(r) for r in cur.fetchall()] if cur else []
         return Dblist(self, cache=lst)
@@ -987,19 +1070,27 @@ class Dbtable:
         include_rels: bool = False,
         search: str = "",
     ) -> Dblist:
-        """Return a Dblist of source rows linked to any row in *link_ids*."""
+        """Return a Dblist of source rows linked to any row in *link_ids*.
+
+        When *search* is non-empty, only rows whose searchable columns
+        contain the search string (case-insensitive substring) are included.
+        """
         ids = list(link_ids)
         ph  = ", ".join("?" for _ in ids)
         rel_cols = ", r.*" if include_rels else ""
+
+        search_where, search_params = self._build_search_where(search, table_alias="a")
+        extra_where = f" AND {search_where}" if search_where else ""
+
         query = (
             f"SELECT {self._aliased_select_cols('a')}{rel_cols} "
             f"FROM [{self.id}] a "
             f"JOIN [{index_name}] r ON r.src_id = a.[ID] "
             f"JOIN [{target_table}] b ON r.tgt_id = b.[ID] "
-            f"WHERE b.[ID] IN ({ph}) "
+            f"WHERE b.[ID] IN ({ph}){extra_where} "
             f"ORDER BY a.[ID] ASC"
         )
-        cur = self.db.execute(query, ids)
+        cur = self.db.execute(query, ids + search_params)
         lst = [self._row_to_list(r) for r in cur.fetchall()] if cur else []
         return Dblist(self, cache=lst)
 

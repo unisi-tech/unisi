@@ -127,7 +127,7 @@ class Table(Unit):
                     if lstvalue:
                         link_ids = [link_table.rows[v][-1] for v in lstvalue]
                         if many_to_one:
-                            link_rows = self.rows.dbtable.calc_linked_rows_fk(link_ids)
+                            link_rows = self.rows.dbtable.calc_linked_rows_fk(link_ids, self.search)
                         else:
                             link_rows = self.rows.dbtable.calc_linked_rows(rel_name, link_ids, link_table.id, self.filter, self.search)
                     else:
@@ -139,7 +139,9 @@ class Table(Unit):
                     else: 
                         selected_ids = [link_rows[i][-1] for i in range(len(link_rows))]
                         self.value = selected_ids  
-                        if self.rows.cache is not None:
+                        if self.search:
+                            self.rows = self.rows.dbtable.search_rows(self.search)
+                        elif self.rows.cache is not None:
                             self.rows = self.rows.dbtable.list
                     if not init:
                         master_table.accept(val)              
@@ -149,10 +151,10 @@ class Table(Unit):
 
                 @Unishare.handle(self,'filter')
                 def filter_status_changed(table, value):
-                    self.filter = value
+                    table.filter = value
                     link_table_selection_changed(link_table, link_table.value, True)
-                    self.calc_headers()
-                    return self                
+                    table.calc_headers()
+                    return table                
                 
                 @Unishare.handle(self,'changed')
                 def changed_selection_causes__changing_links(self, new_value):                   
@@ -180,16 +182,20 @@ class Table(Unit):
                             else:
                                 return Warning('The linked table is not in edit mode', self)
                     return self.accept(new_value)    
-            """
             @Unishare.handle(self,'search')
             def search_changed(table, value):
-                self.search = value
+                table.search = value
                 if has_link:
                     link_table_selection_changed(link_table, link_table.value, True)
                 else:
-                    self.rows = self.rows.dbtable.get_init_list(self.search)
-                return self
-            """        
+                    dbtable = table.rows.dbtable
+                    if value:
+                        table.rows = dbtable.search_rows(value)
+                    else:
+                        dbtable.init_list()
+                        table.rows = dbtable.list
+                table.clean_selection()
+                return table
             self.calc_headers()                                
                     
         elif hasattr(self,'ids'):
