@@ -1,4 +1,6 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
+from __future__ import annotations  # defer annotation evaluation — required for
+                                     # multiprocessing.Pool | None on Python 3.10+
 import multiprocessing, time, asyncio, logging
 from queue import Empty
 from .utils import start_logging
@@ -103,13 +105,18 @@ async def run_external_process(long_running_task, *args, progress_callback=None,
 # ── Monitor process ───────────────────────────────────────────────────────────
 
 _logging_lock = multiprocessing.Lock()
+logging_lock = _logging_lock   # public alias — imported by users.py
 _SPLITTER = "~"
 
-# Protocol status codes
-_STATUS_ENTER          = "+"   # session entered the async handler queue
-_STATUS_EXIT_HANDLER   = "-"   # session handler finished
-_STATUS_EXTERNAL_DONE  = "e"   # external process completed
-_STATUS_EXTERNAL_CALL  = "p"   # external process was called (no freeze alarm)
+# Protocol status codes — kept in a class so dotted names (e.g. _S.ENTER) can
+# be used directly in `match/case` as value patterns.  Bare module-level names
+# in `case` clauses are treated as capture patterns by Python's parser, which
+# makes every subsequent branch unreachable (SyntaxError in 3.10+).
+class _S:
+    ENTER         = "+"   # session entered the async handler queue
+    EXIT_HANDLER  = "-"   # session handler finished
+    EXTERNAL_DONE = "e"   # external process completed
+    EXTERNAL_CALL = "p"   # external process was called (no freeze alarm)
 
 
 def _monitor_process(shared_arr: multiprocessing.Array) -> None:
@@ -155,12 +162,12 @@ def _monitor_process(shared_arr: multiprocessing.Array) -> None:
         code, sname, event = parts[0], parts[1], parts[2]
 
         match code:
-            case _STATUS_ENTER | _STATUS_EXTERNAL_DONE:
+            case _S.ENTER | _S.EXTERNAL_DONE:
                 # Session is now waiting for a handler / external call returned.
                 # Arm the freeze alarm (track_freeze=True).
                 session_status[sname] = [event, time.time(), True]
 
-            case _STATUS_EXIT_HANDLER:
+            case _S.EXIT_HANDLER:
                 entry = session_status.pop(sname, None)
                 if entry is not None:
                     event_name, tstart, _ = entry   # ignore track_freeze flag
@@ -172,7 +179,7 @@ def _monitor_process(shared_arr: multiprocessing.Array) -> None:
                                 f"took {duration:.3f} s (threshold: {profile} s)"
                             )
 
-            case _STATUS_EXTERNAL_CALL:
+            case _S.EXTERNAL_CALL:
                 # Session is occupied by an external process — record for
                 # profiling, but do NOT arm the freeze alarm (track_freeze=False).
                 session_status[sname] = [event, time.time(), False]

@@ -2,7 +2,7 @@
 from aiohttp import web, WSMsgType
 from .users import *
 from pathlib import Path
-from .reloader import active_reloader 
+from .reloader import active_reloader  # noqa: F401 — imported for side-effect (starts reloader)
 from .autotest import recorder, run_tests
 from .common import  *
 from .llmrag import setup_llmrag
@@ -32,6 +32,7 @@ def message_logger(message, type = 'error'):
             logging.error(message)
 
 Unishare.context_user = context_user
+Unishare.context_screen = context_screen
 Unishare.message_logger = message_logger
 User.type = User    
 
@@ -43,7 +44,8 @@ def make_user(request):
     requested_screen = parsed_query.get('screen', [None])[0]
     if 'session' in parsed_query:
         session = parsed_query['session'][0]
-        user_id = session.split('-')[1]
+        parts = session.split('-')
+        user_id = parts[1] if len(parts) > 1 else parts[0]
     else:
         user_id = parsed_query.get('id', [User.count])[0]
         session = f'{generate_random_string()}-{user_id}'      
@@ -54,7 +56,7 @@ def make_user(request):
             error = f'Session id "{session}" is unknown. Connection refused!'
             with logging_lock:
                 logging.error(error)
-                return None, Error(error)
+            return None, Error(error)
         user = User.type(session, user, screen=requested_screen)
         ok = user.screens
     elif config.mirror and User.count:
@@ -89,34 +91,52 @@ def test(fn):
 
 async def post_handler(request):
     reader = await request.multipart()
-    field = await reader.next()   
-    filename = upload_path(field.filename)      
-    size = 0
+    field = await reader.next()
+    if not field or not getattr(field, 'filename', None):
+        return web.HTTPBadRequest(text='No file provided')
+    # Use only the basename — prevents path traversal via crafted filenames like ../../etc/passwd
+    safe_name = Path(field.filename).name
+    filename = upload_path(safe_name)
     with open(filename, 'wb') as f:
         while True:
             chunk = await field.read_chunk()  
             if not chunk:
                 break
-            size += len(chunk)
             f.write(chunk)
     return web.Response(text=filename)
 
-async def static_serve(request):    
-    rpath = request.path    
-    file_path  = Path(f"{webpath}{rpath}" )
-    if request.path == '/':
-        file_path /= 'index.html'
-    if not file_path.exists():
-        file_path = None
-        #unmask win path
-        if rpath.startswith('/') and rpath[2] == ':':
-            rpath = rpath[1:]        
-        for dir in config.public_dirs:              
-            if rpath.startswith(dir):                
-                if os.path.exists(rpath):
-                    file_path  = Path(rpath)
-                break            
-    return web.FileResponse(file_path) if file_path else web.HTTPNotFound()
+async def static_serve(request: web.Request) -> web.StreamResponse:
+    rpath = request.path
+
+    if rpath == '/':
+        rpath = '/index.html'
+
+    # 1. Serve from webpath with path traversal protection
+    try:
+        base_webpath = Path(webpath).resolve()
+        file_path = (Path(webpath) / rpath.lstrip('/')).resolve()
+        if file_path.is_relative_to(base_webpath) and file_path.exists():
+            return web.FileResponse(file_path)
+    except (ValueError, RuntimeError):
+        pass
+
+    # 2. Serve from public_dirs (with Windows path unmasking)
+    # unmask win path: /C:/public/img.png -> C:/public/img.png
+    if rpath.startswith('/') and len(rpath) > 2 and rpath[2] == ':':
+        rpath = rpath[1:]
+    try:
+        target_path = Path(rpath).resolve()
+        for directory in config.public_dirs:
+            dir_path = Path(directory).resolve()
+            if target_path.is_relative_to(dir_path):
+                # First matching dir is authoritative — don't fall through to others
+                if target_path.exists():
+                    return web.FileResponse(target_path)
+                break
+    except (ValueError, RuntimeError):
+        pass
+
+    return web.HTTPNotFound()
      
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
@@ -158,10 +178,12 @@ async def websocket_handler(request):
                             await user.sync_dbupdates()                       
                 elif msg.type == WSMsgType.ERROR:
                     user.log('ws connection closed with exception %s' % ws.exception())
-        except BaseException as e:
-            if not isinstance(e, ConnectionResetError):
-                user.log(traceback.format_exc())
-        await user.delete()   
+        except ConnectionResetError:
+            pass
+        except Exception as e:
+            user.log(traceback.format_exc())
+        finally:
+            await user.delete()
     return ws     
 
 def ensure_directory_exists(directory_path):
