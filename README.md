@@ -1,10 +1,10 @@
-# UNISI #
+# UNISI
 UNified System Interface, GUI and Remote API
 
-### Purpose ###
+### Purpose
 UNISI technology provides a unified system interface and advanced program functionality, eliminating the need for front-end and most back-end programming. It automates common tasks, as well as unique ones, significantly reducing the necessity for manual programming and effort.
 
-### Provided automatic functionality ###
+### Provided automatic functionality
  - WEB GUI Client
  - Client-server data synchronization
  - Unified Remote API
@@ -21,16 +21,16 @@ UNISI technology provides a unified system interface and advanced program functi
  - Voice interaction
  - Persistence
 
-### Installing ###
+### Installing
 ```
 pip install unisi
 ```
 
-### Programming ###
-Automatic functionality means that only configuration has to be defined and for all paramaters UNISI has defaults that can be redefined in config.py file.
-UNISI is a universal data protocol and compact yet highly efficient framework designed for serving and proccessing data in UNISI format. The library includes the web version of a Unisi client and a comprehensive set of tools and resources for web application development. Supports Python 3.10+.
+### Programming
+Automatic functionality means that only configuration has to be defined and for all parameters UNISI has defaults that can be redefined in config.py file.
+UNISI is a universal data protocol and compact yet highly efficient framework designed for serving and processing data in UNISI format. The library includes the web version of a Unisi client and a comprehensive set of tools and resources for web application development. Supports Python 3.10+.
 
-### High level - Screen ###
+### High level - Screen
 The program directory has to contain a screens folder which contains all screens which Unisi has to show.
 
 Screen example my_project/screens/main.py
@@ -54,7 +54,7 @@ blocks = block
 ```
 
 | Screen global variables |	Status | Type | Description |
-| :---: | :---: | :---: | :---: | 
+| :--- | :---: | :---: | :--- |
 | name  | Has to be defined | str | Unique screen name |
 | blocks | Has to be defined | list[Block] or Block |which blocks to show on the screen |
 | user   | Always defined, read-only | User+ | Access to User(inherited) class which associated with a current user |
@@ -62,25 +62,24 @@ blocks = block
 | toolbar | Optional | list[Unit] | Unit elements to show in the screen toolbar |
 | order | Optional | int | order in the program menu |
 | icon  | Optional | str | MD icon of screen to show in the screen menu |
-| prepare | Optional | def prepare() | Syncronizes Unit/GUI elements one to another and with the program/system data. It is called before screen appearing if defined. |
+| prepare | Optional | def prepare() | Synchronizes Unit/GUI elements one to another and with the program/system data. It is called before screen appearing if defined. |
 | persist  | Optional | boolean | Persist all units on screen for the user |
 
 
-### Server start ###
+### Server start
 my_project/run.py
 ```
 import unisi
 unisi.start() 
 ```
 UNISI builds the interactive app for the code above.
-Connect a browser to localhast:8000 which are by default and will see:
+Connect a browser to localhost:8000 (default) and you will see:
 
 ![image](https://github.com/unisi-tech/unisi/assets/1247062/dafebd1f-ae48-4790-9282-dea83d986749)  
 
-### 'The fastest way to create Web applications in Python.' is a free crash course 1-hour video how to use UNISI ###
-   https://youtu.be/MG4JQa0DlAE
+> **Free crash course:** [*"The fastest way to create Web applications in Python"*](https://youtu.be/MG4JQa0DlAE) — a 1-hour video tutorial on using UNISI.
 
-### Handling events ###
+### Handling events
 All handlers are functions with declaration:
 ```
 def handler_x(unit : Unit, value_x) #or
@@ -88,42 +87,42 @@ async def handler_x(unit : Unit, value_x)
 ```
 where unit is a Python object the user interacted with and value for the event.
 
-#### UNISI supports synchronous and asynchronous handlers automatically adopting them for using. ####
+#### UNISI supports synchronous and asynchronous handlers, adopting them automatically.
 
-All Unit objects have a field ‘value’. 
-For an edit field the value is a string or number, for a switch or check button the value is boolean, for table is row id or index, e.t.c.
-A user changes a Unit object value or presses Button then the server calls the ‘changed’ function handler if defined.
+All Unit objects have a `value` field.
+For an edit field the value is a string or number, for a switch or check button the value is boolean, for a table it is the selected row index, etc.
+A user changes a Unit value or presses a Button — the server calls the `changed` handler if defined.
 
 ```
 def clean_table(*_):
     table.rows = []
     
-clean_button = Button('Clean the table’, clean_table)
+clean_button = Button('Clean the table', clean_table)
 ```
 
-| Handler returns |	Description |
-| :---: | :---: | 
-| None | Automatically update, Ok |
-| Error(...), Warning(...), Info(...) | Show to user info about a state. |
-| Dialog(..) | Open a dialog with parameters |
+| Handler return | Description |
+| :--- | :--- |
+| `None` | Automatically update — OK |
+| `Error(...)`, `Warning(...)`, `Info(...)` | Show the user a status message |
+| `Dialog(..)` | Open a dialog with parameters |
 
-Unisi synchronizes units on frontend-end automatically after calling a handler.
+UNISI synchronizes units on the frontend automatically after calling a handler.
 
-If a Unit object doesn't have 'changed' handler the object accepts incoming value automatically to the 'value' variable of a unit.
+If a Unit object does not have a `changed` handler, it accepts the incoming value automatically into its `value` attribute.
 
-If 'value' is not acceptable then possible to return Error or Warning or Info. They can update a object list passed after the message argument.
+If `value` is not acceptable, return `Error`, `Warning`, or `Info`. These can also update a list of objects passed after the message argument.
 
 ```
 def changed(elem, value):
    if value == 4:       
-       return Error(f‘The value can not be 4!', elem) 
-    #accept value othewise
+       return Error(f'The value can not be 4!', elem)
+    # accept value otherwise
     elem.accept(value)
 
 edit = Edit('Involving', 0.6, changed)
 ```
 
-### Block details ###
+### Block details
 The width and height of blocks is calculated automatically depending on their children. It is possible to set the block width, or make it scrollable , for example for images list. Possible to add MD icon to the header, if required. width, scroll, height, icon are optional.
 ```
 #Block(name, *children, **options)
@@ -151,15 +150,15 @@ from blocks.tblock import concept_block
 blocks = xblock, concept_block
 ```
 
-#### Layout of blocks. #### 
+#### Layout of blocks.
 If the blocks are simply listed Unisi draws them from left to right or from top to bottom depending on the orientation setting. If a different layout is needed, it can be set according to the following rule: if the vertical area must contain more than one block, then the enumeration in the array will arrange the elements vertically one after another. If such an element enumeration is an array of blocks, then they will be drawn horizontally in the corresponding area.
 
-#### Example ####
+#### Example
 blocks = [b1,b2], [b3, [b4, b5]]
 #[b1,b2] - the first vertical area, [b3, [b4, b5]] - the second one.
 ![image](https://github.com/user-attachments/assets/16ab9909-08b3-429e-9205-9b388b10aba7)
 
-### ParamBlock ###
+### ParamBlock
 ParamBlock(name, *units, row = 3, **parameters)
 
 ParamBlock creates blocks with Unit elements formed from parameters. Parameters can be string, bool, number and optional types. Example:
@@ -177,12 +176,12 @@ device = (‘cpu’,['cpu', 'gpu'])
 means the current value of 'device' is 'cpu' and options are ['cpu', 'gpu'] .
 
 
-### Basic information element - Unit ###
+### Basic information element - Unit
 Normally they have type property which says UNISI what data it contains and optionally how to operate and draw the element. 
-#### If the element name starts from _ , unisi will hide its name on the screen. ####
+#### If the element name starts from _ , unisi will hide its name on the screen.
 if we need to paint an icon in an element, add 'icon': 'any MD icon name' to the element constructor.
 
-#### Most constructor parameters are optional for Unit elements except the first one which is the element name. ####
+#### Most constructor parameters are optional for Unit elements except the first one which is the element name.
 
 Common form for element constructors:
 ```
@@ -195,7 +194,7 @@ def accept(self, value)
 causes  a call changed handler if it defined, otherwise just save value to the element 'value'.
 persist = True in a Unit constructor make Unit persistent.
 
-### Button ###
+### Button
 Normal button.
 ```
 Button('Push me', changed = None, icon = None) 
@@ -209,14 +208,14 @@ Icon button, the name has to be started from _ for hiding
 Button('_Check', changed_handler, icon = 'check') #any icon name from Material Design Icons(Google)
 ```
 
-### Load to server Button ###
+### Load to server Button
 Special button provides file loading from user device or computer to a UNISI system.
 ```
 UploadButton('Load', handler_when_loading_finish, icon = 'photo_library')
 ```
 handler_when_loading_finish(button_, the_loaded_file_filename) where the_loaded_file_filename is a file name in upload server folder. This folder name is defined in config.py .
 
-### Edit and Text field. ###
+### Edit and Text field.
 ```
 Edit(name,value = '', changed_handler = None) #for string value
 Edit(name, value: number, changed_handler = None) #changed handler gets a number in the value parameter
@@ -239,7 +238,7 @@ Edit('Edit me', 'value', complete = get_complete_list) #value has to be string o
 Optional 'update' handler is called when the user press Enter in the field.
 It can return None if OK or objects for updating as usual 'changed' handler.
 
-### Range ###
+### Range
 Number field for limited in range values.
 
 Range('Name',  value,  changed_handler?, options=[min,max, step])
@@ -250,14 +249,14 @@ Range('Scale content',  1, options=[0.25, 3, 0.25])
 ```
 
 
-### Radio button ###
+### Radio button
 ```
 Switch(name, value = False, changed_handler?, type?)
 value is boolean, changed_handler is an optional handler.
 Optional type can be 'check' for a status button or 'switch' for a switcher . 
 ```
 
-### Select group. Contains options field. ###
+### Select group. Contains options field.
 ```
 Select(name, value?, changed_handler?, options = ["choice1","choice2", "choice3"]) 
 ```
@@ -265,22 +264,22 @@ Optional type parameter can be 'radio','list','select'. Unisi automatically choo
 If type = 'list' then Unisi build it as vertical select list.
 
 
-### Image. ###
-width,changed,height,header are optional, changed is called if the user select or touch the image.
-When the user click the image, a check mark is appearing on the image, showning select status of the image.
-It is usefull for image list, gallery, e.t.c
+### Image.
+width, changed, height, header are optional, changed is called if the user select or touch the image.
+When the user clicks the image, a check mark appears on it, showing its selection status.
+It is useful for image lists, galleries, etc.
 ```
 Image(image_path, value?, changed_handler?, label?, url?, width?, height?)
 ```
 
-### Tree. The element for tree-like data. ###
+### Tree. The element for tree-like data.
 ```
 Tree(name, value = None, changed_handler = None, options = {name1: parent1, name2 : None, .})
 ```
 options is a tree structure, a dictionary {item_name:parent_name}. 
 parent_name is None for root items. changed_handler gets selected item key (name) as value. 
 
-### Table. ###
+### Table.
 Tables is common structure for presenting 2D data and charts. 
 
 Table(name, value?, changed_handler?, **options)
@@ -300,7 +299,7 @@ UNISI counts rows id as an index in a rows array. If table does not contain appe
 value = [0] means 0 row is selected in multiselect mode (in array). multimode is False so switch icon for single select mode will be not drawn and switching to single select mode is not allowed.
 
 | Table option parameter |	Description |
-| :---: | :---: | 
+| :--- | :--- |
 | changed  | table handler accept the selected row number |
 | complete |  Autocomplete handler as with value type (string value, (row index, column index)) that returns a string list of possible complitions |
 | append |  A handler gets new row index and return filled row with proposed values, has system append_table_row by default |
@@ -313,11 +312,11 @@ value = [0] means 0 row is selected in multiselect mode (in array). multimode is
 | multimode | default True, allows to select single or multi selection mode |
 
 
-### Chart ###
+### Chart
 Chart is a table with additional Table constructor parameter 'view' which explaines UNISI how to draw a chart. The format is '{x index}-{y index1},{y index2}[,..]'. '0-1,2,3' means that x axis values will be taken from 0 column, and y values from 1,2,3 columns of row data.
 'i-3,5' means that x axis values will be equal the row indexes in rows, and y values from 3,5 columns of rows data. If a table constructor got view = '..' parameter then UNISI displays a chart icon at the table header, pushing it switches table mode to the chart mode. If a table constructor got type = 'chart' in addition to view parameter the table will be displayed as a chart on start. In the chart mode pushing the icon button on the top right switches back to table view mode.
 
-### Graph ###
+### Graph
 Graph supports an interactive graph.
 ```
 graph = Graph('X graph', value?, changed_handler?, 
@@ -338,10 +337,10 @@ def changed_handler(graph, val):
 ```
 With pressed 'Shift' multi (de)select works for nodes and edges.
 
-id nodes and edges are optinal, if node ids are ommited then edge 'source' and 'target' have to point node index in nodes array.
+Node and edge `id` fields are optional; if node ids are omitted, edge `source` and `target` must reference the node's index in the nodes array.
 Graph can handle invalid edges and null nodes in the nodes array.   
 
-### Dialog ###
+### Dialog
 ```
 Dialog(question, dialog_callback, commands = ['Ok', 'Cancel'], *units)
 ```
@@ -356,7 +355,7 @@ def dialog_callback(current_dialog, command_button_name):
 units can be filled with Unit elements for additional dialog functionality like a Block.
 
 
-### Popup windows ###
+### Popup windows
 They are intended for non-blocking displaying of error messages and informing about some events, for example, incorrect user input and the completion of a long process on the server.
 ```
 Info(info_message, *Units2Updade)
@@ -376,9 +375,9 @@ await user.progress(" 1% is done..")
 ```
 Progress window is automatically closed when the handler is finished.
 
-### Milti-user support. ###
+### Multi-user support.
 UNISI automatically creates and serves an separate environment for every user.
-The management class is User contains all required methods for processing and handling the user activity. A programmer can redefine methods in the inherited class, point it as system user class and that is all. Such methods suit for history navigation, undo/redo and initial operations. The screen folder contains screens which are recreated for every user. The same about blocks. The code and modules outside that folders are common for all users as usual. By default UNISI uses the system User class and you do not need to point it. 
+The management class User contains all required methods for processing and handling the user activity. A programmer can redefine methods in the inherited class, point it as system user class and that is all. Such methods suit for history navigation, undo/redo and initial operations. The screen folder contains screens which are recreated for every user. The same about blocks. The code and modules outside that folders are common for all users as usual. By default UNISI uses the system User class and you do not need to point it.
 ```
 class Hello_user(unisi.User):
     def __init__(self, session, share = None):
@@ -392,20 +391,20 @@ In screens and blocks sources we can access the user by 'user' variable, which i
 print(isinstance(user, Hello_user))
 ```
 
-### Unified Remote API ###
+### Unified Remote API
 For using UNISI apps from remote programs Unified Remote API is an optimal choice.
 
 | Proxy methods, properties | Description |
-| :---: | :---: | 
+| :--- | :--- |
 | close() | Close session. |
-| command_upload(element: str or dict, file_name: str) | upload file_name file  to  the server and execute element command (push the button). |
-| command(element: str or dict) | Executes the element command.The element type is Button. |
+| command_upload(element: str or dict, file_name: str) | upload file_name to the server and execute element command (push the button). |
+| command(element: str or dict) | Executes the element command. The element type is Button. |
 | element(name:str) | returns an element with such name |
 | elements(block’ :str or dict,  types’ : list[str]) | returns screen elements in json format, filtered by optional block and list of types. |
 | interact(message: Object, pcallback`) | Sends a message, gets an answer and returns the type of response. pcallback is an optional  progress callback. |
 | screen_menu | Returns the screen names. |
-| set_screen(screen_name: str) | Set active  screen.  |
-| set_value(element: str or dict, value: any) | Set the value to the element  |
+| set_screen(screen_name: str) | Set the active screen.|
+| set_value(element: str or dict, value: any) | Set the value of the element.|
 
  ‘  after a variable means it’s optional.
 The UNISI Proxy creates a user session and operates in the same manner as a browsing user.
@@ -422,7 +421,7 @@ image_file = '/home/george/Projects/save/animals/badger/0cf04d0dab.jpg'
 
 #It has Screen "Image analysis"
 if proxy.set_screen("Image analysis"):    
-    #optional: turn off search images for perfomance, we only need to classify the image
+    #optional: turn off search images for performance, we only need to classify the image
     #for that find Switch 'Search' and set it to False    
     proxy.set_value('Search', False)
     
@@ -439,60 +438,61 @@ if proxy.set_screen("Image analysis"):
 proxy.close()
 ```
 
-### Monitoring ###
+### Monitoring
 
-Activation: froze_time = max_freeze_time  in config.py
-The system monitor tracks current tasks and their execution time. If a task takes longer than  max_freeze_time time in seconds, the monitor writes a message in the log about the state of the system queue and the execution or waiting time of each session in the queue, and information about the event that triggered it. This allows you to uniquely identify the handler in your code and take action to correct the problem. 
+Activation: `freeze_time = max_freeze_time` in config.py
+The system monitor tracks current tasks and their execution time. If a task takes longer than `max_freeze_time` seconds, the monitor writes a message in the log about the state of the system queue, the execution or waiting time of each session, and the event that triggered it. This lets you identify the offending handler and take corrective action.
 
-### Profiling ###
+### Profiling
 
-Activation: profile = max_execution_time  in config.py
-The system tracks current tasks and their execution time. If a task takes longer than  profile time in seconds, the system writes a message in the log about the task, the execution time and information about the event that triggered it. This allows you to uniquely identify the handler in your code and take action to correct the problem. 
+Activation: `profile = max_execution_time` in config.py
+The system tracks current tasks and their execution time. If a task takes longer than `max_execution_time` seconds, the system logs the task, its execution time, and the triggering event. This lets you identify the offending handler and take corrective action.
 
-### Database interactions ###
+### Database interactions
 Programming database interactions usually requests knowledge of concrete DBMS, specific of its language, programming and administrative details, and a lot of time for setting and programming. UNISI automates all DBMS operations and a regular programmer or user event does not need to know how exactly the system gets and updates the program data. UNISI hides complexity of DBMS programming under inherited-from-list objects that project operations on its data into DBMS. 
 UNISI database operates with named tables based on SQLite (zero-dependency, high performance, WAL mode). The only difference between temporal data and persistent data is that the latter has an ID property, which serves as its system name. UNISI supports smart schema migrations that automatically detect field changes and offer interactive data migration options.
 A link to another persistent table can be established using the 'link' option. This can be set as:
 - A table variable.
-- A tuple containing a table variable and link properties (name to type dictionary).
-- A tuple containing a table variable, link properties, and the index name in the database.
+- A list containing a table variable and link properties (name to type dictionary).
+- A list containing a table variable, link properties, and the index name in the database.
 
 UNISI synchronizes all database changes between users, allowing them to see real-time updates made by others on persistent units.
 
-Link properties are defined as a dictionary, where the keys are property names and the values are property values. These values are necessary for type detection.
-UNISI supports now the following data types for persistent tables and links:
-- Boolean (bool)
-- Integer (int)
-- Float (float)
-- String (str)
-- Datetime
-- Date
-- Bytes
-Table options multimode = True and value define relation type 1 -> 1 if equals None or 1 -> many if equals [].
-UNISI uses SQLite as its exclusive database backend — zero-dependency, high speed, WAL mode, and native SQL-injection protection via parameterised queries.
-For using the functionality db_path  in config.py has to be defined as a path to the database file, or set the UNISI_DB_PATH environment variable.
+Link properties are defined as a dictionary mapping property names to their Python types (used for SQLite type detection).
+UNISI supports the following data types for persistent tables and links:
+- `bool` — Boolean
+- `int` — Integer
+- `float` — Float
+- `str` — String
+- `datetime` — Timestamp
+- `date` — Date
+- `bytes` — Blob (excluded from search)
+- `list` / `dict` — JSON (excluded from search)
+- `Decimal`, `uuid.UUID` — stored as strings
 
-### LLM-RAG interactions ###
-UNISI supports LLM-RAG transparent interactions without the need of programming prompts and LLM details. Screen data  contains all required data for processing queries to LLM and decode a result. A user has to define only what data from LLM is required by setting ‘llm’ parameter in Unit constructor.  All other jobs are automated by UNISI.
+For using the functionality, `db_path` in config.py has to be defined as a path to the database file, or set the UNISI_DB_PATH environment variable.
+
+### LLM-RAG interactions
+UNISI supports LLM-RAG transparent interactions without the need of programming prompts and LLM details. Screen data contains all required data for processing queries to LLM and decode a result. A user has to define only what data from LLM is required by setting ‘llm’ parameter in Unit constructor.  All other jobs are automated by UNISI.
 Possible to set a LLM  temperature if required. By default it is 0.
 temperature  = 0.2
 For using the service define llm in config.py:
 llm = provider, model_name
-Where provider can be ‘host’ for local or deployed custom models using LM Studio, Ollama or LLVM.
+Where provider can be ‘host’ for local or deployed custom models using LM Studio, Ollama, or LlamaCpp.
 The other support providers are ‘google’ (== ‘gemini’), ‘openai’, ‘groq’ . They require setting some of API key in system variables:
 ```export GROQ_API_KEY=’my_groq_key’
 export GOOGLE_API_KEY=’my_google_key’
 export OPENAI_API_KEY=’my_open_key’
 ```
-Any Unit except Button can be calculated using llm parameter in constructor, which can be True for automatic context evaluation and an enumeration of units, which are required for its calculation. Unisi automatically calculates such unit value when its context is changed and its value is empty.
-For table fields in rows ‘llm’ can be True for automatic context evaluation or enumeration of units and field names for tables  which are required for its calculation.
-Example https://github.com/unisi-tech/unisi/blob/main/tests/llm/screens/main.py where Date of birth and Occupation are calculated by a person name.
+Any Unit except Button can be calculated using llm parameter in constructor, which can be `True` for automatic context evaluation, or a list of Unit objects whose values are required for the calculation. Unisi automatically calculates such unit value when its context is changed and its value is empty.
+For table fields in rows ‘llm’ can be True for automatic context evaluation or enumeration of units and field names for tables which are required for its calculation.
+Example: [tests/llm/screens/main.py](https://github.com/unisi-tech/unisi/blob/main/tests/llm/screens/main.py) — Date of birth and Occupation are calculated from a person's name.
 
 
-### Voice interaction. ###
+### Voice interaction
 This functionality allows users to interact with a user interface using voice commands instead of fingers or a mouse. It facilitates voice interaction with a graphical user interface composed of various Units. It recognizes spoken words, interprets them as commands or element selections, and performs corresponding actions. The system supports various modes of interaction, including text input, number input, element selection, screen navigation, and command execution. The user speaks commands or element names. The module recognizes words and updates the Mate block, which exposes the state of the module and what it expects to listen.
 
-#### Modes. ####
+#### Modes
 Select Mode (Default): The user can select an interactive element or switch to another mode (e.g., "screen" to change a current screen).
 Text Mode: Activated when a text input element is selected. The user can dictate text, and use commands like "left," "right," "backspace," "delete," "space," "undo," and "clean."
 
@@ -510,7 +510,7 @@ Table Mode: Supports table navigation and editing with commands like "page", "ro
 
 Examples are in tests folder.
 
-Demo project and UNISI part https://github.com/unisi-tech/vision
+Demo project: [unisi-tech/vision](https://github.com/unisi-tech/vision)
 
 Support the development and get Comprehensive and Professional UNISI Documentation:
 [Patreon](https://www.patreon.com/user/shop/comprehensive-and-professional-unisi-392229?u=119394296&utm_medium=clipboard_copy&utm_source=copyLink&utm_campaign=productshare_creator&utm_content=join_link)
