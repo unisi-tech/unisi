@@ -1,104 +1,254 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
-import multiprocessing, time, asyncio, logging, inspect
+import multiprocessing, time, asyncio, logging
+from queue import Empty
 from .utils import start_logging
 from config import froze_time, monitor_tick, profile, pool
 
-def write_string_to(shared_array, input_string):    
-    input_bytes = input_string.encode()    
-    shared_array[:len(input_bytes)] = input_bytes
+# ── Shared-array helpers ──────────────────────────────────────────────────────
 
-def read_string_from(shared_array):
-    return shared_array[:].decode().rstrip('\x00')
+_SHARED_ARRAY_SIZE = 512  # increased from 200 to handle longer session/event names
 
-_multiprocessing_pool = None
 
-def multiprocessing_pool():
-    global _multiprocessing_pool
-    if not _multiprocessing_pool:
-        _multiprocessing_pool = multiprocessing.Pool(pool)
-    return _multiprocessing_pool
+def _write_to_shared(shared_array: multiprocessing.Array, text: str) -> None:
+    """Encode *text* and write it into *shared_array*.
 
-async def run_external_process(long_running_task, *args, progress_callback = None, **kwargs):
-    if progress_callback:
+    Uses the native ``Array.value`` setter which automatically appends a NUL
+    terminator, making any stale bytes from a previously longer message
+    invisible to the reader.  Raises ``ValueError`` when the payload is too
+    long (the array needs one extra byte for the NUL).
+    """
+    data = text.encode()
+    if len(data) >= len(shared_array):      # need at least one byte for NUL
+        raise ValueError(
+            f"Encoded message ({len(data)} B) exceeds shared array capacity "
+            f"({len(shared_array) - 1} B usable)"
+        )
+    shared_array.value = data               # .value writes data + NUL terminator
+
+
+def _read_from_shared(shared_array: multiprocessing.Array) -> str:
+    """Read a NUL-terminated string from *shared_array*.
+
+    ``Array.value`` returns bytes up to (but not including) the first ``\\x00``,
+    matching exactly what ``_write_to_shared`` wrote.
+    """
+    return shared_array.value.decode()
+
+
+# ── Process pool (lazy singleton) ────────────────────────────────────────────
+
+_pool_instance: multiprocessing.Pool | None = None
+
+
+def _get_pool() -> multiprocessing.Pool:
+    """Return the shared process pool, creating it on first call."""
+    global _pool_instance
+    if _pool_instance is None:
+        _pool_instance = multiprocessing.Pool(pool)
+    return _pool_instance
+
+
+# ── External-process runner ───────────────────────────────────────────────────
+
+async def run_external_process(long_running_task, *args, progress_callback=None, **kwargs):
+    """Run *long_running_task* in a worker process without blocking the event loop.
+
+    Progress reporting contract
+    ---------------------------
+    If *progress_callback* is provided the last positional argument must be
+    either ``None`` (a fresh ``multiprocessing.Queue`` is injected automatically)
+    or an existing queue the task writes messages to.  The task signals
+    completion by putting a ``None`` sentinel into the queue.
+    """
+    queue = None
+    if progress_callback is not None:
+        if not args:
+            raise ValueError(
+                "progress_callback requires at least one positional arg; "
+                "pass None as the last arg to let run_external_process create the queue."
+            )
         if args[-1] is None:
             queue = multiprocessing.Manager().Queue()
-            args = *args[:-1], queue
+            args = (*args[:-1], queue)
         else:
-            queue = args[-1] 
-                        
-    result = multiprocessing_pool().apply_async(long_running_task, args, kwargs)
-    if progress_callback:
-        while not result.ready() or not queue.empty():            
-            message = queue.get()
-            if message is None:
-                break
-            await asyncio.gather(progress_callback(message), asyncio.sleep(monitor_tick))            
+            queue = args[-1]
+
+    result = _get_pool().apply_async(long_running_task, args, kwargs)
+
+    if progress_callback is not None and queue is not None:
+        # Use get_nowait() + Empty catch so the event loop is never blocked.
+        # run_in_executor(queue.get) is an alternative but occupies a thread-pool
+        # slot indefinitely and has no timeout, making it harder to reason about.
+        while not result.ready() or not queue.empty():
+            try:
+                message = queue.get_nowait()
+                if message is None:
+                    break
+                await asyncio.gather(
+                    progress_callback(message),
+                    asyncio.sleep(monitor_tick),
+                )
+            except Empty:
+                await asyncio.sleep(monitor_tick)
+
+    # After the progress loop the worker may still be serialising its return
+    # value over IPC (it put the None sentinel just before returning).
+    # Poll asynchronously until ready() is True so result.get() never blocks.
+    while not result.ready():
+        await asyncio.sleep(monitor_tick)
+
     return result.get()
 
-logging_lock = multiprocessing.Lock()
 
-splitter = '~'
+# ── Monitor process ───────────────────────────────────────────────────────────
 
-def monitor_process(monitor_shared_arr):            
-    timer = None
-    session_status = {}    
-    sname = None    
+_logging_lock = multiprocessing.Lock()
+_SPLITTER = "~"
+
+# Protocol status codes
+_STATUS_ENTER          = "+"   # session entered the async handler queue
+_STATUS_EXIT_HANDLER   = "-"   # session handler finished
+_STATUS_EXTERNAL_DONE  = "e"   # external process completed
+_STATUS_EXTERNAL_CALL  = "p"   # external process was called (no freeze alarm)
+
+
+def _monitor_process(shared_arr: multiprocessing.Array) -> None:
+    """Background monitoring process — never returns (runs as daemon).
+
+    Tracks per-session events and emits log warnings when:
+    * any session has been waiting longer than *froze_time* seconds, OR
+    * a handler took longer than *profile* seconds.
+
+    The freeze check is done by comparing wall-clock timestamps for *each*
+    active session independently, so a new event on session B cannot hide a
+    hang on session A.
+    """
+    # session_name -> [event_name, start_timestamp, track_freeze]
+    # track_freeze=True  : session should trigger the freeze alarm if it lingers
+    # track_freeze=False : session is waiting on an external process — no alarm
+    session_status: dict[str, list] = {}
+    last_freeze_check = time.time()
+
     start_logging()
+
     while True:
-        #Wait for data in the shared array
-        while monitor_shared_arr[0] == b'\x00':
-            time.sleep(monitor_tick)  
-            if timer is not None:
-                timer -= monitor_tick                
-                if timer < 0:
-                    timer = None                    
-                    arr = list(session_status.items())
-                    arr.sort(key = lambda s: s[1][1], reverse=True)
-                    ct = time.time()
-                    message = "Hangout is detected! Sessions in a queue and time waiting:" +\
-                        ''.join(f'\n  {s[0]}, {s[1][0]}, {ct - s[1][1]} s' for s in arr)    
-                    with logging_lock:
-                        logging.warning(message)                    
-                    timer = None
-        # Read and process the data
-        status = read_string_from(monitor_shared_arr).split(splitter)
-        #free
-        monitor_shared_arr[0] = b'\x00'
-        sname = status[1]  
-        match status[0]:
-            case '+' | 'e': #exit external process                             
-                session_status[sname] = [status[2], time.time()]
-                timer = froze_time
-            case '-':    
-                event, tstart = session_status.get(sname, (None, 0))
-                if event:                                        
+        # ── Wait for a message ────────────────────────────────────────────────
+        while shared_arr[0] == b"\x00":
+            time.sleep(monitor_tick)
+
+            if froze_time:
+                now = time.time()
+                if now - last_freeze_check >= monitor_tick:
+                    last_freeze_check = now
+                    _check_for_frozen_sessions(session_status, now)
+
+        # ── Decode, release slot, dispatch ───────────────────────────────────
+        raw = _read_from_shared(shared_arr)
+        shared_arr[0] = b"\x00"          # free as early as possible
+
+        parts = raw.split(_SPLITTER)
+        if len(parts) < 3:
+            with _logging_lock:
+                logging.warning(f"Monitor: malformed message {parts!r} — skipped")
+            continue
+
+        code, sname, event = parts[0], parts[1], parts[2]
+
+        match code:
+            case _STATUS_ENTER | _STATUS_EXTERNAL_DONE:
+                # Session is now waiting for a handler / external call returned.
+                # Arm the freeze alarm (track_freeze=True).
+                session_status[sname] = [event, time.time(), True]
+
+            case _STATUS_EXIT_HANDLER:
+                entry = session_status.pop(sname, None)
+                if entry is not None:
+                    event_name, tstart, _ = entry   # ignore track_freeze flag
                     duration = time.time() - tstart
                     if profile and duration > profile:
-                        with logging_lock:
-                            logging.warning(f'Event handler {event} was executed for {duration} seconds!')
-                    del session_status[sname] 
-                    timer = None
-            case 'p': #call external process
-                session_status[sname] = [status[2], time.time()]
-                timer = None
-                            
-if froze_time or profile: 
-    # Create a shared memory array
-    monitor_shared_arr = multiprocessing.Array('c', 200)  
-    monitor_shared_arr[0] != b'\x00'
-    
-    async def notify_monitor(status, session, event):
-        s = f'{status}{splitter}{session}{splitter}{event}'        
-        # Wait for the shared array to be empty
-        while monitor_shared_arr[0] != b'\x00':
-            await asyncio.sleep(monitor_tick)
-        write_string_to(monitor_shared_arr, s)
+                        with _logging_lock:
+                            logging.warning(
+                                f"Event handler '{event_name}' for session '{sname}' "
+                                f"took {duration:.3f} s (threshold: {profile} s)"
+                            )
 
-    monitor_process = multiprocessing.Process(target=monitor_process, args=(monitor_shared_arr,))
-    monitor_process.start()
+            case _STATUS_EXTERNAL_CALL:
+                # Session is occupied by an external process — record for
+                # profiling, but do NOT arm the freeze alarm (track_freeze=False).
+                session_status[sname] = [event, time.time(), False]
+
+            case _:
+                with _logging_lock:
+                    logging.warning(
+                        f"Monitor: unknown status code '{code}' from session '{sname}'"
+                    )
+
+
+def _check_for_frozen_sessions(
+    session_status: dict[str, list], now: float
+) -> None:
+    """Emit a warning for every *freeze-tracked* session that has waited too long.
+
+    Sessions registered with ``track_freeze=False`` (i.e. those waiting on an
+    external process via ``_STATUS_EXTERNAL_CALL``) are intentionally excluded
+    from the alarm — their long runtime is expected.
+
+    Resets the start timestamp of each offending session so the same hang is
+    reported at most once per *froze_time* interval rather than every tick.
+    """
+    frozen = [
+        (name, info[0], info[1])
+        for name, info in session_status.items()
+        if info[2] and (now - info[1] > froze_time)   # info[2] = track_freeze flag
+    ]
+    if not frozen:
+        return
+
+    frozen.sort(key=lambda x: x[2])          # oldest first
+    lines = "\n".join(
+        f"  session={name!r}  event={event!r}  waiting={now - tstart:.1f} s"
+        for name, event, tstart in frozen
+    )
+    with _logging_lock:
+        logging.warning("Freeze detected! Hung sessions:\n" + lines)
+
+    # Back-fill timestamps to avoid log spam on the next tick
+    for name, _, _ in frozen:
+        session_status[name][1] = now
+
+
+# ── Module-level initialisation ───────────────────────────────────────────────
+
+if froze_time or profile:
+    _monitor_shared_arr = multiprocessing.Array("c", _SHARED_ARRAY_SIZE)
+    # multiprocessing.Array is zero-initialised, so no explicit init needed.
+
+    _notify_lock: asyncio.Lock | None = None
+
+    async def notify_monitor(status: str, session: str, event: str) -> None:
+        """Send a status update to the monitor process.
+
+        An asyncio.Lock serialises concurrent callers so two coroutines can
+        never overwrite each other's message in the shared slot.
+        The lock is created lazily inside the running event loop.
+        """
+        global _notify_lock
+        if _notify_lock is None:
+            _notify_lock = asyncio.Lock()
+
+        message = f"{status}{_SPLITTER}{session}{_SPLITTER}{event}"
+
+        async with _notify_lock:
+            while _monitor_shared_arr[0] != b"\x00":
+                await asyncio.sleep(monitor_tick)
+            _write_to_shared(_monitor_shared_arr, message)
+
+    _monitor_proc = multiprocessing.Process(
+        target=_monitor_process,
+        args=(_monitor_shared_arr,),
+        daemon=True,    # automatically terminated when the main process exits
+    )
+    _monitor_proc.start()
+
 else:
     notify_monitor = None
-    
-
-
-        
