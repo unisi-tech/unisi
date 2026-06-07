@@ -103,6 +103,8 @@ class User(ModulesMixin, UserPersistMixin):
                 await notify_monitor('e', self.session, self.last_message)
 
     async def delete(self):
+        if self.voice:
+            self.voice.stop()
         uss = Unishare.sessions
         if uss and uss.get(self.session):
             del uss[self.session]

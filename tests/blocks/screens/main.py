@@ -3,7 +3,7 @@ from blocks.tblock import config_area, tarea
 
 name = "Blocks"
 order = 0
-persist = True
+#persist = True
 
 table = Table('Videos', 0, headers = ['Video', 'Duration',  'Links', 'Mine'], rows = [
     ['opt_sync1_3_0.mp4', '30 seconds',  '@Refer to signal1', True],
@@ -44,7 +44,7 @@ def change_seletion(elem, value):
 toposcreen = Net('Net', changed = change_seletion )
 
 #graph can handle invalid edges and null nodes in the array    
-graph = Graph('_Random graph', 
+graph = Graph('Graph', 
     nodes = [Node("Node 1"),Node("Node 2", size = 20),None, Node("Node 3", color = "green"), Node("Node 4")],
     edges = [Edge(0,1, color = "#3CA072"), Edge(1,3,'extending', size = 6),Edge(3,4, size = 2), Edge(2,4)])
 
