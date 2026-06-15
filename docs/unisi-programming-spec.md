@@ -220,7 +220,7 @@ From `unisi/units.py`:
 - `Select(name, value?, options=[])`
 - `Tree(name, value?, options=dict|list)`
 - `Chart(name, option, changed?)`
-- `HTML(name, html_string, changed?)`
+- `HTML(name, html_string, changed?, scale?)`
 - `Image(name_or_url, value=False, handler=None, label="", width=300, ...)`
 - `Video(name, value = { "position": float, "play": bool, "volume": Number},
      changed?, fragments=[{url: str, start: float, end: float}])
@@ -363,6 +363,7 @@ blocks = [controls]
 - If a handler is missing, `changed` events assign incoming value directly.
 - Dialog remains active if callback returns message/update that keeps it open.
 - `prepare()` runs when screen is displayed and is appropriate for sync/rebuild logic.
+-  A standout feature of HTML component is its interactive zoom capability: by including a scale property (e.g., "scale": 1) in your data configuration, a slider control will automatically render above the content. This allows end-users to dynamically scale the entire HTML block—including text, images, and layout—from 0.5x to 3.0x. 
 
 ## 18 Example Sources in This Repository
 

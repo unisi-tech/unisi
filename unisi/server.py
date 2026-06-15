@@ -146,10 +146,15 @@ async def websocket_handler(request):
         await ws.send_str(toJson(status))
     else:
         async def send(res):
-            if type(res) != str:
-                res = toJson(user.prepare_result(res))        
-            await ws.send_str(res)        
+            try:
+                if type(res) != str:
+                    res = toJson(user.prepare_result(res))        
+                await ws.send_str(res)
+            except:
+                pass   
+
         user.send = send         
+
         await send(True if status else empty_app) 
         try:
             async for msg in ws:
