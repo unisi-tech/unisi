@@ -19,7 +19,7 @@ UNISI technology provides a unified system interface and advanced program functi
  - Database interactions
  - LLM-RAG interactions
  - Voice interaction
- - Persistence
+ - Data persistence
 
 ### Installing
 ```
