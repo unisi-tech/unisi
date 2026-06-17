@@ -220,7 +220,7 @@ From `unisi/units.py`:
 - `Select(name, value?, options=[])`
 - `Tree(name, value?, options=dict|list)`
 - `Chart(name, option, changed?)`
-- `HTML(name, html_string, changed?, scale?)`
+- `HTML(name, html_string, changed?, scale?, edit?)`
 - `Image(name_or_url, value=False, handler=None, label="", width=300, ...)`
 - `Video(name, value = { "position": float, "play": bool, "volume": Number},
      changed?, fragments=[{url: str, start: float, end: float}])
