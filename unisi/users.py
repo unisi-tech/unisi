@@ -7,7 +7,7 @@ from .containers import Dialog
 from .multimon import notify_monitor, logging_lock, run_external_process
 from .dbunits import dbshare, dbupdates
 from .persist import UserPersistMixin
-from .modules import ModulesMixin
+from .modules import ModulesMixin, screen_info_from_module
 import asyncio, logging
 
 class User(ModulesMixin, UserPersistMixin):
@@ -69,6 +69,18 @@ class User(ModulesMixin, UserPersistMixin):
             if any(not not_block(x) for x in self.changed_units):
                 return sorted(self.changed_units, key=not_block)
         return self.changed_units
+
+    def compile_screen(self, file):
+        module = super().compile_screen(file)
+        if self.testing:
+            from .autotest import check_module
+            errors = check_module(module)
+            if errors:
+                print('\n'.join(errors), '\n')
+                return module  # не вызываем set_reactivity при ошибках
+        module.screen.set_reactivity(self)
+        self._upsert_screen_info(screen_info_from_module(module))
+        return module
 
     async def run_process(self, long_running_task, *args, progress_callback = None, **kwargs):
         if progress_callback and notify_monitor and progress_callback != self.progress: #progress notifies the monitor

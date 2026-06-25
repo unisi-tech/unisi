@@ -122,8 +122,7 @@ class ModulesMixin:
         screen._origin_module = module.__name__
         module.screen = screen
         self.assign_parent_links(module)
-        screen.set_reactivity(self)
-        self._upsert_screen_info(screen_info_from_module(module))
+        
         return module
 
     def _finish_loaded_screen(self, module, prepare=False):

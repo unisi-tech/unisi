@@ -142,6 +142,7 @@ def check_block(block, hash_elements):
             hash_elements[hash_element] = block.name         
             if not isinstance(child, Unit) or not child:
                 errors.append(f'The block {block.name} contains invalid element {child} instead of Unit+ object!') 
+                continue
             elif isinstance(child, Block):
                 errs = check_block(child, hash_elements)
                 if errs:
