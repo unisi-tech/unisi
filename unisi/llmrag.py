@@ -148,7 +148,15 @@ def python_type_to_json_schema_dict(type_value: Any) -> dict | None:
         return schema
 
     if origin is dict:
-        return {'type': 'object'}  # untyped dict — just require an object
+        # dict[K, V] → {"type": "object", "additionalProperties": <V schema>}
+        # plain dict  → {"type": "object"}
+        if args and len(args) == 2:
+            value_schema = python_type_to_json_schema_dict(args[1])
+            return {
+                'type': 'object',
+                'additionalProperties': value_schema if value_schema else {'type': 'string'},
+            }
+        return {'type': 'object'}
 
     if origin is Union:
         # Optional[X] → just use X's schema (None handled at runtime)
@@ -556,8 +564,9 @@ def setup_llmrag() -> None:
         base_url = address or _PROVIDER_BASE_URL.get(provider, '')
         model_id = model
 
-        if provider in ('google', 'gemini'):
-            extra_body.setdefault('safety_settings', _GEMINI_SAFETY_SETTINGS)
+        # Note: safety_settings is a native Gemini API parameter and is NOT
+        # accepted by the OpenAI-compatible endpoint (/v1beta/openai/).
+        # To control safety filters use the native google-genai SDK instead.
     else:
         logger.error('Unknown LLM provider: %s', provider)
         return
