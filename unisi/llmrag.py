@@ -5,12 +5,14 @@ import json, logging, os, re
 from typing import Any, Literal, Union, get_args, get_origin
 
 logger = logging.getLogger(__name__)
-logging.getLogger("LiteLLM").setLevel(logging.ERROR)
 
-import litellm, diskcache
-from litellm import acompletion
+import diskcache
+from openai import AsyncOpenAI as _AsyncOpenAI
 
 from .common import Unishare
+
+# Populated by setup_llmrag(). None until initialised.
+_acompletion = None
 
 
 # ---------------------------------------------------------------------------
@@ -109,6 +111,70 @@ def python_type_to_json_schema(type_value: Any) -> str:
 jstype = python_type_to_json_schema
 
 
+def python_type_to_json_schema_dict(type_value: Any) -> dict | None:
+    """
+    Converts a Python type / typing hint / dict-schema to a real JSON Schema dict
+    suitable for passing as response_format to the OpenAI-compatible API.
+
+    Returns None for plain str (no schema needed — model returns free text).
+
+    Examples:
+        int                    → {"type": "integer"}
+        list[str]              → {"type": "array", "items": {"type": "string"}}
+        dict(age=int, city=str)→ {"type": "object",
+                                   "properties": {"age": {"type": "integer"},
+                                                  "city": {"type": "string"}}}
+    """
+    _BUILTIN: dict[Any, str] = {
+        int: 'integer', float: 'number', bool: 'boolean',
+        str: 'string',  dict: 'object',  list: 'array',
+    }
+
+    if type_value is str or type_value == 'date':
+        return None  # free-text answer — no schema
+
+    if isinstance(type_value, type) and type_value in _BUILTIN:
+        return {'type': _BUILTIN[type_value]}
+
+    origin = get_origin(type_value)
+    args   = get_args(type_value)
+
+    if origin is list:
+        schema: dict = {'type': 'array'}
+        if args:
+            item = python_type_to_json_schema_dict(args[0])
+            if item:
+                schema['items'] = item
+        return schema
+
+    if origin is dict:
+        return {'type': 'object'}  # untyped dict — just require an object
+
+    if origin is Union:
+        # Optional[X] → just use X's schema (None handled at runtime)
+        non_none = [a for a in args if a is not type(None)]
+        if len(non_none) == 1:
+            return python_type_to_json_schema_dict(non_none[0])
+        return None  # complex union — fall back to free text
+
+    # dict instance used as a schema: {'field': type, ...}
+    if isinstance(type_value, dict) and type_value:
+        properties = {}
+        required = []
+        for k, v in type_value.items():
+            sub = python_type_to_json_schema_dict(v)
+            properties[k] = sub if sub else {'type': 'string'}
+            required.append(k)
+        return {
+            'type': 'object',
+            'properties': properties,
+            'required': required,
+            'additionalProperties': False,  # required for strict: True on OpenAI
+        }
+
+    return None  # fallback — no schema
+
+
 def is_type(variable: Any, expected_type: Any) -> bool:
     """
     Checks whether a variable matches the expected type or typing hint.
@@ -120,8 +186,11 @@ def is_type(variable: Any, expected_type: Any) -> bool:
     if isinstance(expected_type, dict):
         if not isinstance(variable, dict):
             return False
+        # All keys defined in the schema must be present
+        if not expected_type.keys() <= variable.keys():
+            return False
         for key, sub_type in expected_type.items():
-            if key in variable and not is_type(variable[key], sub_type):
+            if not is_type(variable[key], sub_type):
                 return False
         return True
 
@@ -236,42 +305,65 @@ def _build_prompt(
             logger.warning("Q(): missing format variable %s", e)
 
     if extend and type_value is not None:
-        jschema = python_type_to_json_schema(type_value)
         if type_value == 'date':
-            fmt_instruction = ' dd/mm/yyyy string'
-        elif jschema != 'string':
-            fmt_instruction = f'a JSON {jschema}'
-        else:
-            fmt_instruction = jschema
-
-        prompt = (
-            f" Output STRONGLY in format {fmt_instruction}."
-            f" DO NOT OUTPUT ANY COMMENTARY."
-            + prompt
-        )
+            # date has no JSON Schema equivalent — keep the text hint
+            prompt = f' Output STRONGLY in format dd/mm/yyyy string. DO NOT OUTPUT ANY COMMENTARY.' + prompt
+        elif type_value is not str:
+            # Schema is enforced via response_format at the API level.
+            # Only tell the model NOT to add commentary; no need to describe the schema.
+            prompt = ' DO NOT OUTPUT ANY COMMENTARY. Output only the requested data.' + prompt
         prompt = identity + prompt
 
     return prompt
 
 
-async def _call_llm(prompt: str) -> str:
+async def _call_llm(prompt: str, type_value: Any = str) -> str:
     """
-    Invokes the LLM via litellm, consulting the cache when available.
-    Returns the raw text content of the response.
+    Invokes the LLM via AsyncOpenAI (OpenAI-compatible endpoint),
+    consulting the cache when available.
+
+    Passes a proper JSON Schema via response_format when type_value is
+    not str, so the model is constrained at the API level — no need to
+    describe the schema in the prompt text.
     """
+    if _acompletion is None:
+        raise RuntimeError('LLM not initialised — call setup_llmrag() first')
+
     cache: QueryCache | None = Unishare.llm_cache
+    cache_key = f'{type_value!r}:{prompt}'
 
     if cache is not None:
-        if (cached := cache.get(prompt)) is not None:
+        if (cached := cache.get(cache_key)) is not None:
             return cached
 
-    response = await acompletion(
+    schema = python_type_to_json_schema_dict(type_value)
+    kwargs: dict = dict(
         model=Unishare.llm_model,
         messages=[{'role': 'user', 'content': prompt}],
+        temperature=getattr(Unishare, 'llm_temperature', 0.0),
     )
+    if schema is not None:
+        # Native JSON Schema enforcement — much more reliable than prompt hints
+        # strict=True gives 100% schema adherence on OpenAI; Gemini ignores it.
+        # Other providers (Groq, Mistral, local) may reject it, so we only
+        # enable it when the model string suggests an OpenAI-hosted model.
+        _model = Unishare.llm_model or ''
+        use_strict = _model.startswith(('gpt-', 'o1', 'o3', 'o4'))
+        kwargs['response_format'] = {
+            'type': 'json_schema',
+            'json_schema': {
+                'name': 'response',
+                'schema': schema,
+                'strict': use_strict,
+            },
+        }
+    if extra := getattr(Unishare, 'llm_extra_body', None):
+        kwargs['extra_body'] = extra
+
+    response = await _acompletion(**kwargs)
     content: str = response.choices[0].message.content
     if cache is not None:
-        cache.set(prompt, content)
+        cache.set(cache_key, content)
     return content
 
 
@@ -311,7 +403,7 @@ def _parse_response(content: str, type_value: Any) -> Any:
 _DEFAULT_IDENTITY = 'You are an intelligent and extremely smart assistant.'
 
 
-def Q(
+async def Q(
     str_prompt: str,
     type_value: Any = str,
     blank: bool = True,
@@ -359,19 +451,16 @@ def Q(
         format_vars=effective_format_vars,
     )
 
-    async def _execute() -> Any:
-        content = await _call_llm(final_prompt)
-        return _parse_response(content, type_value)
-
-    return _execute()
+    content = await _call_llm(final_prompt, type_value)
+    return _parse_response(content, type_value)
 
 
-def Qx(str_prompt: str, type_value: Any = str) -> Any:
+async def Qx(str_prompt: str, type_value: Any = str) -> Any:
     """
     Calls the LLM without any formatting or system prompt.
     Useful for raw queries where the prompt is already fully formed.
     """
-    return Q(str_prompt, type_value, format=False, extend=False)
+    return await Q(str_prompt, type_value, format=False, extend=False)
 
 
 # ---------------------------------------------------------------------------
@@ -387,17 +476,6 @@ _PROVIDER_ENV_KEYS: dict[str, str] = {
     'gemini':   'GOOGLE_API_KEY',
     'mistral':  'MISTRAL_API_KEY',
     'xai':      'XAI_API_KEY',
-}
-
-# Model identifiers in litellm format: 'provider/model'
-# Documentation: https://docs.litellm.ai/docs/providers
-_PROVIDER_PREFIX: dict[str, str] = {
-    'openai':   'openai',
-    'groq':     'groq',
-    'google':   'gemini',
-    'gemini':   'gemini',
-    'mistral':  'mistral',
-    'xai':      'xai',
 }
 
 # Google Gemini: disable all safety filters
@@ -458,41 +536,38 @@ def setup_llmrag() -> None:
     if reasoning := getattr(config, 'reasoning', None):
         extra_body['reasoning'] = {'effort': reasoning, 'enabled': True}
 
-    # --- litellm configuration ---
-    litellm.set_verbose = False        
+    # --- Provider → AsyncOpenAI client ---
+    _PROVIDER_BASE_URL: dict[str, str] = {
+        'google': 'https://generativelanguage.googleapis.com/v1beta/openai/',
+        'gemini': 'https://generativelanguage.googleapis.com/v1beta/openai/',
+        'openai': 'https://api.openai.com/v1/',
+        'groq':   'https://api.groq.com/openai/v1/',
+        'mistral':'https://api.mistral.ai/v1/',
+        'xai':    'https://api.x.ai/v1/',
+    }
 
     if provider == 'host':
-        # Local / self-hosted model via an OpenAI-compatible API
-        api_key = (
-            os.environ.get(api_key_env)
-            if api_key_env
-            else None
-        ) or 'llm-studio'
+        api_key = (os.environ.get(api_key_env) if api_key_env else None) or 'llm-studio'
+        base_url = address
+        model_id = model or 'local-model'
 
-        litellm.api_base = address
-        litellm.api_key = api_key
-
-        # litellm reaches OpenAI-compatible endpoints via the 'openai/' prefix
-        model_id = f'openai/{model}' if model else 'openai/local-model'
-
-    elif provider in _PROVIDER_PREFIX:
-        prefix = _PROVIDER_PREFIX[provider]
-        model_id = f'{prefix}/{model}' if model else prefix
-
-        if address:
-            # Custom base_url for a cloud provider
-            litellm.api_base = address
+    elif provider in _PROVIDER_ENV_KEYS:
+        api_key = os.environ.get(_PROVIDER_ENV_KEYS[provider], 'no-key')
+        base_url = address or _PROVIDER_BASE_URL.get(provider, '')
+        model_id = model
 
         if provider in ('google', 'gemini'):
-            # Safety settings for Gemini are passed via extra_body
             extra_body.setdefault('safety_settings', _GEMINI_SAFETY_SETTINGS)
-
     else:
         logger.error('Unknown LLM provider: %s', provider)
         return
 
+    global _acompletion
+    _client = _AsyncOpenAI(api_key=api_key, base_url=base_url)
+    _acompletion = _client.chat.completions.create
+
     # Store the model identifier and parameters in Unishare
-    Unishare.llm_model = model_id
+    Unishare.llm_model = model_id  # plain model name, e.g. 'gemini-2.5-pro-preview'
     Unishare.llm_temperature = temperature
     Unishare.llm_extra_body = extra_body or None
 
