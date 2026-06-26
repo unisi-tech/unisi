@@ -185,91 +185,6 @@ def python_type_to_json_schema_dict(type_value: Any) -> dict | None:
     return None  # fallback — no schema
 
 
-def is_type(variable: Any, expected_type: Any) -> bool:
-    """
-    Checks whether a variable matches the expected type or typing hint.
-
-    Supports: bare types, Union/Optional, List[T], Set[T],
-    Dict[K,V], Tuple, Literal, Any, and dict schemas like {'field': type}.
-    """
-     # TypedDict
-    if isinstance(expected_type, type) and issubclass(expected_type, dict) \
-            and hasattr(expected_type, '__annotations__'):
-        if not isinstance(variable, dict):
-            return False
-        for key, sub_type in get_type_hints(expected_type).items():  # ← здесь
-            if key not in variable or not is_type(variable[key], sub_type):
-                return False
-        return True
-    # Explicit dict schema: {'name': str, 'age': int}
-    if isinstance(expected_type, dict):
-        if not isinstance(variable, dict):
-            return False
-        # All keys defined in the schema must be present
-        if not expected_type.keys() <= variable.keys():
-            return False
-        for key, sub_type in expected_type.items():
-            if not is_type(variable[key], sub_type):
-                return False
-        return True
-
-    origin = get_origin(expected_type)
-    args = get_args(expected_type)
-
-    if origin is None:
-        if expected_type is Any:
-            return True
-        if expected_type is None:
-            return variable is None
-        if isinstance(expected_type, (type, tuple)):
-            return isinstance(variable, expected_type)
-        try:
-            return isinstance(variable, expected_type)
-        except TypeError:
-            return False
-
-    if origin is Union:
-        return any(is_type(variable, arg) for arg in args)
-
-    if origin in (list, set):
-        container = list if origin is list else set
-        if not isinstance(variable, container):
-            return False
-        if not args:
-            return True
-        return all(is_type(item, args[0]) for item in variable)
-
-    if origin is tuple:
-        if not isinstance(variable, tuple):
-            return False
-        if not args:
-            return True
-        if len(args) == 2 and args[1] is Ellipsis:
-            return all(is_type(item, args[0]) for item in variable)
-        return len(variable) == len(args) and all(
-            is_type(item, t) for item, t in zip(variable, args)
-        )
-
-    if origin is dict:
-        if not isinstance(variable, dict):
-            return False
-        if not args:
-            return True
-        key_type, val_type = args
-        return all(
-            is_type(k, key_type) and is_type(v, val_type)
-            for k, v in variable.items()
-        )
-
-    if origin is Literal:
-        return any(variable == lit for lit in args)
-
-    try:
-        return isinstance(variable, origin)
-    except TypeError:
-        return False
-
-
 # ---------------------------------------------------------------------------
 # Strip non-standard comments from JSON
 # ---------------------------------------------------------------------------
@@ -406,12 +321,7 @@ def _parse_response(content: str, type_value: Any) -> Any:
         parsed = json.loads(clean_json)
     except json.JSONDecodeError:
         raise ValueError(f'Invalid JSON from LLM:\n{cleaned}')
-
-    if not is_type(parsed, type_value):
-        raise TypeError(
-            f'LLM returned wrong type: got {type(parsed).__name__}, '
-            f'expected {type_value}'
-        )
+    
     return parsed
 
 
