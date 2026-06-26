@@ -1,6 +1,8 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
 from __future__ import annotations
 
+from typing import get_type_hints 
+
 import json, logging, os, re
 from typing import Any, Literal, Union, get_args, get_origin
 
@@ -190,6 +192,15 @@ def is_type(variable: Any, expected_type: Any) -> bool:
     Supports: bare types, Union/Optional, List[T], Set[T],
     Dict[K,V], Tuple, Literal, Any, and dict schemas like {'field': type}.
     """
+     # TypedDict
+    if isinstance(expected_type, type) and issubclass(expected_type, dict) \
+            and hasattr(expected_type, '__annotations__'):
+        if not isinstance(variable, dict):
+            return False
+        for key, sub_type in get_type_hints(expected_type).items():  # ← здесь
+            if key not in variable or not is_type(variable[key], sub_type):
+                return False
+        return True
     # Explicit dict schema: {'name': str, 'age': int}
     if isinstance(expected_type, dict):
         if not isinstance(variable, dict):
