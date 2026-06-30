@@ -301,7 +301,7 @@ class Image(Unit):
         if not hasattr(self,'url'):
             self.url = self.name
         #mask full win path from Chrome detector
-        if self.url[1] == ':': 
+        if self.url and self.url[1] == ':': 
             self.url = f'/{self.url}'
 
 class Video(Unit):
