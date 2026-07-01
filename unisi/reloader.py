@@ -18,11 +18,13 @@ else:
     
     busy = False      
     cwd = os.getcwd()  
+    request_file = None
+    request_dependency_changed = False
 
     def free():
         global busy
         if request_file:
-            reload(request_file)
+            reload(request_file, request_dependency_changed)
         else:
             busy = False
 
@@ -35,9 +37,10 @@ else:
                 return
             file_content[sname] = content
             
-            global busy, request_file
+            global busy, request_file, request_dependency_changed
             busy = True
-            request_file = None            
+            request_file = None
+            request_dependency_changed = False
 
             try:
                 module = user.load_screen(sname)
@@ -74,56 +77,57 @@ else:
 
     class ScreenEventHandler(PatternMatchingEventHandler):    
         def on_modified(self, event):
-            if not event.is_directory and User.last_user:                            
+            if event.src_path.endswith('.py') and not event.is_directory and (user := User.last_user):                            
                 short_path = event.src_path[len(cwd) + 1:]
                 arr = short_path.split(divpath) 
                 name = arr[-1]
-                dir = arr[0] if len(arr) > 1 else '' 
-                                
-                if name.endswith('.py'):
-                    user = User.last_user
-                    
-                    changed_dependency = False
-                    if user.screen_module and dir not in [screens_dir, blocks_dir]:
-                        changed_dependency = True
-                        #analyze if dependency exist
-                        file = open(user.screen_module.__file__, "r") 
-                        arr[-1] = arr[-1][:-3]
-                        module_name = '.'.join(arr) 
-                        module_pattern = '\.'.join(arr)                        
-                        
-                        if re.search(f"((import|from)[ \t]*{module_pattern}[ \t\n]*)",file.read()):
-                            if module_name in sys.modules:
-                                del sys.modules[module_name]                            
-                            short_path = user.screen_module.__file__
-                            if short_path.startswith(app_dir):
-                                short_path = short_path[len(app_dir) + 1:]
-                            dir, name = short_path.split(divpath)                            
+                dir = arr[0] if len(arr) > 1 else ''                                                                                 
+                changed_dependency = False
 
-                    if dir in [screens_dir, blocks_dir]:
-                        if busy:
-                            global request_file            
-                            if dir == blocks_dir:
-                                user._drop_private_module(f'{blocks_dir}.{name[:-3]}')
-                                request_file = user.screen_module.__file__.split(divpath)[-1] if user.screen_module else None
-                            else:
-                                request_file = name
-                        else:                    
-                            if dir == blocks_dir:
-                                user._drop_private_module(f'{blocks_dir}.{name[:-3]}')
-                            fresh_module = reload(name, changed_dependency) if dir == screens_dir else None
-                            module = user.screen_module
-                            if module:
-                                current = module.__file__
-                                if not fresh_module or current != fresh_module.__file__:
-                                    reload(current.split(divpath)[-1], changed_dependency) 
+                if user.screen_module and dir not in [screens_dir, blocks_dir]:
+                    changed_dependency = True
+                    #analyze if dependency exist
+                    file = open(user.screen_module.__file__, "r") 
+                    arr[-1] = arr[-1][:-3]
+                    module_name = '.'.join(arr) 
+                    module_pattern = '\.'.join(arr)                        
+                    
+                    if re.search(f"((import|from)[ \t]*{module_pattern}[ \t\n]*)",file.read()):
+                        if module_name in sys.modules:
+                            del sys.modules[module_name]                            
+                        short_path = user.screen_module.__file__
+                        if short_path.startswith(app_dir):
+                            short_path = short_path[len(app_dir) + 1:]
+                        dir, name = short_path.split(divpath)                            
+
+                if dir in [screens_dir, blocks_dir]:
+                    if dir == blocks_dir:
+                        user._drop_private_module(f'{blocks_dir}.{name[:-3]}')
+                        #a block is a dependency of the current screen: force reload
+                        #even though the screen file itself did not change
+                        changed_dependency = True
+
+                    if busy:
+                        global request_file, request_dependency_changed
+                        if dir == blocks_dir:
+                            request_file = user.screen_module.__file__.split(divpath)[-1] if user.screen_module else None
+                        else:
+                            request_file = name
+                        request_dependency_changed = changed_dependency
+                    else:                    
+                        fresh_module = reload(name, changed_dependency) if dir == screens_dir else None
+                        module = user.screen_module
+                        if module:
+                            current = module.__file__
+                            if not fresh_module or current != fresh_module.__file__:
+                                reload(current.split(divpath)[-1], changed_dependency) 
                                                     
         def on_deleted(self, event):            
-            if not event.is_directory and User.last_user:
-                user = User.last_user            
+            if not event.is_directory and (user := User.last_user):                
                 arr = event.src_path.split(divpath) 
                 name = arr[-1]
                 dir = arr[-2]  
+                
                 if name.endswith('.py') and dir == screens_dir:
                     user._remove_screen_info(name)
                     for i, s in enumerate(user.screens):
