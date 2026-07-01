@@ -107,6 +107,18 @@ else:
                         #even though the screen file itself did not change
                         changed_dependency = True
 
+                        #evict every other already-loaded screen that imports this
+                        #block, so it gets recompiled with the fresh block the next
+                        #time it's requested, instead of staying stale in user.screens
+                        block_pattern = re.escape(f'{blocks_dir}.{name[:-3]}')
+                        for s in list(user.screens):
+                            if s is user.screen_module:
+                                continue
+                            with open(s.__file__, "r") as sfile:
+                                s_content = sfile.read()
+                            if re.search(f"((import|from)[ \t]*{block_pattern}[ \t\n]*)", s_content):
+                                user.screens.remove(s)
+
                     if busy:
                         global request_file, request_dependency_changed
                         if dir == blocks_dir:
