@@ -51,6 +51,16 @@ class QueryCache:
 # Type helper functions
 # ---------------------------------------------------------------------------
 
+_BUILTIN_TYPE_NAMES: dict[type, str] = {
+    int: 'integer',
+    float: 'number',
+    bool: 'boolean',
+    str: 'string',
+    dict: 'object',
+    list: 'array',
+}
+
+
 def python_type_to_json_schema(type_value: Any) -> str:
     """
     Converts a Python type or typing hint to a textual JSON schema description
@@ -63,16 +73,8 @@ def python_type_to_json_schema(type_value: Any) -> str:
         {'name': str}    → 'object with {"name": "[Type: string]"} structure'
     """
     if isinstance(type_value, type):
-        _BUILTIN_MAP = {
-            int: 'integer',
-            float: 'number',
-            bool: 'boolean',
-            str: 'string',
-            dict: 'object',
-            list: 'array',
-        }
-        if type_value in _BUILTIN_MAP:
-            return _BUILTIN_MAP[type_value]
+        if type_value in _BUILTIN_TYPE_NAMES:
+            return _BUILTIN_TYPE_NAMES[type_value]
 
         origin = get_origin(type_value)
         args = get_args(type_value)
@@ -119,13 +121,8 @@ def _type_to_schema_dict(type_value: Any) -> dict:
     str here ALWAYS becomes {'type': 'string'} — the "free text, no schema"
     sentinel only makes sense at the top-level call (see below).
     """
-    _BUILTIN: dict[Any, str] = {
-        int: 'integer', float: 'number', bool: 'boolean',
-        str: 'string',  dict: 'object',  list: 'array',
-    }
-
-    if isinstance(type_value, type) and type_value in _BUILTIN:
-        return {'type': _BUILTIN[type_value]}
+    if isinstance(type_value, type) and type_value in _BUILTIN_TYPE_NAMES:
+        return {'type': _BUILTIN_TYPE_NAMES[type_value]}
 
     # TypedDict class — top-level or nested (list[SomeTypedDict], a field
     # of another TypedDict). get_type_hints was already imported for this
@@ -178,7 +175,7 @@ def _type_to_schema_dict(type_value: Any) -> dict:
         return {
             'type': 'object',
             'properties': properties,
-            'required': list(type_value.keys()),
+            'required': sorted(type_value.keys()),
             'additionalProperties': False,
         }
 
@@ -210,6 +207,28 @@ def python_type_to_json_schema_dict(type_value: Any) -> dict | None:
     if type_value is str or type_value == 'date':
         return None  # free-text answer — no schema
     return _type_to_schema_dict(type_value)
+
+
+def _type_key(type_value: Any) -> str:
+    """
+    Stable, deterministic cache-key component for type_value.
+
+    Using repr(type_value) directly is unreliable for dict-literal schemas:
+    repr({'a': str, 'b': int}) and repr({'b': int, 'a': str}) differ even
+    though the two describe the exact same type, which would cause spurious
+    cache misses whenever a schema happens to be rebuilt with fields in a
+    different order. It is also blind to TypedDict schema evolution: the
+    repr of a TypedDict class is just its qualified name (e.g.
+    "<class 'bible_core._SCHEMA'>"), unaffected by adding/removing fields —
+    so an old cache entry from before a schema change would keep matching
+    the new schema's cache key and be served as if still valid.
+
+    _type_key sidesteps both problems by hashing the canonical JSON Schema
+    (via _type_to_schema_dict, keys sorted) instead of the raw type object:
+    field order stops mattering, and any actual change to the schema's
+    shape changes the resulting string.
+    """
+    return json.dumps(_type_to_schema_dict(type_value), sort_keys=True, default=str)
 
 
 def _validate_against_type(value: Any, type_value: Any) -> None:
@@ -306,14 +325,56 @@ def _validate_against_type(value: Any, type_value: Any) -> None:
 # Strip non-standard comments from JSON
 # ---------------------------------------------------------------------------
 
-_RE_SINGLE_COMMENT = re.compile(r'//.*')
-_RE_MULTI_COMMENT = re.compile(r'/\*.*?\*/', re.DOTALL)
-
-
 def remove_json_comments(json_str: str) -> str:
-    """Removes // and /* */ comments from a JSON string returned by the LLM."""
-    json_str = _RE_SINGLE_COMMENT.sub('', json_str)
-    return _RE_MULTI_COMMENT.sub('', json_str)
+    """
+    Removes // and /* */ comments from a JSON string returned by the LLM.
+
+    This is a string-aware scanner, not a plain regex substitution: a naive
+    r'//.*' regex would also strip everything after // found INSIDE a string
+    value, e.g. {"website": "https://example.com/page"} would be mangled
+    into {"website": "https: — breaking otherwise perfectly valid JSON that
+    simply happens to contain a URL. This scanner tracks whether it is
+    currently inside a string literal (respecting \\" escapes) and only
+    treats // or /* as a comment start when outside of one.
+    """
+    result: list[str] = []
+    i = 0
+    n = len(json_str)
+    in_string = False
+    while i < n:
+        c = json_str[i]
+        if in_string:
+            result.append(c)
+            if c == '\\' and i + 1 < n:
+                # Escaped character — copy the next char verbatim too, so an
+                # escaped quote \" does not end the string early.
+                result.append(json_str[i + 1])
+                i += 2
+                continue
+            if c == '"':
+                in_string = False
+            i += 1
+            continue
+
+        if c == '"':
+            in_string = True
+            result.append(c)
+            i += 1
+            continue
+
+        if c == '/' and i + 1 < n and json_str[i + 1] == '/':
+            j = json_str.find('\n', i)
+            i = j if j != -1 else n
+            continue
+
+        if c == '/' and i + 1 < n and json_str[i + 1] == '*':
+            j = json_str.find('*/', i + 2)
+            i = j + 2 if j != -1 else n
+            continue
+
+        result.append(c)
+        i += 1
+    return ''.join(result)
 
 
 # Kept as a backward-compatible alias.
@@ -323,6 +384,24 @@ remove_comments = remove_json_comments
 # ---------------------------------------------------------------------------
 # Core: prompt building and LLM invocation
 # ---------------------------------------------------------------------------
+
+def _safe_format(prompt: str, format_vars: dict) -> str:
+    """
+    Substitutes only {key} placeholders whose name is a known key in
+    format_vars, leaving any other brace content untouched.
+
+    Unlike str.format_map(), which raises KeyError on ANY unmatched {...}
+    and aborts the whole substitution — including otherwise-valid
+    placeholders — if the prompt happens to contain literal JSON braces,
+    e.g. 'Answer as {"key": "value"}. Name: {name}' would previously fail
+    to substitute {name} at all, silently, because format_map choked on
+    {"key": "value"} first.
+    """
+    if not format_vars:
+        return prompt
+    pattern = re.compile(r'\{(' + '|'.join(re.escape(k) for k in format_vars) + r')\}')
+    return pattern.sub(lambda m: str(format_vars[m.group(1)]), prompt)
+
 
 def _build_prompt(
     prompt: str,
@@ -340,7 +419,8 @@ def _build_prompt(
         type_value:  expected response type; affects the format instruction.
         extend:      if True, prepend a system prefix with a format instruction.
         identity:    assistant role/persona used in the system prefix.
-        format_vars: variables for str.format_map().
+        format_vars: variables substituted for {key} placeholders whose key
+                      name is present in format_vars.
 
     Returns:
         The fully-built prompt string.
@@ -349,11 +429,8 @@ def _build_prompt(
         Unlike the original, does NOT read the caller frame via inspect.
         All variables are passed explicitly through **kwargs in Q().
     """
-    if '{' in prompt and format_vars:
-        try:
-            prompt = prompt.format_map(format_vars)
-        except KeyError as e:
-            logger.warning("Q(): missing format variable %s", e)
+    if format_vars:
+        prompt = _safe_format(prompt, format_vars)
 
     if extend and type_value is not None:
         if type_value == 'date':
@@ -503,7 +580,7 @@ async def Q(
     )
 
     cache: QueryCache | None = Unishare.llm_cache
-    cache_key = f'{type_value!r}:{final_prompt}'
+    cache_key = f'{_type_key(type_value)}:{final_prompt}'
 
     if cache is not None:
         if (cached := cache.get(cache_key)) is not None:
