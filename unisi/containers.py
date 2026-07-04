@@ -107,16 +107,30 @@ class ParamBlock(Block):
             args = [[]]        
         self.name = name        
         self.type = 'block'
-        self.value = list(args)
+        self._init_value = list(args)        
+        self._row = row
+        self._strict = strict
+        self._name2elem = {}
+        self.value = self._init_value[:]
+        self.changed = changed
+        self.params = params
+                
+    @property
+    def params(self) -> dict:        
+        return {name: el.params for name, el in self._name2elem.items()}
+    
+    @params.setter   
+    def params(self, params: dict):
+        self.value = self._init_value[:]
         self._name2elem = {}
         cnt = 0        
         for param, val in params.items():                    
             pretty_name = pretty4(param)            
             match val:
                 case True | False:
-                    el = Switch(pretty_name, val, changed)
+                    el = Switch(pretty_name, val, self.changed)
                 case str() | int() | float():
-                    el = Edit(pretty_name, val, changed)
+                    el = Edit(pretty_name, val, self.changed)
                 case tuple() | list():
                     if len(val) != 2 or isinstance(val[0], dict):
                         continue
@@ -125,31 +139,27 @@ class ParamBlock(Block):
                     if not isinstance(options, list | tuple | dict):
                         raise ValueError('Options value (the second parameter) has to be a list or tuple!')
                     if len(options) == 3 and all(map(lambda e: isinstance(e, Number), options)):
-                        el = Range(pretty_name, val[0], changed, options = options)
+                        el = Range(pretty_name, val[0], self.changed, options = options)
                     elif isinstance(options, list | tuple):
-                        el = Select(pretty_name, val[0], changed, options = options, type = 'select')
+                        el = Select(pretty_name, val[0], self.changed, options = options, type = 'select')
                     else: 
-                        el = Tree(pretty_name, val[0], changed, options = options)
+                        el = Tree(pretty_name, val[0], self.changed, options = options)
                 case _:
-                    if strict == 'recurse' and isinstance(val, dict):
-                        pb = ParamBlock(pretty_name, changed = changed, strict = strict, row = row, **val)
+                    if self._strict == 'recurse' and isinstance(val, dict):
+                        pb = ParamBlock(pretty_name, changed = self.changed, strict = self._strict, row = self._row, **val)
                         self.value.append(pb)
                         self._name2elem[param] = pb
                         cnt = 0                        
-                    elif strict:
+                    elif self._strict:
                         raise ValueError(f'The {param} value {val} is not supported. Look at ParamBlock documentation!')                    
                     continue
                     
             self._name2elem[param] = el
-            if cnt % row == 0:
+            if cnt % self._row == 0:
                 block = []
                 self.value.append(block)
             cnt += 1
             block.append(el)
-        
-    @property
-    def params(self) -> dict:        
-        return {name: el.params for name, el in self._name2elem.items()}
 
 class Dialog:  
     def __init__(self, question, callback, *content, commands = ['Ok','Cancel'],

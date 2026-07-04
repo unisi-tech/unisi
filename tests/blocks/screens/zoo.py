@@ -28,7 +28,7 @@ def html_handler(unit, event):
 
 html = HTML('HTML',  '<button>Click me</button> <a href="#">Link</a> <input type="text">') #, html_handler)
 
-html_block = Block('Block with HTML', [], html, zoo_table)
+html_block = Block('Zoo block', [],  zoo_table)
 
 blocks = [[eblock,block], html_block]
 
