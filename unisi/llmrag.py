@@ -115,9 +115,9 @@ jstype = python_type_to_json_schema
 
 def _type_to_schema_dict(type_value: Any) -> dict:
     """
-    Внутренний рекурсивный конвертер. В отличие от python_type_to_json_schema_dict,
-    str здесь ВСЕГДА становится {'type': 'string'} — сентинел "свободный текст
-    без схемы" имеет смысл только на верхнем уровне вызова (см. ниже).
+    Internal recursive converter. Unlike python_type_to_json_schema_dict,
+    str here ALWAYS becomes {'type': 'string'} — the "free text, no schema"
+    sentinel only makes sense at the top-level call (see below).
     """
     _BUILTIN: dict[Any, str] = {
         int: 'integer', float: 'number', bool: 'boolean',
@@ -127,10 +127,10 @@ def _type_to_schema_dict(type_value: Any) -> dict:
     if isinstance(type_value, type) and type_value in _BUILTIN:
         return {'type': _BUILTIN[type_value]}
 
-    # TypedDict класс — top-level или вложенный (list[SomeTypedDict], поле
-    # другого TypedDict). get_type_hints уже был импортирован для этого,
-    # но не использовался: TypedDict-классы не распознавались вообще и
-    # тихо превращались в None → {'type': 'string'} у родителя.
+    # TypedDict class — top-level or nested (list[SomeTypedDict], a field
+    # of another TypedDict). get_type_hints was already imported for this
+    # purpose but never wired up: TypedDict classes weren't recognised at
+    # all and silently turned into None → {'type': 'string'} in the parent.
     if isinstance(type_value, type) and is_typeddict(type_value):
         hints = get_type_hints(type_value)
         required_keys = getattr(type_value, '__required_keys__', frozenset(hints.keys()))
@@ -160,14 +160,14 @@ def _type_to_schema_dict(type_value: Any) -> dict:
         non_none = [a for a in args if a is not type(None)]
         if len(non_none) == 1:
             return _type_to_schema_dict(non_none[0])
-        return {'type': 'string'}  # сложный union — не выразить точно, но и не None
+        return {'type': 'string'}  # complex union — can't express precisely, but not None either
 
-    # Список-литерал из одного элемента, используемый КАК схема-по-примеру:
-    # [str] значит "массив строк", [{...}] значит "массив объектов такой формы".
-    # Раньше это не входило ни в одну ветку выше (это list-INSTANCE, не
-    # list[X] generic alias, и не dict), и падало в самый низ на return None,
-    # откуда родитель делал properties[key] = {'type': 'string'} — то есть
-    # ключ, задуманный как массив, требовался API как строка.
+    # A single-item list literal used AS an example schema:
+    # [str] means "array of strings", [{...}] means "array of objects of this shape".
+    # This used to fall through every branch above (it's a list INSTANCE, not
+    # a list[X] generic alias, and not a dict) all the way to return None,
+    # after which the parent set properties[key] = {'type': 'string'} — i.e.
+    # a key meant to be an array was requested from the API as a string.
     if isinstance(type_value, list):
         if not type_value:
             return {'type': 'array'}
@@ -182,7 +182,7 @@ def _type_to_schema_dict(type_value: Any) -> dict:
             'additionalProperties': False,
         }
 
-    return {'type': 'string'}  # неизвестный вложенный тип — консервативный fallback
+    return {'type': 'string'}  # unknown nested type — conservative fallback
 
 
 def python_type_to_json_schema_dict(type_value: Any) -> dict | None:
@@ -191,11 +191,11 @@ def python_type_to_json_schema_dict(type_value: Any) -> dict | None:
     suitable for passing as response_format to the OpenAI-compatible API.
 
     Returns None for plain str (no schema needed — model returns free text).
-    Верхнеуровневый str/'date' -> None: значит "свободный текст без JSON
-    Schema" — так и должно быть для простых текстовых вопросов через Q(prompt)
-    без второго аргумента. Всё остальное делегируется в _type_to_schema_dict,
-    где str внутри контейнера (list[str], TypedDict-поле, dict-литерал)
-    корректно становится {'type': 'string'}, а не тем же самым None.
+    Top-level str/'date' -> None: means "free text, no JSON Schema" — which
+    is exactly right for simple text questions via Q(prompt) with no second
+    argument. Everything else is delegated to _type_to_schema_dict, where str
+    inside a container (list[str], a TypedDict field, a dict-literal schema)
+    correctly becomes {'type': 'string'} rather than the same None sentinel.
 
     Examples:
         int                    → {"type": "integer"}
@@ -214,40 +214,40 @@ def python_type_to_json_schema_dict(type_value: Any) -> dict | None:
 
 def _validate_against_type(value: Any, type_value: Any) -> None:
     """
-    Рекурсивно проверяет, что value соответствует форме type_value (том же
-    представлении, которое принимает python_type_to_json_schema_dict: builtin
-    типы, list[X], dict[K,V], Union/Optional, TypedDict, dict-литерал
-    {'field': type}, list-литерал [X] "массив такой формы"). Бросает ValueError
-    с точным путём до несовпадения при первом расхождении.
+    Recursively checks that value matches the shape of type_value (the same
+    representation accepted by python_type_to_json_schema_dict: builtin types,
+    list[X], dict[K,V], Union/Optional, TypedDict, dict-literal {'field': type},
+    list-literal [X] "array of this shape"). Raises ValueError with the exact
+    path to the first mismatch found.
 
-    Зачем нужен отдельно от response_format: провайдер без строгой схемы
-    (strict=False — так у всех, кроме gpt-/o1/o3/o4, см. _call_llm) может
-    вернуть синтаксически валидный JSON неправильной формы, например
-    {"scenes": "текст со сценами"} вместо {"scenes": [...]}. json.loads()
-    такое пропустит без единой ошибки — тип для JSON-парсера не важен, а вот
-    вызывающему коду важен. Q() кеширует контент ТОЛЬКО после этой проверки
-    (см. ниже), чтобы малоформатный ответ не осел в кеше навсегда под тем же
-    (type_value, prompt) — тогда как повторный вызов Q() из retry-цикла
-    вызывающего кода будет просто читать тот же кеш и никогда не дойдёт
-    до нового обращения к LLM.
+    Why this is needed on top of response_format: a provider without strict
+    schema enforcement (strict=False — true for everyone except gpt-/o1/o3/o4,
+    see _call_llm) can return syntactically valid JSON of the wrong shape, e.g.
+    {"scenes": "some text describing the scenes"} instead of {"scenes": [...]}.
+    json.loads() lets that through without a single error — the JSON parser
+    doesn't care about the type, but the calling code does. Q() only caches
+    content AFTER this check passes (see below), so a malformed response never
+    sits in the cache forever under the same (type_value, prompt) key — which
+    would otherwise make a retry from the caller's own retry loop just read
+    the same cache entry and never reach the LLM again.
     """
     def _check(v: Any, t: Any, path: str) -> None:
         if t is str or t == 'date':
             if not isinstance(v, str):
-                raise ValueError(f"{path}: ожидалась строка, получено {type(v).__name__}")
+                raise ValueError(f"{path}: expected string, got {type(v).__name__}")
             return
         if isinstance(t, type) and t in (int, float, bool):
             if not isinstance(v, t):
-                raise ValueError(f"{path}: ожидался {t.__name__}, получено {type(v).__name__}")
+                raise ValueError(f"{path}: expected {t.__name__}, got {type(v).__name__}")
             return
         if isinstance(t, type) and is_typeddict(t):
             if not isinstance(v, dict):
-                raise ValueError(f"{path}: ожидался объект (TypedDict {t.__name__}), получено {type(v).__name__}")
+                raise ValueError(f"{path}: expected object (TypedDict {t.__name__}), got {type(v).__name__}")
             hints = get_type_hints(t)
             required_keys = getattr(t, '__required_keys__', frozenset(hints.keys()))
             for k in required_keys:
                 if k not in v:
-                    raise ValueError(f"{path}: отсутствует обязательное поле {k!r}")
+                    raise ValueError(f"{path}: missing required field {k!r}")
             for k, sub_t in hints.items():
                 if k in v:
                     _check(v[k], sub_t, f"{path}.{k}")
@@ -258,7 +258,7 @@ def _validate_against_type(value: Any, type_value: Any) -> None:
 
         if origin is list:
             if not isinstance(v, list):
-                raise ValueError(f"{path}: ожидался list, получено {type(v).__name__}")
+                raise ValueError(f"{path}: expected list, got {type(v).__name__}")
             if args:
                 for i, item in enumerate(v):
                     _check(item, args[0], f"{path}[{i}]")
@@ -266,7 +266,7 @@ def _validate_against_type(value: Any, type_value: Any) -> None:
 
         if origin is dict:
             if not isinstance(v, dict):
-                raise ValueError(f"{path}: ожидался dict, получено {type(v).__name__}")
+                raise ValueError(f"{path}: expected dict, got {type(v).__name__}")
             if args and len(args) == 2:
                 for k, val in v.items():
                     _check(val, args[1], f"{path}.{k}")
@@ -279,11 +279,11 @@ def _validate_against_type(value: Any, type_value: Any) -> None:
             if len(non_none) == 1:
                 _check(v, non_none[0], path)
                 return
-            return  # сложный union — не проверяем строго
+            return  # complex union — not strictly checked
 
         if isinstance(t, list):
             if not isinstance(v, list):
-                raise ValueError(f"{path}: ожидался list (array), получено {type(v).__name__}")
+                raise ValueError(f"{path}: expected list (array), got {type(v).__name__}")
             if t:
                 for i, item in enumerate(v):
                     _check(item, t[0], f"{path}[{i}]")
@@ -291,13 +291,13 @@ def _validate_against_type(value: Any, type_value: Any) -> None:
 
         if isinstance(t, dict) and t:
             if not isinstance(v, dict):
-                raise ValueError(f"{path}: ожидался object, получено {type(v).__name__}")
+                raise ValueError(f"{path}: expected object, got {type(v).__name__}")
             for k, sub_t in t.items():
                 if k not in v:
-                    raise ValueError(f"{path}: отсутствует обязательное поле {k!r}")
+                    raise ValueError(f"{path}: missing required field {k!r}")
                 _check(v[k], sub_t, f"{path}.{k}")
             return
-        # неизвестный тип-описатель — не проверяем строго
+        # unknown type descriptor — not strictly checked
 
     _check(value, type_value, "$")
 
@@ -508,22 +508,23 @@ async def Q(
     if cache is not None:
         if (cached := cache.get(cache_key)) is not None:
             try:
-                # Обычный путь: контент уже прошёл _parse_response при записи
-                # (см. ниже), здесь просто повторный парсинг того же валидного JSON.
+                # Normal path: this content already passed _parse_response
+                # when it was written (see below), so this is just re-parsing
+                # the same valid JSON again.
                 return _parse_response(cached, type_value)
             except ValueError:
-                # Кеш содержит запись, не проходящую валидацию — например,
-                # записанную ДО этого фикса, когда malformed-ответы ещё
-                # кешировались, или любую другую испорченную запись. Без этого
-                # except читатель кеша навечно застревает: cache.get() всегда
-                # возвращает ту же битую строку, Q() всегда бросает то же
-                # исключение, и обращение к LLM НИКОГДА не происходит — даже
-                # если вызывающий код честно организовал retry вокруг Q().
-                # Трактуем это как промах кеша и идём в LLM заново.
+                # The cache holds an entry that fails validation — e.g. one
+                # written BEFORE this fix, back when malformed responses were
+                # still cached, or any other corrupted entry. Without this
+                # except, a cache reader gets stuck forever: cache.get()
+                # always returns the same bad string, Q() always raises the
+                # same exception, and the LLM is NEVER called again — even
+                # if the caller wrapped Q() in a proper retry loop of its own.
+                # Treat this as a cache miss and go to the LLM fresh.
                 pass
 
     content = await _call_llm(final_prompt, type_value)
-    result = _parse_response(content, type_value)  # бросает исключение на malformed — до cache.set не дойдёт
+    result = _parse_response(content, type_value)  # raises on malformed — never reaches cache.set below
 
     if cache is not None:
         cache.set(cache_key, content)
