@@ -48,6 +48,9 @@ graph = Graph('Graph',
     nodes = [Node("Node 1"),Node("Node 2", size = 20),None, Node("Node 3", color = "green"), Node("Node 4")],
     edges = [Edge(0,1, color = "#3CA072"), Edge(1,3,'extending', size = 6),Edge(3,4, size = 2), Edge(2,4)])
 
+#it is not insiaally attached to the screen, so set reactivity manually
+graph.set_reactivity(user)
+
 def switch_graph(*_):    
     bottom_block.value[1] = toposcreen if bottom_block.value[1] == graph else graph
 
@@ -61,9 +64,38 @@ async def log(x,y):
         await user.send(Warning(str(i)))
     ibutton.icon = 'check'
 
-ibutton = Button('_Ignored', lambda *_: Info('ignored!'), icon = 'delete_forever', tooltip = 'Ignore info!')
+def delete_graph_node(*_):
+    if bottom_block.value[1] == toposcreen:        
+        return Info('Can not modify fixed screen topology in this mode. Switch to graph mode to delete nodes.')
+    
+    for i in graph.value['nodes']:        
+        graph.nodes[i] = None
+        graph.value['nodes'].remove(i)
 
-toolbar = [Button('_Save', log, icon = 'save', tooltip = 'Some info'),ibutton]
+    return Info(" deleted.")
+        
+def add_graph_node(*_):
+    if bottom_block.value[1] == toposcreen:        
+        return Info('Can not modify fixed screen topology in this mode. Switch to graph mode to delete nodes.')
+    first_none = None
+    for i, node in enumerate(graph.nodes):
+        if node is not None:
+            first_none = i
+            break
+     
+    i = len(graph.nodes) 
+    name = f"Added Node {i+1}"
+    graph.nodes.append(Node(name))
+
+    if first_none is not None:
+        graph.edges.append(Edge(first_none, i, color = "#3CA072"))    
+        
+    return Info(f"added ")
+
+
+ibutton = Button('_del', delete_graph_node, icon = 'delete_forever', tooltip = 'Delete graph node')
+
+toolbar = [Button('_add', add_graph_node, icon = 'add', tooltip = 'Add graph node'),ibutton]
 
 def prepare():
     if not toposcreen.topology:
