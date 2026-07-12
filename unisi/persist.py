@@ -1,9 +1,7 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
-import importlib
 import json
 import os
 import sqlite3
-import sys
 import time
 
 from .common import strpath
@@ -20,17 +18,13 @@ CREATE TABLE IF NOT EXISTS state (
 )
 """
 
-SKIP_RESTORE_KEYS = {'id', 'path', 'tag', 'parent', '__class__', '__origin_module__', *Unit.action_list}
+# 'id' is the live matching key _rebuild_value/_smart_apply_dict use to find the
+# existing unit a saved dict belongs to — restore would misbehave without it.
+# Unit.action_list ('changed', 'complete', ...) must never be overwritten by restore.
+SKIP_RESTORE_KEYS = {'id', *Unit.action_list}
 
-TYPE_MODULES = (
-    'unisi.units',
-    'unisi.containers',
-    'unisi.tables',
-    'unisi.graphs',
-)
-
-_CLASS_CACHE = {}
 _SKIP_JSON = object()
+_UNRESOLVED = object()  # marks a saved unit reference with no live counterpart, so it gets dropped rather than fabricated
 
 
 def _path_key(path):
@@ -42,54 +36,6 @@ def _path_key(path):
 def _screen_name(current_screen):
     screen = getattr(current_screen, 'screen', current_screen)
     return getattr(screen, 'name', getattr(current_screen, 'name', ''))
-
-
-def _screen_module(current_screen):
-    return getattr(current_screen, '__name__', getattr(current_screen, '__module__', ''))
-
-
-def _class_for(saved_dict):
-    class_name = saved_dict.get('__class__')
-    type_name = saved_dict.get('type')
-    cache_key = class_name or type_name
-
-    if cache_key and cache_key in _CLASS_CACHE:
-        return _CLASS_CACHE[cache_key]
-
-    cls = None
-    if class_name:
-        for module_name in TYPE_MODULES:
-            module = sys.modules.get(module_name) or importlib.import_module(module_name)
-            cls = getattr(module, class_name, None)
-            if cls:
-                break
-
-    if not cls:
-        fallback = {
-            'block': ('unisi.containers', 'Block'),
-            'screen': ('unisi.containers', 'Screen'),
-            'command': ('unisi.units', 'Button'),
-            'uploader': ('unisi.units', 'Button'),
-            'camera': ('unisi.units', 'Button'),
-            'range': ('unisi.units', 'Range'),
-            'switch': ('unisi.units', 'Switch'),
-            'select': ('unisi.units', 'Select'),
-            'radio': ('unisi.units', 'Select'),
-            'tree': ('unisi.units', 'Tree'),
-            'text': ('unisi.units', 'TextArea'),
-            'html': ('unisi.units', 'HTML'),
-            'image': ('unisi.units', 'Image'),
-            'video': ('unisi.units', 'Video'),
-            'sound': ('unisi.units', 'Sound'),
-            'chart': ('unisi.units', 'Chart'),
-            'table': ('unisi.tables', 'Table'),
-            'graph': ('unisi.graphs', 'Graph'),
-        }.get(type_name, ('unisi.units', 'Unit'))
-        cls = getattr(sys.modules.get(fallback[0]) or importlib.import_module(fallback[0]), fallback[1])
-
-    if cache_key:
-        _CLASS_CACHE[cache_key] = cls
-    return cls
 
 
 def _unit_path_key(unit, parents):
@@ -115,9 +61,6 @@ def _json_ready(value, parents):
         value = value._obj
     if isinstance(value, Unit):
         state = value.__getstate__()
-        state.setdefault('__class__', type(value).__name__)
-        if hasattr(value, '_origin_module'):
-            state.setdefault('__origin_module__', value._origin_module)
         if path := _unit_path_key(value, parents):
             state['id'] = path
         return _json_ready(state, parents)
@@ -126,7 +69,7 @@ def _json_ready(value, parents):
     if isinstance(value, dict):
         data = {}
         for key, val in value.items():
-            if isinstance(key, str) and key.startswith('_') and key not in ('__class__', '__origin_module__'):
+            if isinstance(key, str) and key.startswith('_'):
                 continue
             item = _json_ready(val, parents)
             if item is not _SKIP_JSON:
@@ -148,41 +91,30 @@ def _json_ready(value, parents):
 
 
 def _rebuild_value(value, unit_map):
+    """Resolve saved data against the live unit tree. A unit is only ever matched
+    by id and updated in place; a saved id with no live counterpart is dropped —
+    restore can update existing units but never creates or deletes them."""
     if isinstance(value, list):
-        return [_rebuild_value(item, unit_map) for item in value]
+        rebuilt = (_rebuild_value(item, unit_map) for item in value)
+        return [item for item in rebuilt if item is not _UNRESOLVED]
     if isinstance(value, dict) and 'id' in value:
-        path = _path_key(value['id'])
-        existing_unit = unit_map.get(path)
+        existing_unit = unit_map.get(_path_key(value['id']))
         if existing_unit:
             _smart_apply_dict(existing_unit, value, unit_map)
             return existing_unit
-        new_unit = rebuild_unit_from_dict(value, unit_map)
-        unit_map[path] = new_unit
-        return new_unit
+        return _UNRESOLVED
     if isinstance(value, dict):
         return {key: _rebuild_value(item, unit_map) for key, item in value.items()}
     return value
-
-
-def rebuild_unit_from_dict(saved_dict, unit_map=None):
-    unit_map = unit_map if unit_map is not None else {}
-    cls = _class_for(saved_dict)
-    unit = cls.__new__(cls)
-    object.__setattr__(unit, '_mark_changed', None)
-    object.__setattr__(unit, '_origin_module', saved_dict.get('__origin_module__', ''))
-
-    for key, value in saved_dict.items():
-        if key in SKIP_RESTORE_KEYS:
-            continue
-        object.__setattr__(unit, key, _rebuild_value(value, unit_map))
-    return unit
 
 
 def _smart_apply_dict(unit, saved_dict, unit_map):
     for key, value in saved_dict.items():
         if key in SKIP_RESTORE_KEYS:
             continue
-        object.__setattr__(unit, key, _rebuild_value(value, unit_map))
+        rebuilt = _rebuild_value(value, unit_map)
+        if rebuilt is not _UNRESOLVED:
+            object.__setattr__(unit, key, rebuilt)
 
 
 class Persist:
@@ -208,17 +140,14 @@ class Persist:
             return
 
         screen_name = _screen_name(current_screen)
-        screen_module = _screen_module(current_screen)
         screen = getattr(current_screen, 'screen', current_screen)
         parents = getattr(screen, '_parents', {})
         ts = time.time()
         rows = []
 
-        for root_obj, serialized_dict in persist_data:
-            origin = getattr(root_obj, '_origin_module', '')
-            namespace = origin if origin and origin != screen_module else screen_name
-            path = _path_key(serialized_dict.get('id') or serialized_dict.get('path') or getattr(root_obj, 'name', ''))
-            rows.append((self.user_id, namespace, path, json.dumps(_json_ready(serialized_dict, parents), ensure_ascii=False), ts))
+        for _, serialized_dict in persist_data:
+            path = _path_key(serialized_dict['id'])
+            rows.append((self.user_id, screen_name, path, json.dumps(_json_ready(serialized_dict, parents), ensure_ascii=False), ts))
 
         self.conn.executemany(
             'INSERT OR REPLACE INTO state(user_id, namespace, path, value, ts) VALUES (?, ?, ?, ?, ?)',
@@ -229,32 +158,12 @@ class Persist:
     def restore_screen(self, user, screen_module, screen_units):
         screen_name = _screen_name(screen_module)
         rows = self.conn.execute(
-            """
-            SELECT namespace, path, value, ts
-            FROM state
-            WHERE user_id = ?
-              AND (namespace = ? OR namespace LIKE 'blocks.%')
-            """,
+            'SELECT path, value FROM state WHERE user_id = ? AND namespace = ?',
             (self.user_id, screen_name),
         ).fetchall()
 
         if not rows:
             return
-
-        local_state = {}
-        shared_state = {}
-
-        for namespace, path, value, ts in rows:
-            try:
-                state = json.loads(value)
-            except json.JSONDecodeError:
-                continue
-            if namespace == screen_name:
-                local_state[path] = state
-            elif namespace.startswith('blocks.'):
-                current = shared_state.get(path)
-                if current is None or ts > current[1]:
-                    shared_state[path] = (state, ts)
 
         unit_map = {}
         screen = getattr(screen_module, 'screen', screen_module)
@@ -264,25 +173,20 @@ class Persist:
             if path:
                 unit_map[_path_key(path)] = unit
 
-        paths_to_restore = set(local_state) | set(shared_state)
-        sorted_paths = sorted(paths_to_restore, key=lambda p: p.count('@') + p.count('/'))
-        timings = {}
+        # broader (shallower) persist targets first, so a more specific saved
+        # entry applied afterwards correctly wins for its own subtree
+        rows.sort(key=lambda row: row[0].count('@'))
 
-        for path in sorted_paths:
+        for path, value in rows:
             unit = unit_map.get(path)
-            if unit:
-                saved_dict = local_state.get(path)
-                if path in shared_state:
-                    shared_dict, shared_ts = shared_state[path]
-                    for timing_path, timing_ts in timings.items():
-                        if (path.startswith(timing_path + '@') or path.startswith(timing_path + '/')) and shared_ts < timing_ts:
-                            saved_dict = shared_dict
-                            break
-                    else:
-                        saved_dict = shared_dict
-                    timings[path] = shared_ts
-                if saved_dict:
-                    _smart_apply_dict(unit, saved_dict, unit_map)
+            if not unit:
+                continue
+            try:
+                saved_dict = json.loads(value)
+            except json.JSONDecodeError:
+                continue
+            if saved_dict:
+                _smart_apply_dict(unit, saved_dict, unit_map)
 
 
 class UserPersistMixin:
@@ -399,9 +303,6 @@ class UserPersistMixin:
                 path_key = strpath(pr_path)
                 if path_key not in persist_targets:
                     state = pr_obj.__getstate__()
-                    state.setdefault('__class__', type(pr_obj).__name__)
-                    if hasattr(pr_obj, '_origin_module'):
-                        state.setdefault('__origin_module__', pr_obj._origin_module)
                     state['id'] = path_key
                     persist_targets[path_key] = (pr_obj, state)
 

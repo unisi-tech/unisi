@@ -119,7 +119,6 @@ class ModulesMixin:
         if self.__class__.toolbar and self.__class__.toolbar[0] not in screen.toolbar:
             screen.toolbar += self.__class__.toolbar
 
-        screen._origin_module = module.__name__
         module.screen = screen
         self.assign_parent_links(module)
         
