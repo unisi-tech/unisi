@@ -7,10 +7,10 @@ from .autotest import recorder, run_tests
 from .common import  *
 from .llmrag import setup_llmrag
 from .dbunits import dbupdates
-from .db import db
-from config import port, upload_dir
+from .db import db 
 import traceback, json, random, string
 from urllib.parse import parse_qs
+import config
 
 def generate_random_string(length=10):
     characters = string.ascii_letters + string.digits 
@@ -39,13 +39,15 @@ User.type = User
 if db:
     Unishare.db = db
 
-def make_user(request):
+def make_user(request):    
     parsed_query = parse_qs(request.query_string)
     requested_screen = parsed_query.get('screen', [None])[0]
     if 'session' in parsed_query:
         session = parsed_query['session'][0]
         parts = session.split('-')
         user_id = parts[1] if len(parts) > 1 else parts[0]
+    elif config.session:
+        session = config.session
     else:
         user_id = parsed_query.get('id', [User.count])[0]
         session = f'{generate_random_string()}-{user_id}'      
@@ -205,9 +207,9 @@ def start(user_type = User, http_handlers = []):
     run_tests(User.init_user())
                         #http_handlers has to be the first argument
     server_handlers = http_handlers + [web.get('/ws', websocket_handler), 
-            web.static(f'/{config.upload_dir}', upload_dir), 
+            web.static(f'/{config.upload_dir}', config.upload_dir), 
         web.get('/{tail:.*}', static_serve), web.post('/', post_handler)] 
 
     app = web.Application()
     app.add_routes(server_handlers)    
-    web.run_app(app, port = port)
+    web.run_app(app, port = config.port)

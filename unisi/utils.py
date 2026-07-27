@@ -48,6 +48,7 @@ set_defaults(config,  dict(
     lang = 'en-US',
     public_dirs = [],
     debug = False,
+    session = None,
     image = 'icons/favicon-32x32.png'
 ))
 

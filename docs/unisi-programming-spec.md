@@ -47,6 +47,7 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `lang` | str | `"en-US"` | UI language |
 | `public_dirs` | list[str] | `[]` | Extra static roots |
 | `image` | str | `"icons/favicon-32x32.png"` | App icon |
+| `session` | str/None | None | optional session/user id for debugging |
 
 ## 4. Programming Model
 
