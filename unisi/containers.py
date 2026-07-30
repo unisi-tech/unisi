@@ -98,8 +98,12 @@ class Block(Unit):
                 return e
 
 class ParamBlock(Block):
-    def __init__(self, name, *args, changed = None, row = 3, strict = 'recurse', **params):
-        """strict == 'recurse' means to recurse into dict values as an embedded ParamBlock"""
+    def __init__(self, name, *args, changed = None, row = 3, strict = 'recurse', persist = False, **params):
+        """strict == 'recurse' means to recurse into dict values as an embedded ParamBlock.
+        persist, like on any Block/Unit, can be a zero-arg function returning a tuple of
+        defining values. Set here, it is a convenience default: each generated field is
+        still persisted individually (by its own stable, name-based path), not the block
+        as a whole — see UserPersistMixin._sync_keyed_persist / _effective_persist_key_fn."""
         self._mark_changed = None
         if not args:
             args = [[]]        
@@ -111,6 +115,7 @@ class ParamBlock(Block):
         self._name2elem = {}
         self.value = self._init_value[:]
         self.changed = changed
+        self.persist = persist
         self.params = params
                 
     @property
@@ -158,6 +163,22 @@ class ParamBlock(Block):
                 self.value.append(block)
             cnt += 1
             block.append(el)
+
+        # Elements above were appended straight into the underlying list (ChangedProxy.append
+        # marks *this* block changed but never touches the new children). If the block is
+        # already live — params reassigned after the initial screen build, not during __init__ —
+        # bring freshly (re)built children up to date: activate reactivity so their own edits
+        # are tracked, and register their tree position so persistence (and anything else keyed
+        # by unit path) can resolve them. Mirrors what scroll_list.setter already does above.
+        user = getattr(self, '_user', None)
+        if user:
+            for elem in flatten(self.value):
+                elem.set_reactivity(user)
+            screen = getattr(user, 'screen', None)
+            parents = getattr(screen, '_parents', None)
+            if parents is not None:
+                from .utils import fill_parents  # local import: utils imports Screen from this module
+                fill_parents(self.value, self, parents)
 
 class Dialog:  
     def __init__(self, question, callback, *content, commands = ['Ok','Cancel'],

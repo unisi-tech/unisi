@@ -8,7 +8,7 @@ UNISI provides:
 - automatic web GUI rendering from Python objects
 - synchronized client/server state
 - event-driven handlers (sync and async)
-- optional services: hot reload, autotest, DB-backed tables, LLM-assisted fields, API handlers
+- optional services: hot reload, autotest, DB-backed tables, LLM-assisted fields, API handlers, persistent unit/screen state
 
 UNISI targets Python `3.10+`.
 
@@ -127,20 +127,35 @@ blocks = [[block_a, block_b], config_area]
 Constructor:
 
 ```python
-ParamBlock(name, *units, row=3, **params)
+ParamBlock(name, *units, changed=None, row=3, strict='recurse', persist=False, **params)
 ```
 
-Parameter mapping:
+- `changed`: shared handler used as the `changed` callback for every field generated from `params` (same effect as passing it to each field individually).
+- `row`: number of fields per visual row.
+- `strict`: `'recurse'` (default) turns a nested `dict` value into an embedded `ParamBlock`; any other truthy value raises on an unsupported value type; falsy silently skips unsupported values instead of raising.
+- `persist`: same contract as on any `Unit`/`Block` — `True` for positional persist, or a key-function for keyed persist (§13.2). Because `ParamBlock`'s fields are generated from `params`, keyed persist saves/restores the **whole `params` dict**, not individual fields.
+
+Parameter mapping (value type -> generated widget):
 - `bool` -> `Switch`
-- `str/int/float` -> `Edit`
-- `(value, [options])` -> `Select` or `Range`
-- `(value, dict_tree)` -> `Tree`
+- `str` / `int` / `float` -> `Edit`
+- `(value, options)` where `options` is a 3-item list of numbers `[min, max, step]` -> `Range`
+- `(value, options)` where `options` is any other list/tuple -> `Select`
+- `(value, options)` where `options` is a `dict` -> `Tree`
+- `dict` (only when `strict='recurse'`) -> embedded `ParamBlock`
 
 Read current values:
 
 ```python
 params = param_block.params
 ```
+
+`params` is also **writable**. Assigning a new dict fully rebuilds the block's fields to match it: fields absent from the new dict are dropped, new keys create new fields with the widget types above. This is the supported way to repoint a `ParamBlock` at a different record:
+
+```python
+param_block.params = load_settings_for(selected_row.id)
+```
+
+Reassigning `params` after the screen has already been built and displayed is fully supported — the new fields are wired up with reactivity and tree position exactly like fields created at screen-build time, so edits to them are tracked normally.
 
 Example:
 
@@ -152,6 +167,18 @@ block = ParamBlock(
     logging_steps=(10, [1, 20, 1]),
     device=("gpu", ["cpu", "gpu"]),
     load_best=True,
+)
+```
+
+Example with keyed persist (remember manual overrides per selected record — see §13.2):
+
+```python
+selected = Select("Record", options=["A", "B", "C"])
+settings = ParamBlock(
+    "Settings",
+    persist=lambda: (selected.value,),
+    Threshold=5.0,
+    Enabled=True,
 )
 ```
 
@@ -212,6 +239,8 @@ async def on_dialog(dialog, command):
 
 From `unisi/units.py`:
 
+Every unit below also accepts a common `persist` kwarg (positional `True` or a key-function) to opt into state persistence — see §13.
+
 - `Button(name, handler=None, **kwargs)`
 - `Edit(name, value?, changed?, **kwargs)`
 - `Text(name, ...)` (read-only label style)
@@ -270,13 +299,67 @@ otable = Table(
 )
 ```
 
-## 13. LLM Integration Specification
+> Table's persistent DB mode manages application data rows and is a separate system from Unit/Screen state persistence (`persist=...`, §13).
+
+## 13. State Persistence Specification
+
+Any `Screen`, `Block`, or `Unit` can opt into having its state survive across requests — and, for screens, be restored when the screen is next loaded — by setting `persist`. There are two distinct modes depending on what you pass.
+
+### 13.1 Positional persist (`persist=True`)
+
+The default mode. Set `persist=True` on:
+- a screen module (module-level `persist = True`, or `screen.persist` in `prepare()`) — persists every unit on that screen;
+- an individual `Block` or `Unit` — persists just that subtree.
+
+Storage is **keyed by the unit's position** in the screen tree (its name chain from the screen down to the unit), scoped to the current user session. Whenever a persisted unit changes, its current state is saved; when the screen is next loaded, the saved state is restored onto the unit at the same tree position.
+
+This is the right tool for "remember what this widget was last set to for this user" — a settings toggle, a filter's last value, a panel's last-expanded state.
+
+It does **not** distinguish between different records shown through the same widget: if one `Edit` is reused to display different rows as the user navigates, positional persist only knows "this widget, this screen," not "this row." Use keyed persist for that case.
+
+```python
+volume = Range("Volume", 50, persist=True)   # remembered for this user on this screen
+```
+
+### 13.2 Keyed persist (`persist=<function>`)
+
+Pass a zero-argument function instead of `True`. It must return a tuple (or list) of plain, JSON-serializable values — typically read from other units on the same screen — that together identify which record/context the unit currently reflects:
+
+```python
+selected_row = Select("Product", options=["Widget", "Gadget", "Gizmo"])
+price = Edit("Price", 0.0, persist=lambda: (selected_row.value,))
+```
+
+On every request, UNISI recomputes the key for each such unit:
+- If the key **changed** since last checked, it looks up a saved value for the new key:
+  - **found** — the unit's value (or, for a `ParamBlock`, its whole `params` dict — see §7) is replaced with the saved one, and `unit.active` is set to `True`.
+  - **not found** — the unit is left as-is (whatever a `changed` handler or `llm` computation already put there), and `unit.active` is set to `False`.
+- If the key is **unchanged** but the unit — or, for a block, anything inside it — was edited this request, its current value is saved under that key and `unit.active` is set to `True`.
+
+`active` is an ordinary reactive property, readable and stylable on the client like any other — a natural way to indicate "this field holds a manual override for the current record" versus "showing the computed default."
+
+Keyed persist is per-unit and independent of screen position, so it correctly handles a widget reused across many different records — exactly the case positional persist can't.
+
+### 13.3 Simple key-value storage
+
+For state not tied to any particular unit or screen, `User` exposes a flat get/set pair backed by the same storage:
+
+```python
+user.set_key("last_export_format", "pdf")
+fmt = user.get_key("last_export_format")   # None if never set
+```
+
+### 13.4 Storage and Scope
+
+All three mechanisms above share the same storage: a local SQLite file per user session (`users/<session-id>.db`), created on first write. State is never shared between users or sessions. Persistence is automatically disabled during autotest runs.
+
+## 14. LLM Integration Specification
 
 Two levels:
 1. Unit/Table `llm` dependency auto-fill
 2. Explicit async queries via `Q` and `Qx`
 
-### 13.1 Unit and Table `llm`
+### 14.1 Unit and Table `llm`
 
 Examples:
 
@@ -286,7 +369,7 @@ occupation = Edit("Occupation", llm=ename)            # infer from one dependenc
 table = Table("Persons", llm={"Date of birth": "Name", "Occupation": True}, ...)
 ```
 
-### 13.2 Explicit queries
+### 14.2 Explicit queries
 
 `Q(prompt, type_value=..., **format_vars)` returns an awaitable with typed JSON validation.
 
@@ -301,7 +384,7 @@ country_info = await Q(
 
 LLM provider is configured through `config.llm`.
 
-## 14. HTTP Route Integration
+## 15. HTTP Route Integration
 
 You can add custom aiohttp routes while keeping UNISI runtime:
 
@@ -315,7 +398,7 @@ async def handle_get(request):
 unisi.start(http_handlers=[web.get("/get", handle_get)])
 ```
 
-## 15. Shared Blocks and Reuse Pattern
+## 16. Shared Blocks and Reuse Pattern
 
 Place reusable block modules in `blocks/` and import into screens:
 
@@ -326,7 +409,7 @@ blocks = [config_area]
 
 Use interception (`@handle`) in screen module when you need screen-specific behavior overrides for shared units.
 
-## 16. End-to-End Example (Runnable Pattern)
+## 17. End-to-End Example (Runnable Pattern)
 
 ```python
 # run.py
@@ -357,7 +440,7 @@ controls = Block("Controls", [Button("Run", run_task)], ratio, log, icon="api")
 blocks = [controls]
 ```
 
-## 17. Behavior Notes and Constraints
+## 18. Behavior Notes and Constraints
 
 - Screen and block names should be unique in their active context.
 - For DB-backed `Table`, `config.db_path` (or `UNISI_DB_PATH`) must be set; otherwise creation fails.
@@ -365,8 +448,10 @@ blocks = [controls]
 - Dialog remains active if callback returns message/update that keeps it open.
 - `prepare()` runs when screen is displayed and is appropriate for sync/rebuild logic.
 -  A standout feature of HTML component is its interactive zoom capability: by including a scale property (e.g., "scale": 1) in your data configuration, a slider control will automatically render above the content. This allows end-users to dynamically scale the entire HTML block—including text, images, and layout—from 0.5x to 3.0x. 
+- A keyed-persist key function (§13.2) should return plain, JSON-serializable values and read *other* units, not the persisted unit's own value — a key derived from the unit's own state is self-referential and won't behave usefully.
+- If a keyed-persist key function raises, the error is logged and that unit's persistence is skipped for the request; it does not fail the request.
 
-## 18 Example Sources in This Repository
+## 19. Example Sources in This Repository
 
 - `tests/blocks/screens/main.py` (blocks, graph/net, toolbar, interception)
 - `tests/blocks/screens/zoo.py` (ParamBlock, HTML, pandas table)
@@ -374,4 +459,3 @@ blocks = [controls]
 - `tests/db/screens/single.py` (persistent table basics)
 - `tests/db/screens/linked.py` (linked persistent tables)
 - `tests/llm/screens/main.py` (LLM unit/table workflows, `Q` usage)
-

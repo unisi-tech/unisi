@@ -9,14 +9,17 @@ from .units import ChangedProxy, Unit
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS state (
-    user_id TEXT,
     namespace TEXT,
     path TEXT,
+    context_key TEXT,
     value TEXT,
     ts REAL,
-    PRIMARY KEY(user_id, namespace, path)
+    PRIMARY KEY(namespace, path, context_key)
 )
 """
+# context_key = '' для классических persist=True записей (позиционное восстановление);
+# для keyed-persist (persist = функция) context_key = json от tuple определяющих значений;
+# для простого get_key/set_key namespace и path тоже пустые, context_key = сам ключ.
 
 # 'id' is the live matching key _rebuild_value/_smart_apply_dict use to find the
 # existing unit a saved dict belongs to — restore would misbehave without it.
@@ -25,6 +28,31 @@ SKIP_RESTORE_KEYS = {'id', *Unit.action_list}
 
 _SKIP_JSON = object()
 _UNRESOLVED = object()  # marks a saved unit reference with no live counterpart, so it gets dropped rather than fabricated
+_NOT_FOUND = object()   # marks: no row saved for this (namespace, path, context_key)
+_NO_KEY = object()      # marks: a keyed-persist unit whose key has never been computed yet
+
+
+def _is_flag_persist(value):
+    """True only for the classic boolean persist=True; excludes persist key-functions.
+    A callable `persist` is a different mechanism (see UserPersistMixin._sync_keyed_persist)
+    and must never be treated as the old positional persist=True flag."""
+    return bool(value) and not callable(value)
+
+
+def _effective_persist_key_fn(unit, parents):
+    """The key-function governing `unit`'s keyed persistence: its own callable
+    `persist`, or — if it doesn't have one — the nearest ancestor block/ParamBlock's
+    callable `persist`. This is what persist=<function> set on a Block/ParamBlock
+    means: a default handed down to its (possibly dynamically generated) leaf
+    elements, each persisted individually. A container itself is never a persist
+    target — see _sync_keyed_persist for why."""
+    current = unit
+    while current is not None:
+        p = getattr(current, 'persist', None)
+        if callable(p):
+            return p
+        current = parents.get(current)
+    return None
 
 
 def _path_key(path):
@@ -127,7 +155,6 @@ class Persist:
         return os.path.exists(Persist.db_path_for(session_id))
 
     def __init__(self, session_id):
-        self.user_id = session_id
         self.db_path = self.db_path_for(session_id)
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
         self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
@@ -147,10 +174,10 @@ class Persist:
 
         for _, serialized_dict in persist_data:
             path = _path_key(serialized_dict['id'])
-            rows.append((self.user_id, screen_name, path, json.dumps(_json_ready(serialized_dict, parents), ensure_ascii=False), ts))
+            rows.append((screen_name, path, '', json.dumps(_json_ready(serialized_dict, parents), ensure_ascii=False), ts))
 
         self.conn.executemany(
-            'INSERT OR REPLACE INTO state(user_id, namespace, path, value, ts) VALUES (?, ?, ?, ?, ?)',
+            'INSERT OR REPLACE INTO state(namespace, path, context_key, value, ts) VALUES (?, ?, ?, ?, ?)',
             rows,
         )
         self.conn.commit()
@@ -158,8 +185,8 @@ class Persist:
     def restore_screen(self, user, screen_module, screen_units):
         screen_name = _screen_name(screen_module)
         rows = self.conn.execute(
-            'SELECT path, value FROM state WHERE user_id = ? AND namespace = ?',
-            (self.user_id, screen_name),
+            "SELECT path, value FROM state WHERE namespace = ? AND context_key = ''",
+            (screen_name,),
         ).fetchall()
 
         if not rows:
@@ -188,6 +215,33 @@ class Persist:
             if saved_dict:
                 _smart_apply_dict(unit, saved_dict, unit_map)
 
+    def lookup_keyed(self, namespace, path, context_key):
+        """Look up a value saved under a (namespace, path, context_key) triple.
+        Used both by keyed-persist units and by the plain get_key/set_key API
+        (which call with namespace='', path='')."""
+        row = self.conn.execute(
+            'SELECT value FROM state WHERE namespace = ? AND path = ? AND context_key = ?',
+            (namespace, path, context_key),
+        ).fetchone()
+        if row is None:
+            return _NOT_FOUND
+        try:
+            return json.loads(row[0])
+        except json.JSONDecodeError:
+            return _NOT_FOUND
+
+    def save_keyed(self, namespace, path, context_key, value):
+        """Save a value under a (namespace, path, context_key) triple.
+        `value` must already be JSON-ready (run _json_ready first if it may
+        contain Unit/ChangedProxy instances)."""
+        if isinstance(value, ChangedProxy):
+            value = value._obj
+        self.conn.execute(
+            'INSERT OR REPLACE INTO state(namespace, path, context_key, value, ts) VALUES (?, ?, ?, ?, ?)',
+            (namespace, path, context_key, json.dumps(value, ensure_ascii=False), time.time()),
+        )
+        self.conn.commit()
+
 
 class UserPersistMixin:
     """Persist-related behaviour for User.
@@ -195,7 +249,9 @@ class UserPersistMixin:
       self.session, self.testing, self.screens,
       self.screen (property), self.screen_module,
       self._iter_units(), self.assign_parent_links(),
-      self._global_persist (property, defined in User via config).
+      self._global_persist (property, defined in User via config),
+      self.changed_units, self.touched_units, self.register_changed_unit(), self.log()
+      (the last four are needed by _sync_keyed_persist / get_key / set_key).
     """
 
     def _init_persist(self):
@@ -219,12 +275,12 @@ class UserPersistMixin:
             return False
         screen = getattr(screen_module, 'screen', screen_module)
         return self._global_persist or getattr(screen, 'persist', False) or \
-            any(getattr(u, 'persist', False) for u in self._iter_units(screen_module))
+            any(_is_flag_persist(getattr(u, 'persist', False)) for u in self._iter_units(screen_module))
 
     def _has_persist_targets(self, screen, units):
         return self._persist_enabled() and (
             self._global_persist or getattr(screen, 'persist', False) or
-            any(getattr(u, 'persist', False) for u in units))
+            any(_is_flag_persist(getattr(u, 'persist', False)) for u in units))
 
     def _mark_persist_units(self):
         """Set _persist=True on every unit that appears in at least one persist screen.
@@ -252,7 +308,7 @@ class UserPersistMixin:
 
     def _unit_has_persist_screen(self, unit):
         """True if unit should be persisted: explicit persist flag or marked via _persist."""
-        return getattr(unit, 'persist', False) or getattr(unit, '_persist', False)
+        return _is_flag_persist(getattr(unit, 'persist', False)) or getattr(unit, '_persist', False)
 
     def _collect_persist_data(self, units):
         if not units:
@@ -281,6 +337,10 @@ class UserPersistMixin:
             return path[::-1] if reached_screen and path else None
 
         for unit in units:
+            if callable(getattr(unit, 'persist', None)) or \
+                    _effective_persist_key_fn(unit, getattr(self.screen, '_parents', {})):
+                continue  # keyed-persist units (own or inherited) are saved by _sync_keyed_persist, not here
+
             path = fast_path(unit)
             if not path:
                 continue
@@ -293,7 +353,7 @@ class UserPersistMixin:
             else:
                 current = unit
                 while current:
-                    if getattr(current, 'persist', False) or getattr(current, '_persist', False):
+                    if _is_flag_persist(getattr(current, 'persist', False)) or getattr(current, '_persist', False):
                         pr_obj = current
                         pr_path = fast_path(current)
                         break
@@ -318,3 +378,134 @@ class UserPersistMixin:
             if persist_data:
                 if db := self._persist_db(create=True):
                     db.save_changed(self.screen_module, persist_data)
+
+    def get_key(self, key: str):
+        """Simple persistent key-value get, independent of screen/unit context.
+        Uses the same `state` table/mechanism as unit persistence."""
+        if db := self._persist_db(create=False):
+            found = db.lookup_keyed('', '', key)
+            if found is not _NOT_FOUND:
+                return found
+        return None
+
+    def set_key(self, key: str, value: str):
+        """Simple persistent key-value set, independent of screen/unit context."""
+        if db := self._persist_db(create=True):
+            db.save_keyed('', '', key, value)
+
+    def _invalidate_keyed_persist_cache(self, screen_module=None):
+        """Call this only if keyed-persist units are added to a screen dynamically at
+        runtime (e.g. new rows spawning their own persist-bearing units). The normal
+        case — a fixed set of fields declared once at screen build time — needs no call
+        here at all; the cache is built lazily and correctly on first use."""
+        screen = getattr(screen_module, 'screen', screen_module) if screen_module else self.screen
+        object.__setattr__(screen, '_keyed_persist_cache', None)
+
+    def _is_message_target(self, unit):
+        """True if `unit` is the element the current incoming message is directly
+        about — i.e. the client just edited it and already knows its state."""
+        m = self.last_message
+        return bool(m) and m.element == unit.name
+
+    def _set_persist_active(self, unit, value):
+        """Set unit.active — silently (no client notification) if the client is, in
+        this very message, directly editing this same unit.
+        register_changed_unit's echo check only suppresses a property when it matches
+        the incoming message's own event/value; `active` never does (its event name is
+        'active', never 'changed'), so a plain `unit.active = value` here would add the
+        unit to changed_units and push an unsolicited update for the field someone is
+        mid-keystroke on — the client applies it as a whole-unit refresh and the input
+        resets. Applying it silently still lands the value (and it still reaches the
+        client the next time this unit is included in an update for any other reason,
+        e.g. its key next changes) without disturbing the field being typed into."""
+        if getattr(unit, 'active', None) is value:
+            return
+        if self._is_message_target(unit):
+            object.__setattr__(unit, 'active', value)
+        else:
+            unit.active = value
+
+    def _sync_keyed_persist(self):
+        """For every LEAF unit (never a Block/ParamBlock) whose effective persist key
+        function is set — its own `persist`, or one inherited from the nearest
+        ancestor container (see _effective_persist_key_fn) — recompute the key.
+          - key changed -> look up a saved override; if found, apply it to that one
+            unit (active=True); if not, leave its current value alone (active=False).
+          - key unchanged but the unit was touched/changed this cycle -> save its
+            current state under that key (active=True).
+
+        Containers (Block/ParamBlock) are never saved or restored as a whole:
+          - their live child objects carry event handlers bound by business logic,
+            which a generic mechanism cannot serialize or reconstruct;
+          - marking a container "changed" pushes a whole-block update to an already
+            rendered client, which re-renders the block wholesale — on every
+            keystroke inside it, that means lost focus and the just-typed character.
+        Populating a container's fields (e.g. from a selected table row) stays
+        business logic's job. persist=<function> on a container is only a
+        convenience default: each of its (possibly dynamically generated) leaf
+        fields is still persisted individually, exactly like any standalone Unit —
+        looked up by its own tree path, which stays stable across rebuilds because
+        it's name-based, not object-identity-based.
+
+        Must run before prepare_result builds persist_units/the response Message, so
+        an applied change reaches the client in the same round-trip.
+        """
+        if not self._persist_enabled() or not self.screen_module:
+            return
+        screen = self.screen
+        if getattr(screen, '_parents', None) is None:
+            self.assign_parent_links()
+        parents = screen._parents
+
+        cache = getattr(screen, '_keyed_persist_cache', None)
+        if cache is None:
+            keyed_units, unit_map = [], {}
+            for u in self._iter_units():
+                p = _unit_path_key(u, parents)
+                if p:
+                    unit_map[_path_key(p)] = u
+                if getattr(u, 'type', None) == 'block':
+                    continue  # containers are never persist targets themselves
+                if key_fn := _effective_persist_key_fn(u, parents):
+                    keyed_units.append((u, key_fn))
+            cache = (keyed_units, unit_map)
+            object.__setattr__(screen, '_keyed_persist_cache', cache)
+        keyed_units, unit_map = cache
+        if not keyed_units:
+            return
+
+        namespace = _screen_name(self.screen_module)
+        touched = self.changed_units | self.touched_units
+
+        for unit, key_fn in keyed_units:
+            try:
+                new_key = key_fn()
+            except Exception as e:
+                self.log(f'persist key function failed for "{unit.name}": {e}', type='warning')
+                continue
+            if not isinstance(new_key, list | tuple):
+                new_key = (new_key,)
+            new_key = tuple(new_key)
+
+            path = _unit_path_key(unit, parents)
+            if not path:
+                continue
+            context_key = json.dumps(list(new_key), ensure_ascii=False)
+
+            if new_key != getattr(unit, '_persist_key', _NO_KEY):
+                object.__setattr__(unit, '_persist_key', new_key)
+                db_ro = self._persist_db(create=False)
+                found = db_ro.lookup_keyed(namespace, path, context_key) if db_ro else _NOT_FOUND
+                if found is not _NOT_FOUND and isinstance(found, dict):
+                    _smart_apply_dict(unit, found, unit_map)
+                    if not self._is_message_target(unit):
+                        self.register_changed_unit(unit)  # applied silently via object.__setattr__ above — mark dirty so the diff reaches the client
+                    self._set_persist_active(unit, True)
+                else:
+                    self._set_persist_active(unit, False)
+            elif unit in touched:
+                state = unit.__getstate__()
+                state['id'] = path
+                if db_rw := self._persist_db(create=True):
+                    db_rw.save_keyed(namespace, path, context_key, _json_ready(state, parents))
+                self._set_persist_active(unit, True)

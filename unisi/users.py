@@ -141,7 +141,7 @@ class User(ModulesMixin, UserPersistMixin):
 
     @property
     def id(self):
-        return self.session.split('-')[-1]
+        return self.session
 
     @property
     def screen(self):
@@ -273,8 +273,12 @@ class User(ModulesMixin, UserPersistMixin):
             return
         if getattr(block, 'type', None) == 'block' and hasattr(block, 'value'):
             fill_parents(block.value, block, parents)
+        # a block's children just changed (e.g. ParamBlock.params rebuilt them) — any
+        # cached keyed-persist unit list/unit_map for this screen may now be stale
+        self._invalidate_keyed_persist_cache()
 
     def prepare_result(self, raw):
+        self._sync_keyed_persist()
         persist_units = self.changed_units | self.touched_units
         reload_screen = any(u.type == 'screen' for u in self.changed_units)
         if raw is True or raw == Redesign or reload_screen:
@@ -354,18 +358,21 @@ class User(ModulesMixin, UserPersistMixin):
         handler = self.handlers.get((elem, event), None)
         if handler:
             return await self.eval_handler(handler, elem, message.value)
-        if hasattr(elem, event):
-            attr = getattr(elem, event)
-            if is_callable(attr):
-                result = await self.eval_handler(attr, elem, message.value)
-                if event in ('complete', 'append', 'get'):
-                    result = Answer(event, message, result)
-                return result
-            #set attribute only for declared properties
-            setattr(elem, event, message.value)
-        elif event == 'changed':
+        attr = getattr(elem, event, None)
+        if is_callable(attr):
+            result = await self.eval_handler(attr, elem, message.value)
+            if event in ('complete', 'append', 'get'):
+                result = Answer(event, message, result)
+            return result
+        if event == 'changed':
+            # covers both a missing `changed` and one that exists but isn't callable
+            # (e.g. a ParamBlock field built without a shared changed= handler) —
+            # either way there's no handler to run, so accept the value directly
             if elem.type != 'command': #for command we can not set value, but we can have changed handler
                 elem.value = message.value
+        elif hasattr(elem, event):
+            #set attribute only for declared properties
+            setattr(elem, event, message.value)
         else:
             error = f"{message.element}@{message.block} doesn't contain '{event}' method type!"
             self.log(error)
