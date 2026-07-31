@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS state (
 """
 # context_key = '' для классических persist=True записей (позиционное восстановление);
 # для keyed-persist (persist = функция) context_key = json от tuple определяющих значений;
-# для простого get_key/set_key namespace и path тоже пустые, context_key = сам ключ.
+# для простого get_key/set_key/get_keys/remove_key/remove_keys namespace и path тоже
+# пустые, context_key = сам ключ (get_keys/remove_keys ищут по context_key через
+# LIKE-паттерн, построенный из шаблона 'ab..ba').
 
 # 'id' is the live matching key _rebuild_value/_smart_apply_dict use to find the
 # existing unit a saved dict belongs to — restore would misbehave without it.
@@ -34,7 +36,7 @@ _NO_KEY = object()      # marks: a keyed-persist unit whose key has never been c
 
 def _is_flag_persist(value):
     """True only for the classic boolean persist=True; excludes persist key-functions.
-    A callable `persist` is a different mechanism (see UserPersistMixin._sync_keyed_persist)
+    A callable `persist` is a different mechanism (see UserPersistMixin.sync_keyed_persist)
     and must never be treated as the old positional persist=True flag."""
     return bool(value) and not callable(value)
 
@@ -45,7 +47,7 @@ def _effective_persist_key_fn(unit, parents):
     callable `persist`. This is what persist=<function> set on a Block/ParamBlock
     means: a default handed down to its (possibly dynamically generated) leaf
     elements, each persisted individually. A container itself is never a persist
-    target — see _sync_keyed_persist for why."""
+    target — see sync_keyed_persist for why."""
     current = unit
     while current is not None:
         p = getattr(current, 'persist', None)
@@ -64,6 +66,35 @@ def _path_key(path):
 def _screen_name(current_screen):
     screen = getattr(current_screen, 'screen', current_screen)
     return getattr(screen, 'name', getattr(current_screen, 'name', ''))
+
+
+_LIKE_ESCAPE = '\\'
+
+
+def _escape_like(fragment):
+    """Escape SQL LIKE wildcards ('%', '_') and the escape char itself, so a
+    literal template fragment is matched verbatim rather than as a pattern."""
+    return (fragment
+            .replace(_LIKE_ESCAPE, _LIKE_ESCAPE * 2)
+            .replace('%', _LIKE_ESCAPE + '%')
+            .replace('_', _LIKE_ESCAPE + '_'))
+
+
+def _split_template(template):
+    """Validate and split a get_keys()/remove_keys() template into (prefix, suffix).
+    '..' marks the wildcard gap; prefix/suffix are literal text anchored to
+    the start/end of the key: 'ab..' (prefix only), '..ba' (suffix only),
+    'ab..ba' (both). Raises ValueError if `template` doesn't contain '..'."""
+    if '..' not in template:
+        raise ValueError("key template must contain '..', e.g. 'ab..', '..ba' or 'ab..ba'")
+    prefix, _, suffix = template.partition('..')
+    return prefix, suffix
+
+
+def _template_to_like(template):
+    """Turn a get_keys() template into an escaped SQL LIKE pattern (see _split_template)."""
+    prefix, suffix = _split_template(template)
+    return _escape_like(prefix) + '%' + _escape_like(suffix)
 
 
 def _unit_path_key(unit, parents):
@@ -230,6 +261,25 @@ class Persist:
         except json.JSONDecodeError:
             return _NOT_FOUND
 
+    def lookup_keys(self, namespace, path, template):
+        """Look up every value whose context_key matches `template` (see
+        _template_to_like) within the given (namespace, path). Used by the
+        plain get_keys() API (namespace='', path=''). Returns a
+        {context_key: value} dict, empty if nothing matches."""
+        like_pattern = _template_to_like(template)
+        rows = self.conn.execute(
+            'SELECT context_key, value FROM state '
+            'WHERE namespace = ? AND path = ? AND context_key LIKE ? ESCAPE ?',
+            (namespace, path, like_pattern, _LIKE_ESCAPE),
+        ).fetchall()
+        found = {}
+        for context_key, value in rows:
+            try:
+                found[context_key] = json.loads(value)
+            except json.JSONDecodeError:
+                continue
+        return found
+
     def save_keyed(self, namespace, path, context_key, value):
         """Save a value under a (namespace, path, context_key) triple.
         `value` must already be JSON-ready (run _json_ready first if it may
@@ -242,6 +292,34 @@ class Persist:
         )
         self.conn.commit()
 
+    def remove_keyed(self, namespace, path, context_key):
+        """Delete the row at (namespace, path, context_key), if any. Returns
+        the value that was stored there, or _NOT_FOUND if there was none.
+        Used by the plain get_key/set_key/remove_key API (namespace='', path='')."""
+        found = self.lookup_keyed(namespace, path, context_key)
+        if found is not _NOT_FOUND:
+            self.conn.execute(
+                'DELETE FROM state WHERE namespace = ? AND path = ? AND context_key = ?',
+                (namespace, path, context_key),
+            )
+            self.conn.commit()
+        return found
+
+    def remove_keys(self, namespace, path, template):
+        """Delete every row whose context_key matches `template` (see
+        _template_to_like) within the given (namespace, path). Used by the
+        plain remove_keys() API (namespace='', path=''). Returns a
+        {context_key: value} dict of everything that was removed, empty if
+        nothing matched."""
+        found = self.lookup_keys(namespace, path, template)
+        if found:
+            self.conn.executemany(
+                'DELETE FROM state WHERE namespace = ? AND path = ? AND context_key = ?',
+                [(namespace, path, context_key) for context_key in found],
+            )
+            self.conn.commit()
+        return found
+
 
 class UserPersistMixin:
     """Persist-related behaviour for User.
@@ -251,7 +329,7 @@ class UserPersistMixin:
       self._iter_units(), self.assign_parent_links(),
       self._global_persist (property, defined in User via config),
       self.changed_units, self.touched_units, self.register_changed_unit(), self.log()
-      (the last four are needed by _sync_keyed_persist / get_key / set_key).
+      (the last four are needed by sync_keyed_persist / get_key / set_key).
     """
 
     def _init_persist(self):
@@ -339,7 +417,7 @@ class UserPersistMixin:
         for unit in units:
             if callable(getattr(unit, 'persist', None)) or \
                     _effective_persist_key_fn(unit, getattr(self.screen, '_parents', {})):
-                continue  # keyed-persist units (own or inherited) are saved by _sync_keyed_persist, not here
+                continue  # keyed-persist units (own or inherited) are saved by sync_keyed_persist, not here
 
             path = fast_path(unit)
             if not path:
@@ -393,6 +471,40 @@ class UserPersistMixin:
         if db := self._persist_db(create=True):
             db.save_keyed('', '', key, value)
 
+    def get_keys(self, template: str):
+        """Search simple persistent keys (the get_key/set_key store) by template.
+        `template` must contain '..', which marks where any text may appear:
+          'ab..'   -> keys starting with the literal text 'ab'
+          '..ba'   -> keys ending with the literal text 'ba'
+          'ab..ba' -> keys starting with 'ab' and ending with 'ba'
+        Returns {key: value} for every match — empty dict if nothing matches,
+        or if no key was ever persisted for this session yet.
+        Raises ValueError if `template` doesn't contain '..'."""
+        _split_template(template)  # validate eagerly, even before any DB file exists
+        if db := self._persist_db(create=False):
+            return db.lookup_keys('', '', template)
+        return {}
+
+    def remove_key(self, key: str):
+        """Delete a simple persistent key (see get_key/set_key). Returns the
+        value that was stored under `key`, or None if it didn't exist."""
+        if db := self._persist_db(create=False):
+            found = db.remove_keyed('', '', key)
+            if found is not _NOT_FOUND:
+                return found
+        return None
+
+    def remove_keys(self, template: str):
+        """Delete every simple persistent key matching `template` (same
+        format as get_keys — 'ab..', '..ba', 'ab..ba'). Returns {key: value}
+        for everything that was removed — empty dict if nothing matched, or
+        if no key was ever persisted for this session yet.
+        Raises ValueError if `template` doesn't contain '..'."""
+        _split_template(template)  # validate eagerly, even before any DB file exists
+        if db := self._persist_db(create=False):
+            return db.remove_keys('', '', template)
+        return {}
+
     def _invalidate_keyed_persist_cache(self, screen_module=None):
         """Call this only if keyed-persist units are added to a screen dynamically at
         runtime (e.g. new rows spawning their own persist-bearing units). The normal
@@ -425,7 +537,7 @@ class UserPersistMixin:
         else:
             unit.active = value
 
-    def _sync_keyed_persist(self):
+    def sync_keyed_persist(self):
         """For every LEAF unit (never a Block/ParamBlock) whose effective persist key
         function is set — its own `persist`, or one inherited from the nearest
         ancestor container (see _effective_persist_key_fn) — recompute the key.

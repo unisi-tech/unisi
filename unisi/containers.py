@@ -103,7 +103,7 @@ class ParamBlock(Block):
         persist, like on any Block/Unit, can be a zero-arg function returning a tuple of
         defining values. Set here, it is a convenience default: each generated field is
         still persisted individually (by its own stable, name-based path), not the block
-        as a whole — see UserPersistMixin._sync_keyed_persist / _effective_persist_key_fn."""
+        as a whole — see UserPersistMixin.sync_keyed_persist / _effective_persist_key_fn."""
         self._mark_changed = None
         if not args:
             args = [[]]        

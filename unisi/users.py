@@ -278,7 +278,7 @@ class User(ModulesMixin, UserPersistMixin):
         self._invalidate_keyed_persist_cache()
 
     def prepare_result(self, raw):
-        self._sync_keyed_persist()
+        self.sync_keyed_persist()
         persist_units = self.changed_units | self.touched_units
         reload_screen = any(u.type == 'screen' for u in self.changed_units)
         if raw is True or raw == Redesign or reload_screen:

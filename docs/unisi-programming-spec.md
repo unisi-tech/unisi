@@ -349,6 +349,27 @@ user.set_key("last_export_format", "pdf")
 fmt = user.get_key("last_export_format")   # None if never set
 ```
 
+`get_keys(template)` searches that same store by key prefix/suffix instead of an exact key, and returns every match as a `{key: value}` dict:
+
+```python
+user.set_key("export_2024", "pdf")
+user.set_key("export_2025", "csv")
+user.set_key("theme_dark", True)
+
+user.get_keys("export_..")     # prefix  -> {"export_2024": "pdf", "export_2025": "csv"}
+user.get_keys("..2025")        # suffix  -> {"export_2025": "csv"}
+user.get_keys("export_..2025") # both    -> {"export_2025": "csv"}
+```
+
+`template` must contain the literal `..`, marking where arbitrary text may appear; the text before/after it (`ab`/`ba`) is matched verbatim at the start/end of the key. Returns `{}` if nothing matches (or nothing was ever stored yet). Raises `ValueError` if `template` doesn't contain `..`.
+
+`remove_key`/`remove_keys` delete from the same store, mirroring `get_key`/`get_keys` exactly — same template rules, and each returns what it just deleted:
+
+```python
+old = user.remove_key("theme_dark")        # deletes it, returns True (the old value); None if it didn't exist
+gone = user.remove_keys("export_..")       # deletes every match, returns {"export_2024": "pdf", "export_2025": "csv"}
+```
+
 ### 13.4 Storage and Scope
 
 All three mechanisms above share the same storage: a local SQLite file per user session (`users/<session-id>.db`), created on first write. State is never shared between users or sessions. Persistence is automatically disabled during autotest runs.
