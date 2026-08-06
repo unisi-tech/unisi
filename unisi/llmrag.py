@@ -9,7 +9,7 @@ from typing import Any, Literal, Union, get_args, get_origin
 logger = logging.getLogger(__name__)
 
 import diskcache
-from openai import AsyncOpenAI as _AsyncOpenAI
+from openai import AsyncOpenAI as _AsyncOpenAI, BadRequestError as _BadRequestError
 
 from .common import Unishare
 
@@ -445,6 +445,59 @@ def _build_prompt(
     return prompt
 
 
+# Learned, process-lifetime memory of request parameters a given model has
+# rejected with a 400: {model_id: {'temperature', 'strict'}}. Populated the
+# first time a model rejects a parameter _call_llm adds on its own — every
+# later call for that model skips straight past the doomed first attempt
+# instead of re-discovering the same rejection every time.
+#
+# Two real, observed causes this recovers from:
+#   - Reasoning models (OpenAI's o1/o3/o4 line, the GPT-5.x line, and
+#     presumably whatever follows them) fix `temperature` at their own
+#     default and reject any other value with a 400.
+#   - Some non-OpenAI providers reject `strict: true` in response_format
+#     outright instead of silently ignoring it.
+# Neither is reliably predictable from the model *name* alone — that's what
+# the old `model.startswith(('gpt-', 'o1', 'o3', 'o4'))` check tried to do,
+# and it silently stopped working the moment a model was routed through a
+# prefixing gateway such as OpenRouter (e.g. 'openai/gpt-5.6-luna' doesn't
+# start with 'gpt-', so the intended OpenAI model was treated as if it
+# weren't one). Learning directly from the API's own rejection generalises
+# correctly to any current or future model/provider instead of requiring a
+# maintained name list that's always one release behind.
+_incompatible_params: dict[str, set[str]] = {}
+
+
+def _rejected_param(exc: _BadRequestError) -> str | None:
+    """
+    Given a 400 raised by the OpenAI client, returns the request parameter
+    the API rejected (e.g. 'temperature'), or None if this doesn't look
+    like a recoverable "this parameter/value isn't supported by this
+    model" error.
+
+    The openai SDK already unwraps the provider's {"error": {...}} response
+    body and exposes the inner fields as exc.param / exc.code / exc.message
+    (see openai._client._make_status_error) — this works whether the 400
+    came from OpenAI directly or from an OpenAI-compatible gateway like
+    OpenRouter, as long as the gateway echoes the same error shape, which
+    is the de facto standard for "OpenAI-compatible" APIs.
+
+    `param` alone isn't a safe enough signal to act on: a malformed schema
+    can also produce a param-bearing 400, for a completely unrelated reason
+    that we want surfaced, not silently retried away. `code`/`message` must
+    additionally confirm this is really an "unsupported" class error before
+    the caller treats it as something it knows how to fix.
+    """
+    param = getattr(exc, 'param', None)
+    if not param:
+        return None
+    code = (getattr(exc, 'code', None) or '').lower()
+    message = (getattr(exc, 'message', None) or str(exc)).lower()
+    if code in ('unsupported_value', 'unsupported_parameter') or 'support' in message:
+        return param
+    return None
+
+
 async def _call_llm(prompt: str, type_value: Any = str) -> str:
     """
     Invokes the LLM via AsyncOpenAI (OpenAI-compatible endpoint).
@@ -459,36 +512,81 @@ async def _call_llm(prompt: str, type_value: Any = str) -> str:
     in the cache under (type_value, prompt) forever, making every future
     call — including retries from the caller's own retry loop — replay the
     same bad answer instead of ever reaching the LLM again.
+
+    Some models 400 on parameters this function adds on its own initiative
+    — reasoning models fixing `temperature`, some providers rejecting
+    `strict: true` in response_format. Rather than guessing which models
+    these are from their name (see _incompatible_params for why that's
+    fragile), a rejection is caught, the offending value is dropped, the
+    model is remembered for next time, and the call is retried — up to
+    twice (temperature, then strict), since a model could in principle
+    reject both. Any other error — auth, rate limits, a genuinely malformed
+    request — is never caught here and propagates normally.
     """
     if _acompletion is None:
         raise RuntimeError('LLM not initialised — call setup_llmrag() first')
 
+    model = Unishare.llm_model or ''
+    blocked = _incompatible_params.get(model, set())
+
     schema = python_type_to_json_schema_dict(type_value)
     kwargs: dict = dict(
-        model=Unishare.llm_model,
+        model=model,
         messages=[{'role': 'user', 'content': prompt}],
-        temperature=getattr(Unishare, 'llm_temperature', 0.0),
     )
+    if 'temperature' not in blocked:
+        kwargs['temperature'] = getattr(Unishare, 'llm_temperature', 0.0)
+
     if schema is not None:
-        # Native JSON Schema enforcement — much more reliable than prompt hints
-        # strict=True gives 100% schema adherence on OpenAI; Gemini ignores it.
-        # Other providers (Groq, Mistral, local) may reject it, so we only
-        # enable it when the model string suggests an OpenAI-hosted model.
-        _model = Unishare.llm_model or ''
-        use_strict = _model.startswith(('gpt-', 'o1', 'o3', 'o4'))
+        # Native JSON Schema enforcement — much more reliable than prompt
+        # hints, and gives 100% schema adherence on models that honour it.
+        # Requested by default (config.strict_schema, default True) rather
+        # than guessed from the model name — see the module-level note on
+        # _incompatible_params for why that guess broke under OpenRouter.
+        # Providers that actually reject strict=True are learned below,
+        # the same way as the temperature case.
+        want_strict = getattr(Unishare, 'llm_strict_schema', True) and 'strict' not in blocked
         kwargs['response_format'] = {
             'type': 'json_schema',
             'json_schema': {
                 'name': 'response',
                 'schema': schema,
-                'strict': use_strict,
+                'strict': want_strict,
             },
         }
     if extra := getattr(Unishare, 'llm_extra_body', None):
         kwargs['extra_body'] = extra
 
-    response = await _acompletion(**kwargs)
-    return response.choices[0].message.content
+    attempts_left = 2  # at most two recoveries: temperature, then strict
+    while True:
+        try:
+            response = await _acompletion(**kwargs)
+            return response.choices[0].message.content
+        except _BadRequestError as exc:
+            param = _rejected_param(exc)
+            fix_key = None
+            if attempts_left > 0:
+                if param == 'temperature' and 'temperature' in kwargs:
+                    fix_key = 'temperature'
+                    del kwargs['temperature']
+                elif (
+                    param
+                    and 'response_format' in kwargs
+                    and kwargs['response_format']['json_schema']['strict']
+                    and any(s in param for s in ('strict', 'response_format', 'json_schema'))
+                ):
+                    fix_key = 'strict'
+                    kwargs['response_format']['json_schema']['strict'] = False
+
+            if fix_key is None:
+                raise
+
+            attempts_left -= 1
+            _incompatible_params.setdefault(model, set()).add(fix_key)
+            logger.warning(
+                "Model %r rejected %r — retrying without it; future calls "
+                'to this model will skip it automatically.', model, param,
+            )
 
 
 def _parse_response(content: str, type_value: Any) -> Any:
@@ -655,10 +753,18 @@ def setup_llmrag() -> None:
         [provider, model, address]             - cloud provider with custom base URL
 
     Supported providers: host, openai, groq, google, gemini, mistral, xai.
-    Any OpenAI-compatible endpoint (LM Studio, Ollama) is specified as 'host'.
+    Any OpenAI-compatible endpoint (LM Studio, Ollama, OpenRouter, ...) is
+    specified as 'host' — e.g. to route through OpenRouter:
+        ['host', 'https://openrouter.ai/api/v1', 'OPENROUTER_API_KEY', 'openai/gpt-5.6-luna']
 
-    After initialisation, Unishare.llm_model holds the litellm model string
-    (e.g. 'groq/llama3-8b-8192') and all calls go through litellm.acompletion.
+    Optional config.strict_schema (default True) controls whether structured
+    Q() calls request strict JSON Schema enforcement; see _call_llm for how
+    a provider that doesn't actually support it (or a model that rejects a
+    non-default temperature) is detected and recovered from automatically.
+
+    After initialisation, Unishare.llm_model holds the model string used in
+    every request (e.g. 'groq/llama3-8b-8192') and all calls go through the
+    AsyncOpenAI client's chat.completions.create.
     """
     import config  # module is loaded before config analysis
 
@@ -725,6 +831,11 @@ def setup_llmrag() -> None:
     Unishare.llm_model = model_id  # plain model name, e.g. 'gemini-2.5-pro-preview'
     Unishare.llm_temperature = temperature
     Unishare.llm_extra_body = extra_body or None
+    # Whether structured Q() calls ask for strict JSON Schema enforcement by
+    # default. True unless the caller opts out via config.strict_schema — a
+    # provider that actually rejects strict=True is detected and remembered
+    # per-model at call time instead (see _call_llm / _incompatible_params).
+    Unishare.llm_strict_schema = getattr(config, 'strict_schema', True)
 
     logger.info('LLM initialised: %s (temperature=%.2f)', model_id, temperature)
 
