@@ -3,10 +3,8 @@ from __future__ import annotations
 
 from typing import get_type_hints, is_typeddict
 
-import json, logging, os, re
+import json, os, re
 from typing import Any, Literal, Union, get_args, get_origin
-
-logger = logging.getLogger(__name__)
 
 import diskcache
 from openai import AsyncOpenAI as _AsyncOpenAI, BadRequestError as _BadRequestError
@@ -15,6 +13,33 @@ from .common import Unishare
 
 # Populated by setup_llmrag(). None until initialised.
 _acompletion = None
+
+
+def _log(message: str, type: str = 'error') -> None:
+    """
+    Routes through UNISI's own Unishare.message_logger instead of an
+    independent, module-local logging.Logger — the same defensive pattern
+    already used in db.py's `_logger` closure — so LLM-related messages get
+    the same treatment as the rest of the system: routed through the active
+    user's session/screen context (via User.log) when one exists, or through
+    logging.error/warning/info (per config.logfile) during startup, before
+    any user is connected — see server.py's message_logger.
+
+    `type` follows that same convention: 'error' (default), 'warning', or
+    anything else treated as 'info'. Note that the *startup* fallback path
+    (no user connected yet — true for every call made from setup_llmrag())
+    always logs at error level regardless of `type`, by UNISI's own design;
+    that's what keeps early messages visible under the default WARNING log
+    threshold; it's not something specific to this module.
+
+    Falls back to print() only if Unishare.message_logger isn't callable
+    yet, e.g. llmrag used standalone/under test without server.py having
+    run — the same fallback-of-a-fallback db.py uses.
+    """
+    if callable(Unishare.message_logger):
+        Unishare.message_logger(message, type)
+    else:
+        print(f'[{type}] {message}')
 
 
 # ---------------------------------------------------------------------------
@@ -583,9 +608,10 @@ async def _call_llm(prompt: str, type_value: Any = str) -> str:
 
             attempts_left -= 1
             _incompatible_params.setdefault(model, set()).add(fix_key)
-            logger.warning(
-                "Model %r rejected %r — retrying without it; future calls "
-                'to this model will skip it automatically.', model, param,
+            _log(
+                f'Model {model!r} rejected {param!r} — retrying without it; '
+                'future calls to this model will skip it automatically.',
+                'warning',
             )
 
 
@@ -786,7 +812,7 @@ def setup_llmrag() -> None:
             provider, model = p, m
             address = None
         case _:
-            logger.error('Invalid config.llm format: %s', config.llm)
+            _log(f'Invalid config.llm format: {config.llm}')
             return
 
     provider = provider.lower()
@@ -820,7 +846,7 @@ def setup_llmrag() -> None:
         # accepted by the OpenAI-compatible endpoint (/v1beta/openai/).
         # To control safety filters use the native google-genai SDK instead.
     else:
-        logger.error('Unknown LLM provider: %s', provider)
+        _log(f'Unknown LLM provider: {provider}')
         return
 
     global _acompletion
@@ -837,7 +863,7 @@ def setup_llmrag() -> None:
     # per-model at call time instead (see _call_llm / _incompatible_params).
     Unishare.llm_strict_schema = getattr(config, 'strict_schema', True)
 
-    logger.info('LLM initialised: %s (temperature=%.2f)', model_id, temperature)
+    _log(f'LLM initialised: {model_id} (temperature={temperature:.2f})', 'info')
 
     # --- Cache ---
     if hasattr(config, 'llm_cache'):
