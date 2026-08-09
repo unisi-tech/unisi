@@ -370,9 +370,34 @@ old = user.remove_key("theme_dark")        # deletes it, returns True (the old v
 gone = user.remove_keys("export_..")       # deletes every match, returns {"export_2024": "pdf", "export_2025": "csv"}
 ```
 
-### 13.4 Storage and Scope
+### 13.4 General object search (`get_objects`)
 
-All three mechanisms above share the same storage: a local SQLite file per user session (`users/<session-id>.db`), created on first write. State is never shared between users or sessions. Persistence is automatically disabled during autotest runs.
+`get_key`/`get_keys` only reach the simple store (`namespace=''`, `path=''`). `get_objects(namespace, path, context_template)` is the same kind of search generalized to any `(namespace, path)` — in particular the keyed-persist rows from §13.2, letting you list saved records for a unit's key function instead of looking up one key at a time:
+
+```python
+# unit on screen "orders", tree path "form/price", persist=lambda: (selected_row.value,)
+user.get_objects("orders", "form/price", "..")
+# -> {'["Widget"]': {...saved fields...}, '["Gadget"]': {...saved fields...}}
+```
+
+`context_template` behaves like `get_keys`'s template when it contains `..` (prefix/suffix match). Unlike `get_keys`, a template with no `..` is not an error — it's an exact `context_key` match instead, so `get_objects` also covers a single positional-persist lookup (`context_key=""`, §13.1):
+
+```python
+user.get_objects("orders", "form/price", '["Widget"]')   # exact match -> that one record, or {}
+user.get_objects("settings_screen", "panel/state", "")   # exact "" -> the persist=True save, if any
+```
+
+Returns `{context_key: fields_dict}`, empty if nothing matches or the session has no DB yet. Read-only.
+
+`get_contexts(namespace, path, context_template)` — same parameters, same exact-vs-template rule, but returns just the matching context_keys as a `list[str]` instead of a `{context_key: fields}` dict, without reading or decoding the stored fields at all. Cheaper than `get_objects` when you only need to know which records exist:
+
+```python
+user.get_contexts("orders", "form/price", "..")   # -> ['["Widget"]', '["Gadget"]']
+```
+
+### 13.5 Storage and Scope
+
+All of the above share the same storage: a local SQLite file per user session (`users/<session-id>.db`), created on first write. State is never shared between users or sessions. Persistence is automatically disabled during autotest runs.
 
 ## 14. LLM Integration Specification
 

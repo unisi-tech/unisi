@@ -22,6 +22,11 @@ CREATE TABLE IF NOT EXISTS state (
 # для простого get_key/set_key/get_keys/remove_key/remove_keys namespace и path тоже
 # пустые, context_key = сам ключ (get_keys/remove_keys ищут по context_key через
 # LIKE-паттерн, построенный из шаблона 'ab..ba').
+# get_objects(namespace, path, context_template) — та же LIKE-логика, но с произвольными
+# namespace/path: точечный доступ к любым строкам таблицы (в т.ч. keyed-persist объектам),
+# context_template без '..' трактуется как точный context_key, а не как шаблон.
+# get_contexts(...) — тот же поиск, что и get_objects, но возвращает список найденных
+# context_key без чтения/декодирования value (дешевле, если нужен только список контекстов).
 
 # 'id' is the live matching key _rebuild_value/_smart_apply_dict use to find the
 # existing unit a saved dict belongs to — restore would misbehave without it.
@@ -280,6 +285,38 @@ class Persist:
                 continue
         return found
 
+    def lookup_objects(self, namespace, path, context_template):
+        """Look up saved rows at a given (namespace, path) — e.g. a
+        keyed-persist unit's screen name and tree path — whose context_key
+        matches `context_template`: an exact context_key if it has no '..',
+        otherwise a prefix/suffix template (see _template_to_like, same
+        rules as lookup_keys/get_keys). Used by the general get_objects()
+        API. Returns {context_key: value}, empty if nothing matches."""
+        if '..' in context_template:
+            return self.lookup_keys(namespace, path, context_template)
+        found = self.lookup_keyed(namespace, path, context_template)
+        return {} if found is _NOT_FOUND else {context_template: found}
+
+    def lookup_contexts(self, namespace, path, context_template):
+        """Same search as lookup_objects (namespace/path/context_template,
+        exact-or-template — see there), but never selects or decodes the
+        `value` column: only existence/matching of context_key is checked.
+        Used by the get_contexts() API. Returns a list of matching
+        context_keys, empty if none."""
+        if '..' in context_template:
+            like_pattern = _template_to_like(context_template)
+            rows = self.conn.execute(
+                'SELECT context_key FROM state '
+                'WHERE namespace = ? AND path = ? AND context_key LIKE ? ESCAPE ?',
+                (namespace, path, like_pattern, _LIKE_ESCAPE),
+            ).fetchall()
+            return [row[0] for row in rows]
+        row = self.conn.execute(
+            'SELECT 1 FROM state WHERE namespace = ? AND path = ? AND context_key = ?',
+            (namespace, path, context_template),
+        ).fetchone()
+        return [context_template] if row else []
+
     def save_keyed(self, namespace, path, context_key, value):
         """Save a value under a (namespace, path, context_key) triple.
         `value` must already be JSON-ready (run _json_ready first if it may
@@ -504,6 +541,33 @@ class UserPersistMixin:
         if db := self._persist_db(create=False):
             return db.remove_keys('', '', template)
         return {}
+
+    def get_objects(self, namespace: str, path: str, context_template: str) -> dict[str, dict]:
+        """General persisted-object search, unlike get_key/get_keys not limited to
+        the plain key-value store: looks up rows at any (namespace, path) — e.g.
+        a keyed-persist unit's screen name and tree path — whose context_key
+        matches `context_template`.
+        `context_template` is matched two ways:
+          - contains '..'  -> prefix/suffix template, same rules as get_keys:
+                               'ab..', '..ba', 'ab..ba'
+          - no '..'        -> exact context_key match
+        Returns {context_key: fields_dict} for every match — empty dict if
+        nothing matches, or if this session has no DB yet."""
+        if db := self._persist_db(create=False):
+            return db.lookup_objects(namespace, path, context_template)
+        return {}
+
+    def get_contexts(self, namespace: str, path: str, context_template: str) -> list[str]:
+        """Same search as get_objects — identical (namespace, path, context_template)
+        params and the same exact-vs-template rule for context_template — but
+        returns just the matching context_keys as a list, and never reads or
+        decodes the stored fields. Cheaper than get_objects when you only need
+        to know which contexts exist (e.g. to enumerate saved records without
+        paying to deserialize each one).
+        Returns [] if nothing matches or this session has no DB yet."""
+        if db := self._persist_db(create=False):
+            return db.lookup_contexts(namespace, path, context_template)
+        return []
 
     def _invalidate_keyed_persist_cache(self, screen_module=None):
         """Call this only if keyed-persist units are added to a screen dynamically at

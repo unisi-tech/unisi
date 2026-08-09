@@ -863,8 +863,6 @@ def setup_llmrag() -> None:
     # per-model at call time instead (see _call_llm / _incompatible_params).
     Unishare.llm_strict_schema = getattr(config, 'strict_schema', True)
 
-    _log(f'LLM initialised: {model_id} (temperature={temperature:.2f})', 'info')
-
     # --- Cache ---
     if hasattr(config, 'llm_cache'):
         ttl: int | None = getattr(config, 'llm_cache_ttl', None)
