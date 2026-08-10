@@ -607,8 +607,14 @@ class UserPersistMixin:
         ancestor container (see _effective_persist_key_fn) — recompute the key.
           - key changed -> look up a saved override; if found, apply it to that one
             unit (active=True); if not, leave its current value alone (active=False).
-          - key unchanged but the unit was touched/changed this cycle -> save its
-            current state under that key (active=True).
+          - key unchanged but the unit was touched/changed this cycle -> compare its
+            current state (with active normalized to True, see below) against what's
+            already saved under that key; save only if it actually differs (active=True
+            either way). `touched`/`changed_units` mark "setattr ran this cycle", not
+            "the value differs from before" (see Unit.__setattr__/ChangedProxy — neither
+            compares old vs new value before marking dirty), so this comparison is what
+            keeps a no-op reassignment (e.g. a `changed` handler recomputing the same
+            default every request) from writing to disk on every single cycle.
 
         Containers (Block/ParamBlock) are never saved or restored as a whole:
           - their live child objects carry event handlers bound by business logic,
@@ -681,7 +687,20 @@ class UserPersistMixin:
                     self._set_persist_active(unit, False)
             elif unit in touched:
                 state = unit.__getstate__()
+                state['active'] = True  # this branch always ends by forcing active=True below;
+                # __getstate__ captures it from BEFORE that update, so left as-is it would make
+                # the saved/compared blob permanently disagree with any later __getstate__()
+                # (captured post-update) on this field alone, even when nothing about the
+                # unit's actual data changed. Normalize it to the value this branch always
+                # applies, so both the save and the comparison are stable, and `active` is
+                # persisted (and later restorable) like any other field.
                 state['id'] = path
-                if db_rw := self._persist_db(create=True):
-                    db_rw.save_keyed(namespace, path, context_key, _json_ready(state, parents))
+                new_state = _json_ready(state, parents)
+                db_ro = self._persist_db(create=False)
+                found = db_ro.lookup_keyed(namespace, path, context_key) if db_ro else _NOT_FOUND
+                if found != new_state:  # `touched` only means "setattr ran this cycle", not
+                    if db_rw := self._persist_db(create=True):  # "value differs" — writing
+                        db_rw.save_keyed(namespace, path, context_key, new_state)  # unconditionally
+                        # here would persist no-op reassignments (e.g. a `changed` handler
+                        # recomputing the same default every request) on every single cycle
                 self._set_persist_active(unit, True)
