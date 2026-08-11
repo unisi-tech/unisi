@@ -1,5 +1,5 @@
 from unisi import *
-ed = Edit('Number only', 2.5),
+ed = Edit('Number only', 2.5)
 
 def get_path(*_):
     return Info(str(user.persist_location(ed)))
