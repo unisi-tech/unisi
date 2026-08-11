@@ -1,5 +1,5 @@
 from unisi import *
-
+from blocks.shared import eblock
 name = "Notes"
 order = 1
 persist = True
@@ -11,4 +11,4 @@ table = Table("notes", headers = ["Title", "Date"], persist = True, rows = [
 ])
 
 comment = Edit("Comment", "")
-blocks = Block("My Notes",  comment, table)
+blocks = Block("My Notes",  comment, table), eblock

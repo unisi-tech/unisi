@@ -102,13 +102,27 @@ def _template_to_like(template):
     return _escape_like(prefix) + '%' + _escape_like(suffix)
 
 
-def _unit_path_key(unit, parents):
+def _unit_path_key(unit, parents, stop_at=None):
+    """Walk up from `unit`, collecting '@'-joined name segments, until the
+    walk reaches its stopping point:
+      - by default, the screen (unchanged, original behavior) — a toolbar
+        unit gets an extra trailing 'toolbar' segment to disambiguate it
+        from a same-named unit inside `blocks`;
+      - if `stop_at` is given, the first ancestor (inclusive of `unit`
+        itself) that *is* `stop_at` — used to anchor a shared block's path
+        to its own root instead of the screen, so it comes out the same no
+        matter which screen embeds it or how (see _shared_root_of).
+    Returns None if `unit` isn't reachable from a screen (or from `stop_at`)
+    at all.
+    """
     path = []
     current = unit
     while current:
         name = getattr(current, 'name', None)
         if name:
             path.append(name)
+        if stop_at is not None and current is stop_at:
+            return strpath(path[::-1])
         parent = parents.get(current)
         if parent is None:
             return None
@@ -120,22 +134,75 @@ def _unit_path_key(unit, parents):
     return None
 
 
-def _json_ready(value, parents):
+def _shared_root_of(unit, parents, shared_roots):
+    """Walk up from `unit` (inclusive) via `parents`; return the
+    (root_object, module_name) entry from `shared_roots` for the first
+    ancestor found there, or None if `unit` isn't inside any of them before
+    the walk reaches the screen. See UserPersistMixin._shared_block_roots."""
+    current = unit
+    while current is not None:
+        hit = shared_roots.get(id(current))
+        if hit is not None:
+            return hit
+        parent = parents.get(current)
+        if parent is None or getattr(parent, 'type', None) == 'screen':
+            return None
+        current = parent
+    return None
+
+
+def _persist_identity(unit, parents, shared_roots, screen_name):
+    """Resolve — and cache on the unit — a storage identity (namespace, path)
+    for `unit` that stays valid no matter which screen currently displays it.
+
+    Blocks living under blocks/ are imported by reference, so the very same
+    live object is embedded in every screen that imports it (see
+    ModulesMixin._install_modules/_capture_modules) — only the layout
+    *around* it is screen-specific. So a unit found inside one of those
+    objects (see _shared_root_of) is anchored to that block's own module:
+    namespace becomes the module's dotted name and path runs only from the
+    block's own root, never touching the screen. Anything else keeps
+    today's original behavior: namespace is the current screen and path
+    runs all the way up to it.
+
+    Cached as `_persist_home` because the answer can never change afterwards
+    — a unit's position relative to its own root (shared or not) is fixed at
+    construction time — so whichever screen resolves it first fixes it for
+    every screen after, including ones visited only in a later session.
+    """
+    cached = getattr(unit, '_persist_home', None)
+    if cached is not None:
+        return cached
+    hit = _shared_root_of(unit, parents, shared_roots) if shared_roots else None
+    if hit is not None:
+        root, module_name = hit
+        path = _unit_path_key(unit, parents, stop_at=root)
+        identity = (f'@{module_name}', path) if path else None
+    else:
+        path = _unit_path_key(unit, parents)
+        identity = (screen_name, path) if path else None
+    if identity is not None:
+        object.__setattr__(unit, '_persist_home', identity)
+    return identity
+
+
+def _json_ready(value, parents, shared_roots, screen_name):
     if isinstance(value, ChangedProxy):
         value = value._obj
     if isinstance(value, Unit):
         state = value.__getstate__()
-        if path := _unit_path_key(value, parents):
-            state['id'] = path
-        return _json_ready(state, parents)
+        identity = _persist_identity(value, parents, shared_roots, screen_name)
+        if identity:
+            state['id'] = identity[1]
+        return _json_ready(state, parents, shared_roots, screen_name)
     if isinstance(value, list | tuple | set):
-        return [item for item in (_json_ready(v, parents) for v in value) if item is not _SKIP_JSON]
+        return [item for item in (_json_ready(v, parents, shared_roots, screen_name) for v in value) if item is not _SKIP_JSON]
     if isinstance(value, dict):
         data = {}
         for key, val in value.items():
             if isinstance(key, str) and key.startswith('_'):
                 continue
-            item = _json_ready(val, parents)
+            item = _json_ready(val, parents, shared_roots, screen_name)
             if item is not _SKIP_JSON:
                 data[key] = item
         return data
@@ -144,11 +211,11 @@ def _json_ready(value, parents):
     if hasattr(value, '__getstate__') and not isinstance(value, type):
         state = value.__getstate__()
         if isinstance(state, dict):
-            return _json_ready(state, parents)
+            return _json_ready(state, parents, shared_roots, screen_name)
     if hasattr(value, '__dict__') and not isinstance(value, type):
         if type(value).__name__ in ('User', 'Persist'):
             return _SKIP_JSON
-        return _json_ready(value.__dict__, parents)
+        return _json_ready(value.__dict__, parents, shared_roots, screen_name)
     if value is None or isinstance(value, int | float | bool | str):
         return value
     return str(value)
@@ -198,19 +265,27 @@ class Persist:
         self.conn.execute(SCHEMA)
         self.conn.commit()
 
-    def save_changed(self, current_screen, persist_data):
+    def save_changed(self, user, current_screen, persist_data):
         if not persist_data:
             return
 
         screen_name = _screen_name(current_screen)
         screen = getattr(current_screen, 'screen', current_screen)
         parents = getattr(screen, '_parents', {})
+        shared_roots = user._shared_block_roots()
         ts = time.time()
         rows = []
 
-        for _, serialized_dict in persist_data:
-            path = _path_key(serialized_dict['id'])
-            rows.append((screen_name, path, '', json.dumps(_json_ready(serialized_dict, parents), ensure_ascii=False), ts))
+        for pr_obj, state in persist_data:
+            identity = _persist_identity(pr_obj, parents, shared_roots, screen_name)
+            if not identity:
+                continue
+            namespace, path = identity
+            state['id'] = path
+            rows.append((namespace, path, '', json.dumps(_json_ready(state, parents, shared_roots, screen_name), ensure_ascii=False), ts))
+
+        if not rows:
+            return
 
         self.conn.executemany(
             'INSERT OR REPLACE INTO state(namespace, path, context_key, value, ts) VALUES (?, ?, ?, ?, ?)',
@@ -220,21 +295,45 @@ class Persist:
 
     def restore_screen(self, user, screen_module, screen_units):
         screen_name = _screen_name(screen_module)
+        screen = getattr(screen_module, 'screen', screen_module)
+        parents = getattr(screen, '_parents', {})
+        shared_roots = user._shared_block_roots()
+
         rows = self.conn.execute(
             "SELECT path, value FROM state WHERE namespace = ? AND context_key = ''",
             (screen_name,),
         ).fetchall()
 
-        if not rows:
+        # A persist-eligible unit living inside a shared block is stored under
+        # that block's own module namespace (see _persist_identity), never
+        # under any one screen's — the bulk fetch above, scoped to
+        # `screen_name`, can never see it, on this screen or on the screen
+        # that originally saved it. Look each one up directly, at its own
+        # pinned identity, instead.
+        shared_rows = []
+        for unit in screen_units:
+            if not user._unit_has_persist_screen(unit):
+                continue
+            if not _shared_root_of(unit, parents, shared_roots):
+                continue
+            identity = _persist_identity(unit, parents, shared_roots, screen_name)
+            if not identity:
+                continue
+            row = self.conn.execute(
+                "SELECT value FROM state WHERE namespace = ? AND path = ? AND context_key = ''",
+                identity,
+            ).fetchone()
+            if row:
+                shared_rows.append((unit, row[0]))
+
+        if not rows and not shared_rows:
             return
 
         unit_map = {}
-        screen = getattr(screen_module, 'screen', screen_module)
-        parents = getattr(screen, '_parents', {})
         for unit in screen_units:
-            path = _unit_path_key(unit, parents)
-            if path:
-                unit_map[_path_key(path)] = unit
+            identity = _persist_identity(unit, parents, shared_roots, screen_name)
+            if identity:
+                unit_map[_path_key(identity[1])] = unit
 
         # broader (shallower) persist targets first, so a more specific saved
         # entry applied afterwards correctly wins for its own subtree
@@ -244,6 +343,14 @@ class Persist:
             unit = unit_map.get(path)
             if not unit:
                 continue
+            try:
+                saved_dict = json.loads(value)
+            except json.JSONDecodeError:
+                continue
+            if saved_dict:
+                _smart_apply_dict(unit, saved_dict, unit_map)
+
+        for unit, value in shared_rows:
             try:
                 saved_dict = json.loads(value)
             except json.JSONDecodeError:
@@ -361,12 +468,14 @@ class Persist:
 class UserPersistMixin:
     """Persist-related behaviour for User.
     Expects from host class:
-      self.session, self.testing, self.screens,
+      self.session, self.testing, self.screens, self.modules,
       self.screen (property), self.screen_module,
       self._iter_units(), self.assign_parent_links(),
       self._global_persist (property, defined in User via config),
       self.changed_units, self.touched_units, self.register_changed_unit(), self.log()
-      (the last four are needed by sync_keyed_persist / get_key / set_key).
+      (the last four are needed by sync_keyed_persist / get_key / set_key;
+      self.modules is needed by _shared_block_roots, to recognize state that
+      belongs to a block shared across screens rather than to one screen alone).
     """
 
     def _init_persist(self):
@@ -396,6 +505,33 @@ class UserPersistMixin:
         return self._persist_enabled() and (
             self._global_persist or getattr(screen, 'persist', False) or
             any(_is_flag_persist(getattr(u, 'persist', False)) for u in units))
+
+    def _shared_block_roots(self):
+        """id(unit) -> (unit, module_name) for every top-level Unit/Block value
+        exported by this user's currently-cached blocks/ modules (self.modules,
+        populated incrementally as screens get visited — see
+        ModulesMixin._capture_modules). Each of these is the exact same live
+        instance embedded in every screen that imports it, which makes the
+        module's own (globally unique, Python-enforced) dotted name a natural,
+        screen-independent anchor for its persisted state — see
+        _persist_identity.
+
+        sync_keyed_persist calls this every request, so the result is cached
+        on `self` and only rebuilt once `self.modules` actually grows (a new
+        blocks/ module gets imported) rather than on every call — cheap even
+        then (top-level attributes of a handful of modules, no tree walking),
+        but no reason to redo it every request when nothing changed."""
+        cached = getattr(self, '_shared_roots_cache', None)
+        if cached is not None and cached[0] == len(self.modules):
+            return cached[1]
+        roots = {
+            id(value): (value, module_name)
+            for module_name, module in self.modules.items()
+            for value in vars(module).values()
+            if isinstance(value, Unit)
+        }
+        self._shared_roots_cache = (len(self.modules), roots)
+        return roots
 
     def _mark_persist_units(self):
         """Set _persist=True on every unit that appears in at least one persist screen.
@@ -461,27 +597,26 @@ class UserPersistMixin:
                 continue
 
             pr_obj = None
-            pr_path = None
             if screen_persist:
                 pr_obj = unit
-                pr_path = path
             else:
                 current = unit
                 while current:
                     if _is_flag_persist(getattr(current, 'persist', False)) or getattr(current, '_persist', False):
                         pr_obj = current
-                        pr_path = fast_path(current)
                         break
                     current = getattr(self.screen, '_parents', {}).get(current)
 
-            if pr_obj and pr_path:
-                path_key = strpath(pr_path)
-                if path_key not in persist_targets:
-                    state = pr_obj.__getstate__()
-                    state['id'] = path_key
-                    persist_targets[path_key] = (pr_obj, state)
+            # Keyed by the object itself, not by a precomputed path: the actual
+            # storage identity (screen-scoped, or shared-block-scoped for a
+            # unit living inside blocks/ — see _persist_identity) is resolved
+            # once, in save_changed, which is also where it's cached. Object
+            # identity is all that's needed here, so several touched leaves
+            # under the same pr_obj still only queue a single save of it.
+            if pr_obj is not None and pr_obj not in persist_targets:
+                persist_targets[pr_obj] = pr_obj.__getstate__()
 
-        return list(persist_targets.values())
+        return list(persist_targets.items())
 
     def _save_persist_if_needed(self, persist_units):
         """Save changed persist units to DB. Called at the end of prepare_result."""
@@ -492,7 +627,7 @@ class UserPersistMixin:
             persist_data = self._collect_persist_data(persist_units)
             if persist_data:
                 if db := self._persist_db(create=True):
-                    db.save_changed(self.screen_module, persist_data)
+                    db.save_changed(self, self.screen_module, persist_data)
 
     def get_key(self, key: str):
         """Simple persistent key-value get, independent of screen/unit context.
@@ -556,6 +691,26 @@ class UserPersistMixin:
         if db := self._persist_db(create=False):
             return db.lookup_objects(namespace, path, context_template)
         return {}
+
+    def persist_location(self, unit) -> tuple[str, str] | None:
+        """Return the (namespace, path) `unit` is (or would be) stored under —
+        the same identity save/restore resolve internally (see
+        _persist_identity) — so it can be looked up directly with
+        get_objects/get_contexts without having to know by hand whether it's
+        a screen-local unit (namespace = current screen's name) or one
+        living in a blocks/ module shared across screens (namespace = '@'
+        followed by the module's dotted name, e.g. '@blocks.header').
+        None if `unit` isn't reachable from the current screen at all.
+
+        Example — read a shared unit's own positional-persist row directly:
+            ns, path = user.persist_location(some_shared_unit)
+            saved = user.get_objects(ns, path, "")   # {"": {...}} or {}
+        """
+        screen = self.screen
+        if getattr(screen, '_parents', None) is None:
+            self.assign_parent_links()
+        return _persist_identity(unit, screen._parents, self._shared_block_roots(),
+                                  _screen_name(self.screen_module))
 
     def get_contexts(self, namespace: str, path: str, context_template: str) -> list[str]:
         """Same search as get_objects — identical (namespace, path, context_template)
@@ -638,14 +793,16 @@ class UserPersistMixin:
         if getattr(screen, '_parents', None) is None:
             self.assign_parent_links()
         parents = screen._parents
+        shared_roots = self._shared_block_roots()
+        screen_name = _screen_name(self.screen_module)
 
         cache = getattr(screen, '_keyed_persist_cache', None)
         if cache is None:
             keyed_units, unit_map = [], {}
             for u in self._iter_units():
-                p = _unit_path_key(u, parents)
-                if p:
-                    unit_map[_path_key(p)] = u
+                identity = _persist_identity(u, parents, shared_roots, screen_name)
+                if identity:
+                    unit_map[_path_key(identity[1])] = u
                 if getattr(u, 'type', None) == 'block':
                     continue  # containers are never persist targets themselves
                 if key_fn := _effective_persist_key_fn(u, parents):
@@ -656,7 +813,6 @@ class UserPersistMixin:
         if not keyed_units:
             return
 
-        namespace = _screen_name(self.screen_module)
         touched = self.changed_units | self.touched_units
 
         for unit, key_fn in keyed_units:
@@ -669,9 +825,10 @@ class UserPersistMixin:
                 new_key = (new_key,)
             new_key = tuple(new_key)
 
-            path = _unit_path_key(unit, parents)
-            if not path:
+            identity = _persist_identity(unit, parents, shared_roots, screen_name)
+            if not identity:
                 continue
+            namespace, path = identity
             context_key = json.dumps(list(new_key), ensure_ascii=False)
 
             if new_key != getattr(unit, '_persist_key', _NO_KEY):
@@ -695,7 +852,7 @@ class UserPersistMixin:
                 # applies, so both the save and the comparison are stable, and `active` is
                 # persisted (and later restorable) like any other field.
                 state['id'] = path
-                new_state = _json_ready(state, parents)
+                new_state = _json_ready(state, parents, shared_roots, screen_name)
                 db_ro = self._persist_db(create=False)
                 found = db_ro.lookup_keyed(namespace, path, context_key) if db_ro else _NOT_FOUND
                 if found != new_state:  # `touched` only means "setattr ran this cycle", not
