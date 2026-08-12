@@ -718,6 +718,17 @@ class UserPersistMixin:
             return db.lookup_objects(namespace, path, context_template)
         return {}
 
+    def _persist_context(self):
+        """(parents, shared_roots, screen_name) for the current screen — the
+        three pieces every _persist_identity call needs. Computed fresh each
+        call (cheap: assign_parent_links/_shared_block_roots are themselves
+        already cached) and shared by persist_location/persist_units/
+        restore_units so identity resolution stays in one place."""
+        screen = self.screen
+        if getattr(screen, '_parents', None) is None:
+            self.assign_parent_links()
+        return screen._parents, self._shared_block_roots(), _screen_name(self.screen_module)
+
     def persist_location(self, unit) -> tuple[str, str] | None:
         """Return the (namespace, path) `unit` is (or would be) stored under —
         the same identity save/restore resolve internally (see
@@ -732,11 +743,118 @@ class UserPersistMixin:
             ns, path = user.persist_location(some_shared_unit)
             saved = user.get_objects(ns, path, "")   # {"": {...}} or {}
         """
-        screen = self.screen
-        if getattr(screen, '_parents', None) is None:
-            self.assign_parent_links()
-        return _persist_identity(unit, screen._parents, self._shared_block_roots(),
-                                  _screen_name(self.screen_module))
+        return _persist_identity(unit, *self._persist_context())
+
+    def persist_units(self, *units) -> list:
+        """Force-save the CURRENT state of specific units to storage right
+        now, regardless of whether they carry persist=True / persist=<function>
+        at all — the on-demand counterpart to automatic positional persist
+        (§13.1), for a unit you only want to snapshot at a particular moment
+        (e.g. a "Save" button) rather than on every change.
+
+        Each unit is written to the same (namespace, path, context_key='')
+        row positional persist=True would use for it (see persist_location)
+        — a Block/ParamBlock saves its whole subtree at once, exactly like a
+        persist=True Block does. So a unit saved here is exactly what a later
+        restore_screen would restore if persist=True were added to it, and
+        exactly what restore_units reads back below; this is an eager,
+        explicit trigger for that same slot, not a separate mechanism.
+        A unit already governed by a keyed persist=<function> (§13.2) has
+        its *own* current-record slot handled automatically every request
+        by sync_keyed_persist — this positional slot is simply a distinct,
+        unrelated row for it, not a substitute for that mechanism.
+
+        A unit whose position can't be resolved from the current screen —
+        same condition persist_location returns None for — is skipped and
+        logged as a warning, since (unlike the automatic mechanisms, which
+        silently skip a lot of units every request as a matter of course)
+        an explicit call naming this unit is more likely a mistake worth
+        surfacing. A unit whose current state already matches what's on
+        disk is skipped too, but silently — a plain no-op, mirroring the
+        save-if-changed check sync_keyed_persist already does before it
+        writes a keyed unit.
+
+        Returns the subset of `units` actually written, in call order —
+        empty if every one was skipped (or persistence is off, e.g. during
+        autotest — §13.5).
+        """
+        if not units or not self.screen_module or not (db := self._persist_db(create=True)):
+            return []
+        parents, shared_roots, screen_name = self._persist_context()
+
+        written = []
+        for unit in units:
+            if isinstance(unit, ChangedProxy):
+                unit = unit._obj
+            identity = _persist_identity(unit, parents, shared_roots, screen_name)
+            if not identity:
+                self.log(f'persist_units: "{unit}" is not reachable from the '
+                         f'current screen ("{screen_name}") and was skipped', type='warning')
+                continue
+            namespace, path = identity
+            state = unit.__getstate__()
+            state['id'] = path
+            new_state = _json_ready(state, parents, shared_roots, screen_name)
+            if db.lookup_keyed(namespace, path, '') != new_state:
+                db.save_keyed(namespace, path, '', new_state)
+                written.append(unit)
+        return written
+
+    def restore_units(self, *units) -> list:
+        """Force-load specific units' saved state from storage right now and
+        apply it onto the live units — the on-demand counterpart to
+        persist_units above (and to automatic positional restore, see
+        restore_screen), for reverting a unit to its last saved state at an
+        arbitrary moment (e.g. a "Revert" button) rather than only at screen
+        load. Reads the same (namespace, path, context_key='') row
+        persist_units / a positional persist=True save would have written
+        (see persist_location); a Block/ParamBlock is restored as a whole
+        subtree, including nested unit references, exactly like
+        restore_screen does for a persist=True Block.
+
+        A unit whose position can't be resolved is skipped and logged as a
+        warning (see persist_units). A unit with nothing saved yet is
+        skipped silently — a normal "never persisted" state, not a warning.
+
+        The applied change is added to changed_units, same as a found match
+        in sync_keyed_persist, so the new state reaches the client on the
+        next round-trip (unless the client is, in this very message, already
+        the source of this same unit's update). Restoring a Block re-renders
+        that block wholesale on the client, same as any other direct
+        mutation of a container — for a block with a field mid-edit, prefer
+        restoring its individual leaf units instead.
+
+        Returns the subset of `units` actually found and applied, in call
+        order — empty if every one was skipped (or persistence is off, e.g.
+        during autotest — §13.5).
+        """
+        if not units or not self.screen_module or not (db := self._persist_db(create=False)):
+            return []
+        parents, shared_roots, screen_name = self._persist_context()
+        unit_map = {}
+        for u in self._iter_units():
+            identity = _persist_identity(u, parents, shared_roots, screen_name)
+            if identity:
+                unit_map[_path_key(identity[1])] = u
+
+        loaded = []
+        for unit in units:
+            if isinstance(unit, ChangedProxy):
+                unit = unit._obj
+            identity = _persist_identity(unit, parents, shared_roots, screen_name)
+            if not identity:
+                self.log(f'restore_units: "{unit}" is not reachable from the '
+                         f'current screen ("{screen_name}") and was skipped', type='warning')
+                continue
+            namespace, path = identity
+            found = db.lookup_keyed(namespace, path, '')
+            if found is _NOT_FOUND or not isinstance(found, dict):
+                continue
+            _smart_apply_dict(unit, found, unit_map)
+            if not self._is_message_target(unit):
+                self.register_changed_unit(unit)
+            loaded.append(unit)
+        return loaded
 
     def get_contexts(self, namespace: str, path: str, context_template: str) -> list[str]:
         """Same search as get_objects — identical (namespace, path, context_template)

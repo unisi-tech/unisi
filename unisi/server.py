@@ -198,9 +198,33 @@ def ensure_directory_exists(directory_path):
         os.makedirs(directory_path)
         print(f"Directory '{directory_path}' created.")
 
+def ensure_unisi_typings():
+    """
+    Create or update __builtins__.pyi for
+    static analysis support 'user' keyword (Pylance/Pyright).
+    """
+    typings_dir = "typings"
+    builtins_file_path = "typings/__builtins__.pyi"
+    
+    ensure_directory_exists(typings_dir)
+    builtins_content = "from unisi import User\n\nuser: User\n"
+
+    try:
+        if not os.path.exists(builtins_file_path) or \
+           open(builtins_file_path, "r", encoding="utf-8").read() != builtins_content:
+            with open(builtins_file_path, "w", encoding="utf-8") as f:
+                f.write(builtins_content)
+            print(f"File '{builtins_file_path}' created/updated for Pylance support.")
+        else:
+            print(f"File '{builtins_file_path}' already up to date.")
+    except Exception as e:
+        print(f"Error creating/updating '{builtins_file_path}': {e}")
+
+
 def start(user_type = User, http_handlers = []):    
     ensure_directory_exists(screens_dir)
     ensure_directory_exists(blocks_dir)
+    ensure_unisi_typings()
     setup_llmrag()
 
     User.type = user_type        
