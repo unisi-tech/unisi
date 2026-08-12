@@ -534,15 +534,41 @@ class UserPersistMixin:
         return roots
 
     def _mark_persist_units(self):
-        """Set _persist=True on every unit that appears in at least one persist screen.
-        Called once after all screens are loaded (block modules still in sys.modules).
-        Uses object.__setattr__ so the flag stays out of serialization (_-prefix).
+        """Set _persist=True on every unit that is itself, or is nested inside, a
+        persist target: the enclosing screen (module-level `persist = True` or
+        global persist config), or some ancestor Block/Unit that itself carries
+        an explicit `persist=True`. Called once after all screens are loaded
+        (block modules still in sys.modules). Uses object.__setattr__ so the
+        flag stays out of serialization (_-prefix).
+
+        Walking ancestors -- not just checking the screen's own flag -- matters
+        for units living inside a shared block (blocks/): such a block's own
+        persist=True must cascade to everything nested inside it exactly like a
+        screen-level persist=True does, regardless of which screen currently
+        hosts the block and regardless of whether that hosting screen declares
+        persist=True itself. Otherwise the very same shared unit can end up
+        saved under two different identities -- an individually-keyed row when
+        first reached through a persist screen, a combined container blob when
+        first reached through a screen without its own persist flag -- and
+        whichever form was written can't be found by a lookup expecting the
+        other.
         """
         for screen_module in self.screens:
             screen = getattr(screen_module, 'screen', screen_module)
-            if getattr(screen, 'persist', False) or self._global_persist:
-                for unit in self._iter_units(screen_module):
+            if getattr(screen, '_parents', None) is None:
+                self.assign_parent_links(screen_module)
+            parents = screen._parents
+            screen_persist = getattr(screen, 'persist', False) or self._global_persist
+            for unit in self._iter_units(screen_module):
+                if screen_persist or getattr(unit, '_persist', False):
                     object.__setattr__(unit, '_persist', True)
+                    continue
+                current = unit
+                while current is not None:
+                    if _is_flag_persist(getattr(current, 'persist', False)):
+                        object.__setattr__(unit, '_persist', True)
+                        break
+                    current = parents.get(current)
 
     def _restore_persist_screen(self, screen_module):
         screen = getattr(screen_module, 'screen', screen_module)

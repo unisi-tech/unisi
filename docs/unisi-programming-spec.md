@@ -311,7 +311,7 @@ The default mode. Set `persist=True` on:
 - a screen module (module-level `persist = True`, or `screen.persist` in `prepare()`) — persists every unit on that screen;
 - an individual `Block` or `Unit` — persists just that subtree.
 
-Storage is **keyed by the unit's position** in the screen tree (its name chain from the screen down to the unit), scoped to the current user session. Whenever a persisted unit changes, its current state is saved; when the screen is next loaded, the saved state is restored onto the unit at the same tree position.
+Storage is **keyed by the unit's position** in the screen tree (its name chain from the screen down to the unit), scoped to the current user session. Whenever a persisted unit changes, its current state is saved; when the screen is next loaded, the saved state is restored onto the unit at the same tree position. This is the default, screen-relative case; a block imported from `blocks/` and reused across screens anchors position and identity differently — see §13.6.
 
 This is the right tool for "remember what this widget was last set to for this user" — a settings toggle, a filter's last value, a panel's last-expanded state.
 
@@ -399,6 +399,22 @@ user.get_contexts("orders", "form/price", "..")   # -> ['["Widget"]', '["Gadget"
 
 All of the above share the same storage: a local SQLite file per user session (`users/<session-id>.db`), created on first write. State is never shared between users or sessions. Persistence is automatically disabled during autotest runs.
 
+### 13.6 Persistence and shared blocks
+
+A unit living inside a block imported from `blocks/` (the same object embedded, by reference, in every screen that imports it — see §16) is not scoped to whichever screen currently displays it. Its storage identity is anchored to the block's own Python module instead: namespace is `'@' + <module's dotted path>` (e.g. `'@blocks.header'`) rather than a screen name, and its tree path is measured from the block's own root, not the screen. Its persisted state — single fields, whole-block state, keyed records — is therefore the same no matter which screen the user is currently on, and survives a restart even if the user's first screen this session isn't the one that originally saved it.
+
+This applies automatically wherever `persist=True` / `persist=<function>` is set directly on the shared block or its fields. It does NOT automatically apply to a unit that is merely cascaded into persistence by an unrelated screen's module-level `persist = True` (§13.1): that cascade only takes effect once that screen has actually been loaded at least once in the current session. For a widget meant to be shared and persisted, prefer setting `persist=True` (or a key-function) directly on it or its containing block in `blocks/`, rather than relying on a hosting screen's blanket `persist = True`.
+
+```python
+# blocks/header.py
+theme = Select("Theme", "light", options=["light", "dark"], persist=True)
+header_block = Block("Header", theme)
+```
+
+`theme` persists under `('@blocks.header', 'Theme')` regardless of which screen imports `header_block`, including a screen that has never declared its own `persist = True` and is the very first one loaded this session. (A field that is *not* separately named at module level — created inline as one of `header_block`'s children instead — gets a path measured from `header_block` down to it instead, e.g. `'Header@Theme'`; either way the anchor is the block's module, never the hosting screen.)
+
+To look a specific unit's saved record up directly (e.g. via `get_objects`/`get_contexts`, §13.4) without hardcoding which namespacing scheme applies, use `user.persist_location(unit)`, which returns the `(namespace, path)` currently in effect for it.
+
 ## 14. LLM Integration Specification
 
 Two levels:
@@ -454,6 +470,8 @@ blocks = [config_area]
 ```
 
 Use interception (`@handle`) in screen module when you need screen-specific behavior overrides for shared units.
+
+For how `persist` behaves on a unit living in a shared block — storage anchored to the block's own module rather than to whichever screen displays it — see §13.6.
 
 ## 17. End-to-End Example (Runnable Pattern)
 
