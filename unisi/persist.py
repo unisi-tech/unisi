@@ -18,7 +18,10 @@ CREATE TABLE IF NOT EXISTS state (
 )
 """
 # context_key = '' для классических persist=True записей (позиционное восстановление);
-# для keyed-persist (persist = функция) context_key = json от tuple определяющих значений;
+# для keyed-persist (persist = функция) context_key = значения tuple через запятую,
+# без JSON-обёртки: одно значение — как есть (напр. 'Dog'), несколько — 'London,123'
+# для ('London', 123); буквальные ',' и '\' внутри значения экранируются бэкслешем,
+# чтобы разные tuple не схлопывались в одну строку (см. _encode_context_key);
 # для простого get_key/set_key/get_keys/remove_key/remove_keys namespace и path тоже
 # пустые, context_key = сам ключ (get_keys/remove_keys ищут по context_key через
 # LIKE-паттерн, построенный из шаблона 'ab..ba').
@@ -85,6 +88,21 @@ def _escape_like(fragment):
             .replace('_', _LIKE_ESCAPE + '_'))
 
 
+def _encode_context_key(key_tuple):
+    """A keyed-persist key tuple as a context_key string: plain and readable,
+    not JSON. One value -> its own str(), no wrapping at all; several ->
+    joined with ',' -- e.g. ('London', 123) -> 'London,123', ('Dog',) ->
+    'Dog'. This is exactly what get_objects/get_contexts/persist_location
+    show you and what a get_keys-style template (§13.4) is written against,
+    so 'London,..' finds every record for London without knowing any
+    encoding scheme. A literal '\\' or ',' *inside* one value is escaped
+    (to '\\\\' / '\\,') so two different tuples can never collide onto the
+    same string -- e.g. ('a,b', 'c') and ('a', 'b,c') would otherwise both
+    read 'a,b,c'. Only ever compared or LIKE-matched, never decoded back
+    (see the schema comment above), so this direction is all that's needed."""
+    return ','.join(str(v).replace('\\', '\\\\').replace(',', '\\,') for v in key_tuple)
+
+
 def _split_template(template):
     """Validate and split a get_keys()/remove_keys() template into (prefix, suffix).
     '..' marks the wildcard gap; prefix/suffix are literal text anchored to
@@ -103,11 +121,14 @@ def _template_to_like(template):
 
 
 def _unit_path_key(unit, parents, stop_at=None):
-    """Walk up from `unit`, collecting '@'-joined name segments, until the
-    walk reaches its stopping point:
-      - by default, the screen (unchanged, original behavior) — a toolbar
-        unit gets an extra trailing 'toolbar' segment to disambiguate it
-        from a same-named unit inside `blocks`;
+    """Walk up from `unit`, collecting '@'-joined name segments, leaf first
+    (matches User.find_path/strpath's own convention elsewhere in the
+    codebase — see the class docstring note on this), until the walk
+    reaches its stopping point:
+      - by default, the screen — a toolbar unit gets a trailing 'toolbar'
+        segment appended (so it sorts last, after its own containing
+        block if any) to disambiguate it from a same-named unit inside
+        `blocks`;
       - if `stop_at` is given, the first ancestor (inclusive of `unit`
         itself) that *is* `stop_at` — used to anchor a shared block's path
         to its own root instead of the screen, so it comes out the same no
@@ -122,14 +143,14 @@ def _unit_path_key(unit, parents, stop_at=None):
         if name:
             path.append(name)
         if stop_at is not None and current is stop_at:
-            return strpath(path[::-1])
+            return strpath(path)
         parent = parents.get(current)
         if parent is None:
             return None
         if getattr(parent, 'type', None) == 'screen':
             if current in getattr(parent, 'toolbar', ()):
                 path.append('toolbar')
-            return strpath(path[::-1])
+            return strpath(path)
         current = parent
     return None
 
@@ -594,6 +615,10 @@ class UserPersistMixin:
         screen_persist = self._global_persist or getattr(self.screen, 'persist', False)
 
         def fast_path(unit):
+            """Reachability probe only — the *value* is never used beyond
+            `if not path`, actual identity is resolved later by save_changed
+            (see the comment below). Kept leaf-first for consistency with
+            _unit_path_key even though the order can't matter here."""
             if unit is self.screen:
                 return None
             parents = getattr(self.screen, '_parents', {})
@@ -611,7 +636,7 @@ class UserPersistMixin:
                         path.append('toolbar')
                     break
                 current = parent
-            return path[::-1] if reached_screen and path else None
+            return path if reached_screen and path else None
 
         for unit in units:
             if callable(getattr(unit, 'persist', None)) or \
@@ -973,7 +998,7 @@ class UserPersistMixin:
             if not identity:
                 continue
             namespace, path = identity
-            context_key = json.dumps(list(new_key), ensure_ascii=False)
+            context_key = _encode_context_key(new_key)
 
             if new_key != getattr(unit, '_persist_key', _NO_KEY):
                 object.__setattr__(unit, '_persist_key', new_key)

@@ -311,7 +311,7 @@ The default mode. Set `persist=True` on:
 - a screen module (module-level `persist = True`, or `screen.persist` in `prepare()`) — persists every unit on that screen;
 - an individual `Block` or `Unit` — persists just that subtree.
 
-Storage is **keyed by the unit's position** in the screen tree (its name chain from the screen down to the unit), scoped to the current user session. Whenever a persisted unit changes, its current state is saved; when the screen is next loaded, the saved state is restored onto the unit at the same tree position. This is the default, screen-relative case; a block imported from `blocks/` and reused across screens anchors position and identity differently — see §13.6.
+Storage is **keyed by the unit's position** in the screen tree, scoped to the current user session. The position is a name chain read leaf first — the unit's own name, then each containing block going outward, ending with the screen — `'@'`-joined the same way `user.find_path(unit)` returns it (see `persist_location`, §13.4). Whenever a persisted unit changes, its current state is saved; when the screen is next loaded, the saved state is restored onto the unit at the same tree position. This is the default, screen-relative case; a block imported from `blocks/` and reused across screens anchors position and identity differently — see §13.6.
 
 This is the right tool for "remember what this widget was last set to for this user" — a settings toggle, a filter's last value, a panel's last-expanded state.
 
@@ -329,6 +329,8 @@ Pass a zero-argument function instead of `True`. It must return a tuple (or list
 selected_row = Select("Product", options=["Widget", "Gadget", "Gizmo"])
 price = Edit("Price", 0.0, persist=lambda: (selected_row.value,))
 ```
+
+The tuple becomes a `context_key` string — plain and readable, not JSON: one value is used as its own `str()`, several are joined with `,` — e.g. `("Widget",)` → `'Widget'`, `('London', 123)` → `'London,123'`. This is exactly what `get_objects`/`get_contexts`/`persist_location` show you and what a template (§13.4) is written against, so `'London,..'` finds every record for London without knowing any encoding scheme. A literal `,` or `\` *inside* one value is backslash-escaped so two different tuples can never collide onto the same string (`('a,b', 'c')` and `('a', 'b,c')` would otherwise both read `'a,b,c'`) — invisible in the common case where key values don't themselves contain a comma.
 
 On every request, UNISI recomputes the key for each such unit:
 - If the key **changed** since last checked, it looks up a saved value for the new key:
@@ -375,16 +377,17 @@ gone = user.remove_keys("export_..")       # deletes every match, returns {"expo
 `get_key`/`get_keys` only reach the simple store (`namespace=''`, `path=''`). `get_objects(namespace, path, context_template)` is the same kind of search generalized to any `(namespace, path)` — in particular the keyed-persist rows from §13.2, letting you list saved records for a unit's key function instead of looking up one key at a time:
 
 ```python
-# unit on screen "orders", tree path "form/price", persist=lambda: (selected_row.value,)
-user.get_objects("orders", "form/price", "..")
-# -> {'["Widget"]': {...saved fields...}, '["Gadget"]': {...saved fields...}}
+# unit "price" nested in block "form" on screen "orders" -- path is '@'-joined,
+# leaf first (same order as User.find_path), so "price@form", persist=lambda: (selected_row.value,)
+user.get_objects("orders", "price@form", "..")
+# -> {'Widget': {...saved fields...}, 'Gadget': {...saved fields...}}
 ```
 
 `context_template` behaves like `get_keys`'s template when it contains `..` (prefix/suffix match). Unlike `get_keys`, a template with no `..` is not an error — it's an exact `context_key` match instead, so `get_objects` also covers a single positional-persist lookup (`context_key=""`, §13.1):
 
 ```python
-user.get_objects("orders", "form/price", '["Widget"]')   # exact match -> that one record, or {}
-user.get_objects("settings_screen", "panel/state", "")   # exact "" -> the persist=True save, if any
+user.get_objects("orders", "price@form", 'Widget')      # exact match -> that one record, or {}
+user.get_objects("settings_screen", "state@panel", "")  # exact "" -> the persist=True save, if any
 ```
 
 Returns `{context_key: fields_dict}`, empty if nothing matches or the session has no DB yet. Read-only.
@@ -392,7 +395,7 @@ Returns `{context_key: fields_dict}`, empty if nothing matches or the session ha
 `get_contexts(namespace, path, context_template)` — same parameters, same exact-vs-template rule, but returns just the matching context_keys as a `list[str]` instead of a `{context_key: fields}` dict, without reading or decoding the stored fields at all. Cheaper than `get_objects` when you only need to know which records exist:
 
 ```python
-user.get_contexts("orders", "form/price", "..")   # -> ['["Widget"]', '["Gadget"]']
+user.get_contexts("orders", "price@form", "..")   # -> ['Widget', 'Gadget']
 ```
 
 ### 13.5 Storage and Scope
@@ -411,7 +414,7 @@ theme = Select("Theme", "light", options=["light", "dark"], persist=True)
 header_block = Block("Header", theme)
 ```
 
-`theme` persists under `('@blocks.header', 'Theme')` regardless of which screen imports `header_block`, including a screen that has never declared its own `persist = True` and is the very first one loaded this session. (A field that is *not* separately named at module level — created inline as one of `header_block`'s children instead — gets a path measured from `header_block` down to it instead, e.g. `'Header@Theme'`; either way the anchor is the block's module, never the hosting screen.)
+`theme` persists under `('@blocks.header', 'Theme')` regardless of which screen imports `header_block`, including a screen that has never declared its own `persist = True` and is the very first one loaded this session. (A field that is *not* separately named at module level — created inline as one of `header_block`'s children instead — gets a path measured leaf first, from it up to `header_block`, e.g. `'Theme@Header'`; either way the anchor is the block's module, never the hosting screen.)
 
 To look a specific unit's saved record up directly (e.g. via `get_objects`/`get_contexts`, §13.4) without hardcoding which namespacing scheme applies, use `user.persist_location(unit)`, which returns the `(namespace, path)` currently in effect for it.
 
