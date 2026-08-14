@@ -462,7 +462,7 @@ table = Table("Persons", llm={"Date of birth": "Name", "Occupation": True}, ...)
 
 ### 14.2 Explicit queries
 
-`Q(prompt, type_value=..., **format_vars)` returns an awaitable with typed JSON validation.
+`Q(prompt, type_value=..., images=None, **format_vars)` returns an awaitable with typed JSON validation.
 
 ```python
 country_info = await Q(
@@ -471,7 +471,21 @@ country_info = await Q(
 )
 ```
 
-`Qx` is raw/non-extended prompt mode.
+`Qx(prompt, type_value=str, images=None)` is raw/non-extended prompt mode.
+
+`images` (optional, on both `Q` and `Qx`) attaches one or more images to the query for vision-capable models — a single value or a `list`; `None` by default, which sends no image and leaves the request/cache key identical to a call made without this parameter at all. Each image is one of:
+- `'http://...'` / `'https://...'` — passed straight through as a remote URL
+- `'data:image/...;base64,...'` — passed straight through as-is
+- any other `str` — a local file path, read and base64-encoded automatically
+- `bytes` / `bytearray` — base64-encoded automatically, MIME type sniffed from content
+- a `dict` for manual control — `{'url': ...}`, `{'path': ...}`, or `{'data': b'...', 'mime': '...'}`, optionally with `'detail': 'low'|'high'|'auto'` — or an already-built `{'type': 'image_url', 'image_url': {...}}` part, passed through unchanged
+
+```python
+caption = await Q("Describe this photo.", str, images="photo.jpg")
+diff = await Q("What changed between these?", list[str], images=[url_before, url_after])
+```
+
+Not to be confused with the `Image` unit (§11), which displays a picture in the UI — `images` here sends a picture *to* the LLM as input. Whether the request succeeds still depends on the configured `config.llm` provider/model actually supporting image input; `Q`/`Qx` don't check that in advance, the provider's own error surfaces normally if it doesn't.
 
 LLM provider is configured through `config.llm`.
 

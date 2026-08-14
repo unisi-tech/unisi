@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import get_type_hints, is_typeddict
 
-import json, os, re
+import base64, hashlib, json, mimetypes, os, re
 from typing import Any, Literal, Union, get_args, get_origin
 
 import diskcache
@@ -523,7 +523,172 @@ def _rejected_param(exc: _BadRequestError) -> str | None:
     return None
 
 
-async def _call_llm(prompt: str, type_value: Any = str) -> str:
+# ---------------------------------------------------------------------------
+# Image input normalisation
+# ---------------------------------------------------------------------------
+
+# One image, in any of the forms Q()/Qx() accept via their `images` param.
+ImageInput = Union[str, bytes, bytearray, dict]
+# What Q()/Qx()'s `images` parameter itself accepts: one image, several, or
+# none — None is the default, so existing calls are completely unaffected.
+ImagesInput = Union[ImageInput, list[ImageInput], None]
+ImageDetail = Literal['low', 'high', 'auto']
+
+# Signature bytes -> MIME type, checked in order against the start of the
+# data. WEBP needs a second check (bytes 8:12 == b'WEBP') since its container
+# is the generic RIFF format also used by e.g. WAV, so the 4-byte RIFF magic
+# alone is not a safe-enough signature on its own.
+_IMAGE_SIGNATURES: list[tuple[bytes, str]] = [
+    (b'\x89PNG\r\n\x1a\n', 'image/png'),
+    (b'\xff\xd8\xff', 'image/jpeg'),
+    (b'GIF87a', 'image/gif'),
+    (b'GIF89a', 'image/gif'),
+    (b'BM', 'image/bmp'),
+]
+
+
+def _sniff_image_mime(data: bytes, fallback: str = 'image/png') -> str:
+    """
+    Best-effort MIME type detection from the first bytes of raw image data —
+    used when a caller hands Q()/Qx() bytes directly, with no filename to
+    infer a type from. Falls back to image/png (a real MIME type every
+    provider accepts) rather than raising: guessing wrong only costs a
+    little decode accuracy on the provider side, while refusing to guess
+    would block every raw-bytes image outright.
+    """
+    if data.startswith(b'RIFF') and data[8:12] == b'WEBP':
+        return 'image/webp'
+    for signature, mime in _IMAGE_SIGNATURES:
+        if data.startswith(signature):
+            return mime
+    return fallback
+
+
+def _bytes_to_data_uri(data: bytes | bytearray, mime: str | None = None) -> str:
+    data = bytes(data)
+    mime = mime or _sniff_image_mime(data)
+    encoded = base64.b64encode(data).decode('ascii')
+    return f'data:{mime};base64,{encoded}'
+
+
+def _file_to_data_uri(path: str) -> str:
+    """
+    Reads a local image file and encodes it as a base64 data: URI. Raises
+    rather than silently skipping a missing file: the caller explicitly
+    asked for this image to be sent, so a silent no-op would just make the
+    model answer a question it was never actually shown the picture for.
+    """
+    if not os.path.isfile(path):
+        raise FileNotFoundError(f'Q()/Qx() images: file not found: {path!r}')
+    mime, _ = mimetypes.guess_type(path)
+    with open(path, 'rb') as file:
+        data = file.read()
+    return _bytes_to_data_uri(data, mime)
+
+
+def _image_content_part(image: ImageInput) -> dict:
+    """
+    Normalises one image (any form accepted by Q()/Qx()'s `images` param)
+    into an OpenAI-compatible `image_url` content part — the format
+    understood by every provider _call_llm talks to, since all of them
+    (openai, groq, google/gemini, mistral, xai, and any 'host' endpoint)
+    are reached through the same OpenAI-compatible AsyncOpenAI client; see
+    setup_llmrag.
+
+    Accepted forms:
+        'http://...' / 'https://...' — passed straight through as a remote
+            URL; the provider fetches it, nothing is downloaded locally.
+        'data:image/...;base64,...'  — passed straight through as-is.
+        any other str                — treated as a local file path, read
+                                        and base64-encoded automatically.
+        bytes / bytearray            — base64-encoded automatically, with
+                                        the MIME type sniffed from content.
+        dict                         — full manual control. Either a
+                                        ready-made content part,
+                                        {'type': 'image_url', 'image_url': {...}},
+                                        passed through unchanged; or one of
+                                        {'url': '...'}, {'path': '...'},
+                                        {'data': b'...', 'mime': 'image/png'},
+                                        each optionally with a
+                                        'detail': 'low' | 'high' | 'auto' key.
+    """
+    if isinstance(image, dict):
+        if image.get('type') == 'image_url':
+            return image  # already a fully-formed content part — pass through
+
+        if 'url' in image:
+            url = image['url']
+        elif 'path' in image:
+            url = _file_to_data_uri(image['path'])
+        elif 'data' in image:
+            url = _bytes_to_data_uri(image['data'], image.get('mime'))
+        else:
+            raise ValueError(
+                "Q()/Qx() image dict must contain one of 'url', 'path', or 'data' "
+                f'(got keys: {sorted(image.keys())}).'
+            )
+
+        image_url: dict = {'url': url}
+        if detail := image.get('detail'):
+            image_url['detail'] = detail
+        return {'type': 'image_url', 'image_url': image_url}
+
+    if isinstance(image, (bytes, bytearray)):
+        return {'type': 'image_url', 'image_url': {'url': _bytes_to_data_uri(image)}}
+
+    if isinstance(image, str):
+        url = image if image.startswith(('http://', 'https://', 'data:')) else _file_to_data_uri(image)
+        return {'type': 'image_url', 'image_url': {'url': url}}
+
+    raise TypeError(
+        f'Q()/Qx() images: unsupported image type {type(image).__name__!r} — '
+        'expected str (URL, data URI, or file path), bytes, or dict.'
+    )
+
+
+def _build_message_content(prompt: str, images: ImagesInput) -> str | list[dict]:
+    """
+    Builds the `content` value of the single user message _call_llm sends.
+
+    Returns the plain prompt string, completely unchanged, when there are
+    no images — so the wire format of every existing non-image call stays
+    byte-for-byte identical to before this feature existed. Only switches
+    to the multi-part list form (one text part + one image_url part per
+    image) once at least one image is actually supplied.
+    """
+    if not images:
+        return prompt
+    items = images if isinstance(images, list) else [images]
+    parts: list[dict] = [{'type': 'text', 'text': prompt}]
+    parts.extend(_image_content_part(image) for image in items if image is not None)
+    return parts
+
+
+def _images_cache_key(images: ImagesInput) -> str:
+    """
+    Stable, compact string fingerprinting `images` for Q()'s cache key.
+    Raw bytes and data: URIs are hashed rather than inlined — a data: URI
+    for even a small photo can be hundreds of KB of base64, and stuffing
+    that verbatim into a diskcache key on every call would be wasteful.
+    Short strings (plain URLs, file paths) are used as-is, which also keeps
+    the cache key human-readable for debugging in the common case.
+    """
+    def fingerprint(image: ImageInput) -> str:
+        if isinstance(image, (bytes, bytearray)):
+            return hashlib.sha256(image).hexdigest()
+        if isinstance(image, dict):
+            data = image.get('data')
+            if isinstance(data, (bytes, bytearray)):
+                image = {**image, 'data': hashlib.sha256(data).hexdigest()}
+            return json.dumps(image, sort_keys=True, default=str)
+        text = str(image)
+        return hashlib.sha256(text.encode('utf-8', 'ignore')).hexdigest() if len(text) > 200 else text
+
+    items = images if isinstance(images, list) else [images]
+    return '|'.join(fingerprint(image) for image in items if image is not None)
+
+
+async def _call_llm(prompt: str, type_value: Any = str, images: ImagesInput = None) -> str:
     """
     Invokes the LLM via AsyncOpenAI (OpenAI-compatible endpoint).
 
@@ -547,6 +712,15 @@ async def _call_llm(prompt: str, type_value: Any = str) -> str:
     twice (temperature, then strict), since a model could in principle
     reject both. Any other error — auth, rate limits, a genuinely malformed
     request — is never caught here and propagates normally.
+
+    images: optional, see Q()'s `images` parameter for the accepted forms.
+    Turned into extra `image_url` content parts on the same user message
+    via _build_message_content — the message stays plain text (unchanged
+    wire format) whenever images is empty. A model/provider that doesn't
+    support image input will reject the request with its own 400; that is
+    *not* recovered from the way the temperature/strict quirks above are,
+    since "this model can't see images" is a real error the caller should
+    find out about, not something to silently paper over.
     """
     if _acompletion is None:
         raise RuntimeError('LLM not initialised — call setup_llmrag() first')
@@ -557,7 +731,7 @@ async def _call_llm(prompt: str, type_value: Any = str) -> str:
     schema = python_type_to_json_schema_dict(type_value)
     kwargs: dict = dict(
         model=model,
-        messages=[{'role': 'user', 'content': prompt}],
+        messages=[{'role': 'user', 'content': _build_message_content(prompt, images)}],
     )
     if 'temperature' not in blocked:
         kwargs['temperature'] = getattr(Unishare, 'llm_temperature', 0.0)
@@ -656,6 +830,7 @@ async def Q(
     blank: bool = True,
     extend: bool = True,
     format: bool = True,  # noqa: A002  (kept for compatibility)
+    images: ImagesInput = None,
     **format_vars,
 ) -> Any:
     """
@@ -667,6 +842,28 @@ async def Q(
         extend:      if True, prepend a system prompt with a format instruction.
         format:      if True and the string contains { }, substitute variables
                      from **format_vars.
+        images:      optional image(s) for vision-capable models — a single
+                     image or a list of images, or None (default) to send no
+                     image at all, exactly as before this parameter existed.
+                     Each image is one of:
+                       - 'http://...' / 'https://...'  — passed straight
+                         through as a remote URL.
+                       - 'data:image/...;base64,...'   — passed straight
+                         through as-is.
+                       - any other str                 — treated as a local
+                         file path, read and base64-encoded automatically.
+                       - bytes / bytearray              — base64-encoded
+                         automatically, MIME type sniffed from the content.
+                       - a dict for full manual control: {'url': ...},
+                         {'path': ...}, or {'data': b'...', 'mime': '...'},
+                         each optionally with 'detail': 'low'|'high'|'auto';
+                         or an already-built
+                         {'type': 'image_url', 'image_url': {...}} part,
+                         passed through unchanged.
+                     Whether the request actually succeeds still depends on
+                     the configured model supporting image input — Q() does
+                     not check that in advance, the provider's own error
+                     surfaces normally if it doesn't.
         **format_vars:
                      named variables for substitution into str_prompt.
                      Unlike the original, ONLY explicitly passed values;
@@ -683,6 +880,10 @@ async def Q(
         # Structured response
         info = await Q("Details about {name}", dict(age=int, city=str), name=name)
 
+        # With an image — local file, URL, and raw bytes all work the same way
+        caption = await Q("Describe this photo.", str, images="photo.jpg")
+        diff = await Q("What changed between these?", list[str], images=[url_before, url_after])
+
     Note:
         format_vars['identity'] overrides the assistant role when extend=True.
         Caching (Unishare.llm_cache, if configured) happens HERE, after
@@ -690,6 +891,9 @@ async def Q(
         (invalid JSON, or valid JSON of the wrong shape) is never cached, so
         the next call — including a retry from the caller's own retry loop —
         reaches the LLM again instead of replaying the same bad answer.
+        The cache key only folds `images` in when images are actually
+        passed (see below), so every cache entry from before this parameter
+        existed keeps hitting normally.
     """
     identity = format_vars.pop('identity', _DEFAULT_IDENTITY)
 
@@ -705,6 +909,10 @@ async def Q(
 
     cache: QueryCache | None = Unishare.llm_cache
     cache_key = f'{_type_key(type_value)}:{final_prompt}'
+    if images:
+        # Appended rather than always-present, so a call with no images
+        # keeps the exact cache key it always had — see the Note above.
+        cache_key = f'{cache_key}:img:{_images_cache_key(images)}'
 
     if cache is not None:
         if (cached := cache.get(cache_key)) is not None:
@@ -724,7 +932,7 @@ async def Q(
                 # Treat this as a cache miss and go to the LLM fresh.
                 pass
 
-    content = await _call_llm(final_prompt, type_value)
+    content = await _call_llm(final_prompt, type_value, images=images)
     result = _parse_response(content, type_value)  # raises on malformed — never reaches cache.set below
 
     if cache is not None:
@@ -733,12 +941,16 @@ async def Q(
     return result
 
 
-async def Qx(str_prompt: str, type_value: Any = str) -> Any:
+async def Qx(str_prompt: str, type_value: Any = str, images: ImagesInput = None) -> Any:
     """
     Calls the LLM without any formatting or system prompt.
     Useful for raw queries where the prompt is already fully formed.
+
+    images: same optional image(s) Q() accepts — see its docstring for the
+        full list of accepted forms (URL, data URI, local file path, raw
+        bytes, or a manual dict). None (default) sends no image.
     """
-    return await Q(str_prompt, type_value, format=False, extend=False)
+    return await Q(str_prompt, type_value, format=False, extend=False, images=images)
 
 
 # ---------------------------------------------------------------------------
