@@ -197,7 +197,10 @@ class Dialog:
     async def dialog_command_handler(self, button, _):        
         if user := Unishare.context_user():
             user.active_dialog = None
-            await user.send(TypeMessage('action', 'close'))
+            # persist=False: sent before self.changed (the actual callback) has run --
+            # see User.prepare_result's docstring for why a real persist pass has to
+            # wait for the request's genuine end instead of this early notice.
+            await user.send(TypeMessage('action', 'close'), persist=False)
             return await call_anysync(self.changed, self, button.name)        
 
 class Screen(Unit):

@@ -502,6 +502,18 @@ class UserPersistMixin:
     def _init_persist(self):
         self.db = None
         self._screen_has_persist = False
+        # Units still awaiting a *real* persist pass. prepare_result(raw, persist=False)
+        # (an out-of-band push mid-request — progress(), a dialog-close notice, a
+        # redundant recorder/reflect re-serialize of an already-sent response — see
+        # prepare_result's docstring) must not itself write to disk, but it still
+        # unconditionally clears changed_units/touched_units afterward (needed so the
+        # *next* outgoing message only carries new deltas, not a re-send of what a
+        # progress tick already flushed to the client). Without this backlog, whatever
+        # changed before that intermediate push would simply never reach
+        # _save_persist_if_needed at all -- silently dropped rather than merely
+        # deferred. Accumulated across any number of persist=False calls, consumed
+        # (and reset) by the next persist=True call.
+        self._pending_persist_units = set()
 
     def _persist_enabled(self):
         return not self.testing

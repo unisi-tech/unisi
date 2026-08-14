@@ -147,10 +147,10 @@ async def websocket_handler(request):
     if not user:
         await ws.send_str(toJson(status))
     else:
-        async def send(res):
+        async def send(res, persist=True):
             try:
                 if type(res) != str:
-                    res = toJson(user.prepare_result(res))        
+                    res = toJson(user.prepare_result(res, persist=persist))        
                 await ws.send_str(res)
             except:
                 pass   
@@ -179,8 +179,14 @@ async def websocket_handler(request):
                         await send(result)
                         if message:
                             if recorder.record_file:
-                                recorder.accept(message, user.prepare_result (result))
-                            await user.reflect(message, result)     
+                                # persist=False: result was already persisted by send(result)
+                                # above; this only re-serializes the same, already-sent
+                                # response for the recorder's own fixture capture.
+                                recorder.accept(message, user.prepare_result(result, persist=False))
+                            # persist=False: same reason -- changed_units/touched_units are
+                            # already drained by send(result), so a real persist pass here
+                            # would just be recomputing keyed-persist keys against nothing.
+                            await user.reflect(message, result, persist=False)     
                         if dbupdates:
                             await user.sync_dbupdates()                       
                 elif msg.type == WSMsgType.ERROR:
@@ -198,33 +204,9 @@ def ensure_directory_exists(directory_path):
         os.makedirs(directory_path)
         print(f"Directory '{directory_path}' created.")
 
-def ensure_unisi_typings():
-    """
-    Create or update __builtins__.pyi for
-    static analysis support 'user' keyword (Pylance/Pyright).
-    """
-    typings_dir = "typings"
-    builtins_file_path = "typings/__builtins__.pyi"
-    
-    ensure_directory_exists(typings_dir)
-    builtins_content = "from unisi import User\n\nuser: User\n"
-
-    try:
-        if not os.path.exists(builtins_file_path) or \
-           open(builtins_file_path, "r", encoding="utf-8").read() != builtins_content:
-            with open(builtins_file_path, "w", encoding="utf-8") as f:
-                f.write(builtins_content)
-            print(f"File '{builtins_file_path}' created/updated for Pylance support.")
-        else:
-            print(f"File '{builtins_file_path}' already up to date.")
-    except Exception as e:
-        print(f"Error creating/updating '{builtins_file_path}': {e}")
-
-
 def start(user_type = User, http_handlers = []):    
     ensure_directory_exists(screens_dir)
     ensure_directory_exists(blocks_dir)
-    ensure_unisi_typings()
     setup_llmrag()
 
     User.type = user_type        

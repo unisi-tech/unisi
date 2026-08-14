@@ -89,28 +89,34 @@ class User(ModulesMixin, UserPersistMixin):
             progress_callback = new_callback
         return await run_external_process(long_running_task, *args, progress_callback = progress_callback, **kwargs)
 
-    async def broadcast(self, message):
+    async def broadcast(self, message, persist=True):
         screen = self.screen_module
         if type(message) != str:
-            message = toJson(self.prepare_result(message))
+            message = toJson(self.prepare_result(message, persist=persist))
         await asyncio.gather(*[user.send(message)
             for user in self.reflections
                 if user is not self and screen is user.screen_module])
 
-    async def reflect(self, message, result):
-        if self.reflections and not message.screen_type:
+    async def reflect(self, message, result, persist=True):
+        # message is None for an out-of-band reflect not tied to an incoming
+        # client message (progress()'s own call below) -- nothing to check
+        # screen_type on then, so that's simply not a screen-navigation message.
+        if self.reflections and not (message and message.screen_type):
             if result:
-                await self.broadcast(result)
+                await self.broadcast(result, persist=persist)
             if message:
                 msg_object = self.find_element(message)
                 if not isinstance(result, Message) or not result.contains(msg_object):
-                    await self.broadcast(msg_object)
+                    await self.broadcast(msg_object, persist=persist)
 
     async def progress(self, value, *updates):
         """open or update progress window if str != null else close it """
         if not self.testing:
             msg = TypeMessage('progress', str(value), *updates, user = self)
-            await asyncio.gather(self.send(msg), self.reflect(None, msg))
+            # persist=False: this is a mid-request status push, not the request's
+            # real response -- see prepare_result's docstring for why a genuine
+            # persist pass has to wait for that instead.
+            await asyncio.gather(self.send(msg, persist=False), self.reflect(None, msg, persist=False))
             if notify_monitor:
                 await notify_monitor('e', self.session, self.last_message)
 
@@ -166,7 +172,9 @@ class User(ModulesMixin, UserPersistMixin):
             if message.element is None: #dialog command button is pressed
                 self.active_dialog = None
                 if self.reflections:
-                    await self.broadcast(close_message)
+                    # persist=False: this notice fires before dialog.changed (the
+                    # actual callback) has run at all -- see prepare_result's docstring.
+                    await self.broadcast(close_message, persist=False)
                 result = await self.eval_handler(dialog.changed, dialog, message.value)
             else:
                 el = self.find_element(message)
@@ -277,9 +285,35 @@ class User(ModulesMixin, UserPersistMixin):
         # cached keyed-persist unit list/unit_map for this screen may now be stale
         self._invalidate_keyed_persist_cache()
 
-    def prepare_result(self, raw):
-        self.sync_keyed_persist()
-        persist_units = self.changed_units | self.touched_units
+    def prepare_result(self, raw, persist=True):
+        """Turn `raw` (True/Redesign/None/a Unit/a Message/a list of units/...)
+        into the Message (or screen, for a full reload) that should actually go
+        out over the wire, folding in whatever's accumulated in changed_units/
+        touched_units since the last call.
+
+        `persist=False` skips sync_keyed_persist() and the _save_persist_if_needed
+        write pass — for an out-of-band push in the *middle* of handling one
+        client message, where a real persist pass would be premature: a
+        progress() tick, a dialog's own "close" notice sent before its callback
+        has run, or a redundant re-serialize of a response already sent once
+        (the autotest recorder, or reflect() broadcasting to other reflected
+        sessions after the real send already ran). The one call that should
+        keep the default (persist=True) is the actual end-of-request response —
+        server.py's send(result) after result4message() returns, or a test
+        harness's own equivalent.
+
+        Nothing changed before a persist=False call is lost: changed_units/
+        touched_units still get cleared unconditionally below (so the next
+        outgoing message — another progress tick, or the final response — only
+        carries new deltas, not a re-send of what this one already flushed to
+        the client), but first they're folded into _pending_persist_units,
+        which keeps accumulating across any number of persist=False calls and
+        is only handed to _save_persist_if_needed (and reset) the next time
+        persist=True actually runs.
+        """
+        if persist:
+            self.sync_keyed_persist()
+        persist_units = self._pending_persist_units | self.changed_units | self.touched_units
         reload_screen = any(u.type == 'screen' for u in self.changed_units)
         if raw is True or raw == Redesign or reload_screen:
             self.screen.reload = reload_screen or raw == Redesign
@@ -304,7 +338,11 @@ class User(ModulesMixin, UserPersistMixin):
                     self.changed_units.update(raw)
                     raw = Message(*self.sorted_changed_units, user = self)
                 case _: ...
-        self._save_persist_if_needed(persist_units)
+        if persist:
+            self._save_persist_if_needed(persist_units)
+            self._pending_persist_units = set()
+        else:
+            self._pending_persist_units = persist_units
         self.changed_units.clear()
         self.touched_units.clear()
         return raw
