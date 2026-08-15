@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import get_type_hints, is_typeddict
 
-import base64, hashlib, json, mimetypes, os, re
+import base64, hashlib, json, mimetypes, os, re, types
 from typing import Any, Literal, Union, get_args, get_origin
 
 import diskcache
@@ -97,31 +97,48 @@ def python_type_to_json_schema(type_value: Any) -> str:
         list[str]        → 'array of string '
         {'name': str}    → 'object with {"name": "[Type: string]"} structure'
     """
-    if isinstance(type_value, type):
-        if type_value in _BUILTIN_TYPE_NAMES:
-            return _BUILTIN_TYPE_NAMES[type_value]
+    if isinstance(type_value, type) and type_value in _BUILTIN_TYPE_NAMES:
+        return _BUILTIN_TYPE_NAMES[type_value]
 
-        origin = get_origin(type_value)
+    # Generic aliases (list[str], dict[str, int], ...) are instances of
+    # types.GenericAlias, NOT of `type` itself — isinstance(list[str], type)
+    # is False. This check used to live inside `if isinstance(type_value,
+    # type):`, which made it unreachable for every one of the inputs it was
+    # meant to handle (a real, confirmed bug: this function's own examples
+    # above didn't match its actual output). get_origin()/get_args() are
+    # safe to call on anything, including plain value instances like 42 or
+    # 'hello' (they just return None/() for those), so checking origin
+    # first, unconditionally, fixes this without disturbing any other case.
+    origin = get_origin(type_value)
+    if origin is list:
         args = get_args(type_value)
-        if origin is list:
-            return f'array of {python_type_to_json_schema(args[0])} '
-        if origin is dict:
+        return f'array of {python_type_to_json_schema(args[0])} ' if args else 'array of string '
+    if origin is dict:
+        args = get_args(type_value)
+        if len(args) == 2:
             return (
                 f'object of {python_type_to_json_schema(args[0])}'
                 f' to {python_type_to_json_schema(args[1])} structure.'
             )
-        return 'string'
+        return 'object'
 
-    # Value instance, not a type
+    if isinstance(type_value, type):
+        return 'string'  # some other type object (a class), not a container we describe specially
+
+    # Value instance, not a type. bool MUST be checked before int: bool is
+    # a subclass of int in Python, and isinstance-based `case` patterns
+    # match subclasses — so with int checked first, `case bool():` below
+    # would never be reached for True/False (another confirmed, now-fixed
+    # bug: this branch used to be dead code).
     match type_value:
         case str():
             return 'string'
+        case bool():
+            return 'boolean'
         case int():
             return 'integer'
         case float():
             return 'number'
-        case bool():
-            return 'boolean'
         case dict():
             if type_value:
                 pairs = ', '.join(
@@ -138,6 +155,24 @@ def python_type_to_json_schema(type_value: Any) -> str:
 
 # Kept as a backward-compatible alias for code that imports jstype directly.
 jstype = python_type_to_json_schema
+
+
+def _is_union_origin(origin: Any) -> bool:
+    """
+    True for the origin of BOTH union spellings: the legacy typing.Union
+    (Union[X, Y], and Optional[X] which is sugar for Union[X, None]), and
+    the modern PEP 604 X | Y syntax.
+
+    These are not the same object: get_origin(Union[int, None]) is
+    typing.Union, but get_origin(int | None) is types.UnionType — a
+    genuinely different object. Code that only checks `origin is Union`
+    (as this module's callers used to) silently fails to recognise every
+    `X | None` it's given: a confirmed bug, since this project requires
+    Python >=3.10 and this very file's own type hints use `X | None`
+    throughout. Checking both origins here, once, means every caller gets
+    both spellings for free.
+    """
+    return origin is Union or origin is types.UnionType
 
 
 def _type_to_schema_dict(type_value: Any) -> dict:
@@ -178,7 +213,7 @@ def _type_to_schema_dict(type_value: Any) -> dict:
             return {'type': 'object', 'additionalProperties': _type_to_schema_dict(args[1])}
         return {'type': 'object'}
 
-    if origin is Union:
+    if _is_union_origin(origin):
         non_none = [a for a in args if a is not type(None)]
         if len(non_none) == 1:
             return _type_to_schema_dict(non_none[0])
@@ -281,7 +316,15 @@ def _validate_against_type(value: Any, type_value: Any) -> None:
                 raise ValueError(f"{path}: expected string, got {type(v).__name__}")
             return
         if isinstance(t, type) and t in (int, float, bool):
-            if not isinstance(v, t):
+            # isinstance(True, int) is True in Python — bool is a subclass
+            # of int — which would otherwise let a JSON true/false value
+            # silently satisfy a field typed as plain `int`. JSON itself
+            # treats booleans and numbers as distinct types, so an exact
+            # (non-bool) int is required when t is specifically `int`;
+            # t is bool / t is float are unaffected (isinstance(True,
+            # float) is already False, so that direction was never broken).
+            valid = isinstance(v, t) and (t is not int or type(v) is not bool)
+            if not valid:
                 raise ValueError(f"{path}: expected {t.__name__}, got {type(v).__name__}")
             return
         if isinstance(t, type) and is_typeddict(t):
@@ -316,7 +359,7 @@ def _validate_against_type(value: Any, type_value: Any) -> None:
                     _check(val, args[1], f"{path}.{k}")
             return
 
-        if origin is Union:
+        if _is_union_origin(origin):
             non_none = [a for a in args if a is not type(None)]
             if v is None and type(None) in args:
                 return
@@ -1122,5 +1165,15 @@ async def get_property(
         # Explicit variable passing instead of the inspect hack
         return await Q(prompt, effective_type, format=False)
     except Exception as exc:
-        Unishare.message_logger(exc)
+        # _log(), not Unishare.message_logger(exc) directly: the latter
+        # crashed with TypeError instead of returning None (as this
+        # function's own docstring promises) whenever message_logger
+        # wasn't configured yet (its default: None, before server.py wires
+        # up a real one) — this file's OWN _log() helper exists specifically
+        # to survive that, via a callable() guard (see its docstring), but
+        # this except-block bypassed it. It also called message_logger with
+        # the wrong shape of argument even when one WAS configured:
+        # message_logger's real contract is (message: str, type: str) —
+        # see server.py — not a bare exception object.
+        _log(str(exc))
         return None
