@@ -20,7 +20,9 @@ dependencies = [
   "websocket-client",
   "openai", 
   "diskcache",
-  "word2number"
+  "word2number",
+  "pytest", 
+  "pytest-asyncio"
 ]
 
 [project.urls]

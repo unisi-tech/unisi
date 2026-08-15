@@ -512,7 +512,10 @@ class UserPersistMixin:
         # changed before that intermediate push would simply never reach
         # _save_persist_if_needed at all -- silently dropped rather than merely
         # deferred. Accumulated across any number of persist=False calls, consumed
-        # (and reset) by the next persist=True call.
+        # (and reset) by the next persist=True call. sync_keyed_persist also folds
+        # this in when computing its own `touched` set, for the same reason --
+        # otherwise a keyed unit edited right before a persist=False call would look
+        # untouched by the time persist=True finally runs and save it.
         self._pending_persist_units = set()
 
     def _persist_enabled(self):
@@ -994,7 +997,16 @@ class UserPersistMixin:
         if not keyed_units:
             return
 
-        touched = self.changed_units | self.touched_units
+        # Include _pending_persist_units too: if an earlier persist=False call
+        # (a progress() tick, a dialog's close notice) skipped this whole
+        # method, whatever was touched then would otherwise be invisible here
+        # -- changed_units/touched_units were already cleared by that call
+        # (see prepare_result), leaving no other trace that this unit needs
+        # a write. sync_keyed_persist runs only when persist=True (right
+        # before prepare_result folds this same backlog into persist_units
+        # for _save_persist_if_needed and then resets it), so reading it here
+        # is safe: this is always the pass that's about to consume it.
+        touched = self._pending_persist_units | self.changed_units | self.touched_units
 
         for unit, key_fn in keyed_units:
             try:

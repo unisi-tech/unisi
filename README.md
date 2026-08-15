@@ -131,7 +131,7 @@ block = Block(‘Pictures’,add_button, images)
  
 The first Block child is a widget(s) which are drawn in the block header just after its name.
 Blocks can be shared between the user screens with its states. Such a block has to be located in the 'blocks' folder .
-Examples of such block tests/blocks/tblock.py:
+Examples of such block test_apps/blocks/tblock.py:
 ```
 from unisi import *
 ..
@@ -486,7 +486,7 @@ export OPENAI_API_KEY=’my_open_key’
 ```
 Any Unit except Button can be calculated using llm parameter in constructor, which can be `True` for automatic context evaluation, or a list of Unit objects whose values are required for the calculation. Unisi automatically calculates such unit value when its context is changed and its value is empty.
 For table fields in rows ‘llm’ can be True for automatic context evaluation or enumeration of units and field names for tables which are required for its calculation.
-Example: [tests/llm/screens/main.py](https://github.com/unisi-tech/unisi/blob/main/tests/llm/screens/main.py) — Date of birth and Occupation are calculated from a person's name.
+Example: [test_apps/llm/screens/main.py](https://github.com/unisi-tech/unisi/blob/main/test_apps/llm/screens/main.py) — Date of birth and Occupation are calculated from a person's name.
 
 
 ### Voice interaction
@@ -507,8 +507,7 @@ Graph Mode: Supports graph element manipulation (nodes and edges).
 
 Table Mode: Supports table navigation and editing with commands like "page", "row", "column", "left", "right", "up", "down", "backspace", and "delete." 
 
-
-Examples are in tests folder.
+Examples are in test_apps folder.
 
 Demo project: [unisi-tech/vision](https://github.com/unisi-tech/vision)
 
