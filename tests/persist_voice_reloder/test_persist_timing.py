@@ -126,8 +126,10 @@ async def test_keyed_persist_is_also_deferred_and_not_lost(make_user, wire_send,
     send = wire_send(user)
     from unisi.common import ReceivedMessage
 
-    # establish the key first (see test_keyed_persist.py's note on first-ever
-    # key evaluation), outside of anything being measured here
+    # establish the key first, so the scenario below is a clean, isolated
+    # "key already unchanged, then edited under progress()" case rather
+    # than also involving the separate first-ever-evaluation code path
+    # (see test_keyed_persist.py's test_first_ever_edit_to_a_keyed_field_is_saved_immediately)
     async def _deliver(block, element, value):
         m = ReceivedMessage({"block": block, "element": element, "event": "changed", "value": value})
         r = await user.result4message(m)

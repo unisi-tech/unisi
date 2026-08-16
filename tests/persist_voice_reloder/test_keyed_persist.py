@@ -11,11 +11,12 @@ import pytest
 @pytest.mark.asyncio
 async def test_editing_after_the_key_is_established_saves_under_that_key(make_user, deliver):
     user = make_user("keyed")
-    # a keyed unit's very first-ever key evaluation always takes the
-    # restore branch, even if it's also touched in that same round (see
-    # test_first_key_evaluation_does_not_save_even_if_touched below) --
-    # touch something unrelated first so `single_key_field`'s key ("A", from
-    # Selector's default) is already established before the real edit.
+    # Two separate messages: one that only establishes the key (selecting
+    # "A"), then a later one that edits the field once the key is already
+    # unchanged from the previous request -- the ordinary, most common
+    # case. (A first-ever edit in the very same message that also
+    # establishes the key is covered separately, by
+    # test_first_ever_edit_to_a_keyed_field_is_saved_immediately below.)
     await deliver(user, "Root", "Selector", "changed", "A")
 
     await deliver(user, "Root", "Single key field", "changed", "value for A")
@@ -94,17 +95,16 @@ async def test_multi_value_prefix_template_search(make_user, deliver):
 
 
 @pytest.mark.asyncio
-async def test_first_key_evaluation_does_not_save_even_if_touched(make_user, deliver):
-    # Documents a real, narrow edge case (found while investigating the
-    # progress()/persist-timing issue, unrelated to it): a keyed unit's
-    # very first-ever key evaluation always takes the "key changed ->
-    # restore" branch, even if the unit was ALSO edited in that same
-    # request -- restore always wins over save on the first pass, so the
-    # edit is not persisted this particular round (though it IS still
-    # applied live -- nothing is lost from the user's perspective, it's
-    # simply not saved on disk yet). This test exists so a future change
-    # to sync_keyed_persist's key-changed detection doesn't silently
-    # alter this without someone noticing.
+async def test_first_ever_edit_to_a_keyed_field_is_saved_immediately(make_user, deliver):
+    # Regression test: sync_keyed_persist used to structure "key changed"
+    # and "unit touched" as mutually exclusive (if/elif), with "key
+    # changed" always winning -- so a keyed unit's very first-ever key
+    # evaluation (_persist_key starts at the _NO_KEY sentinel, so this is
+    # unconditionally true the first time) always took the restore branch,
+    # even when the unit was ALSO freshly edited in that same request. The
+    # edit still applied live, but silently never reached disk until some
+    # later, separate request touched the field again. Now `touched` takes
+    # priority over a same-round key change, so this saves immediately.
     user = make_user("keyed")
 
     # Selector is already "A" by default, so `single_key_field`'s key
@@ -112,13 +112,9 @@ async def test_first_key_evaluation_does_not_save_even_if_touched(make_user, del
     # it here is genuinely the first-ever pass for its key.
     await deliver(user, "Root", "Single key field", "changed", "first ever edit")
 
-    assert user.screen_module.single_key_field.value == "first ever edit"  # applied live
+    assert user.screen_module.single_key_field.value == "first ever edit"
     ns, path = user.persist_location(user.screen_module.single_key_field)
-    assert user.get_objects(ns, path, "A") == {}  # but not saved yet
-
-    # a later, separate edit (key already established) saves normally
-    await deliver(user, "Root", "Single key field", "changed", "second edit")
-    assert user.get_objects(ns, path, "A").get("A", {}).get("value") == "second edit"
+    assert user.get_objects(ns, path, "A").get("A", {}).get("value") == "first ever edit"
 
 
 @pytest.mark.asyncio

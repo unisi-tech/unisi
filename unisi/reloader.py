@@ -67,13 +67,24 @@ else:
                 if len(user.screens) == 1:
                     user.set_screen(module.name)                    
 
-            user.screens.sort(key=lambda s: s.screen.order)           
-            user.update_menu()
-            user.set_clean() 
-            if hasattr(user,'send'):
-                user.sync_send(Redesign)
-            free()  
-            return module  
+            try:
+                user.screens.sort(key=lambda s: s.screen.order)           
+                user.update_menu()
+                user.set_clean() 
+                if hasattr(user,'send'):
+                    user.sync_send(Redesign)
+            except:
+                # Mirrors the try/except around compilation above: reload()
+                # is meant to never crash the running app, only ever log and
+                # move on. Without this, anything raising here (e.g. a
+                # dropped connection inside sync_send) would skip straight
+                # past free() below -- busy would stay True forever, and
+                # every future on_modified() would queue a request instead
+                # of ever actually reloading again for the rest of the process.
+                traceback.print_exc()
+            finally:
+                free()
+            return module
 
     class ScreenEventHandler(PatternMatchingEventHandler):    
         def on_modified(self, event):
@@ -90,7 +101,7 @@ else:
                     file = open(user.screen_module.__file__, "r") 
                     arr[-1] = arr[-1][:-3]
                     module_name = '.'.join(arr) 
-                    module_pattern = '\.'.join(arr)                        
+                    module_pattern = r'\.'.join(arr)                        
                     
                     if re.search(f"((import|from)[ \t]*{module_pattern}[ \t\n]*)",file.read()):
                         if module_name in sys.modules:

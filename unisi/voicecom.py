@@ -683,10 +683,21 @@ class VoiceCom:
     # ------------------------------------------------------------------
 
     def _graph_nodes(self) -> list:
-        return getattr(self.unit, "nodes", None) or getattr(self.unit, "_nodes", [])
+        # getattr(..., None) or getattr(..., "_nodes", []) would treat a
+        # genuinely empty starting list (nodes=[], the natural state for a
+        # brand new plain Graph) the same as "no public .nodes at all" (a
+        # Net instance, which keeps its data under the private ._nodes/
+        # ._edges instead -- see Net._build_from_topology) since an empty
+        # list is falsy too, silently redirecting to the wrong attribute.
+        # Checking `is None` distinguishes "absent" from "present but
+        # empty" -- always returns a real list (possibly empty), never None.
+        nodes = getattr(self.unit, "nodes", None)
+        return nodes if nodes is not None else getattr(self.unit, "_nodes", [])
 
     def _graph_edges(self) -> list:
-        return getattr(self.unit, "edges", None) or getattr(self.unit, "_edges", [])
+        # see _graph_nodes's comment above -- same reasoning
+        edges = getattr(self.unit, "edges", None)
+        return edges if edges is not None else getattr(self.unit, "_edges", [])
 
     def _refresh_graph_context(self) -> None:
         if self.unit is None:
@@ -790,11 +801,12 @@ class VoiceCom:
 
     def _graph_add_node(self, u: Unit, name: str) -> None:
         from .graphs import Node
+        # _graph_nodes() always returns a real list now (possibly empty --
+        # see its docstring), so there's no remaining "no nodes list at
+        # all" case to guard against; an empty list is exactly the normal
+        # starting state for a brand new graph and adding its first node
+        # must work the same as adding any other.
         nodes = self._graph_nodes()
-        if not nodes:
-            self.message.value = "Graph has no nodes list"
-            self._graph_pending_action = None
-            return
         nodes.append(Node(name))
         self._graph_pending_action = None
         self._refresh_graph_context()
@@ -816,11 +828,8 @@ class VoiceCom:
             self.message.value = f"Node '{target_word}' not found"
             return
         from .graphs import Edge
+        # see _graph_add_node's comment above -- same reasoning applies here
         edges = self._graph_edges()
-        if not edges:
-            self.message.value = "Graph has no edges list"
-            self._graph_pending_action = None
-            return
         edges.append(Edge(self._graph_edge_source, target_id))
         self._graph_pending_action = None
         self._graph_edge_source = None
