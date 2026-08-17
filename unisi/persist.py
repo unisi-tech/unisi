@@ -785,24 +785,43 @@ class UserPersistMixin:
         """
         return _persist_identity(unit, *self._persist_context())
 
-    def persist_units(self, *units) -> list:
+    def persist_units(self, *units, context_key: str | None = None) -> list:
         """Force-save the CURRENT state of specific units to storage right
         now, regardless of whether they carry persist=True / persist=<function>
         at all — the on-demand counterpart to automatic positional persist
         (§13.1), for a unit you only want to snapshot at a particular moment
         (e.g. a "Save" button) rather than on every change.
 
-        Each unit is written to the same (namespace, path, context_key='')
+        With context_key left at its default None (treated exactly like ''),
+        each unit is written to the same (namespace, path, context_key='')
         row positional persist=True would use for it (see persist_location)
         — a Block/ParamBlock saves its whole subtree at once, exactly like a
-        persist=True Block does. So a unit saved here is exactly what a later
-        restore_screen would restore if persist=True were added to it, and
-        exactly what restore_units reads back below; this is an eager,
-        explicit trigger for that same slot, not a separate mechanism.
+        persist=True Block does: __getstate__/_json_ready walk every nested
+        Unit inside it (however deep) and fold each one's own state into the
+        single JSON blob saved under the Block's own path, so restore_units
+        below can resolve each one back onto its live counterpart by tree
+        path (see _rebuild_value/_smart_apply_dict) — the whole subtree is
+        one row, not one row per leaf. So a unit saved here (with the
+        default context_key) is exactly what a later restore_screen would
+        restore if persist=True were added to it, and exactly what
+        restore_units reads back below; this is an eager, explicit trigger
+        for that same slot, not a separate mechanism.
+
+        Passing a non-None context_key writes to that named slot instead —
+        (namespace, path, context_key) — so the same unit (leaf or whole
+        Block subtree) can hold any number of independent, explicitly-named
+        snapshots side by side (e.g. "before_edit", a wizard step id, an
+        undo checkpoint, ...) without disturbing the default '' positional
+        slot or each other. It's a plain caller-chosen string, not matched
+        by prefix/suffix template the way a keyed-persist context_key can be
+        (§13.2) — pass the same string back to restore_units to load that
+        particular snapshot, or use get_objects/get_contexts (§13.4) to
+        enumerate what's been saved for a unit across all its context_keys.
         A unit already governed by a keyed persist=<function> (§13.2) has
         its *own* current-record slot handled automatically every request
-        by sync_keyed_persist — this positional slot is simply a distinct,
-        unrelated row for it, not a substitute for that mechanism.
+        by sync_keyed_persist — this positional slot (default or
+        explicitly-keyed) is simply a distinct, unrelated row for it, not a
+        substitute for that mechanism.
 
         A unit whose position can't be resolved from the current screen —
         same condition persist_location returns None for — is skipped and
@@ -810,9 +829,9 @@ class UserPersistMixin:
         silently skip a lot of units every request as a matter of course)
         an explicit call naming this unit is more likely a mistake worth
         surfacing. A unit whose current state already matches what's on
-        disk is skipped too, but silently — a plain no-op, mirroring the
-        save-if-changed check sync_keyed_persist already does before it
-        writes a keyed unit.
+        disk under this same context_key is skipped too, but silently — a
+        plain no-op, mirroring the save-if-changed check sync_keyed_persist
+        already does before it writes a keyed unit.
 
         Returns the subset of `units` actually written, in call order —
         empty if every one was skipped (or persistence is off, e.g. during
@@ -821,6 +840,7 @@ class UserPersistMixin:
         if not units or not self.screen_module or not (db := self._persist_db(create=True)):
             return []
         parents, shared_roots, screen_name = self._persist_context()
+        ck = '' if context_key is None else context_key
 
         written = []
         for unit in units:
@@ -835,26 +855,38 @@ class UserPersistMixin:
             state = unit.__getstate__()
             state['id'] = path
             new_state = _json_ready(state, parents, shared_roots, screen_name)
-            if db.lookup_keyed(namespace, path, '') != new_state:
-                db.save_keyed(namespace, path, '', new_state)
+            if db.lookup_keyed(namespace, path, ck) != new_state:
+                db.save_keyed(namespace, path, ck, new_state)
                 written.append(unit)
         return written
 
-    def restore_units(self, *units) -> list:
+    def restore_units(self, *units, context_key: str | None = None) -> list:
         """Force-load specific units' saved state from storage right now and
         apply it onto the live units — the on-demand counterpart to
         persist_units above (and to automatic positional restore, see
         restore_screen), for reverting a unit to its last saved state at an
         arbitrary moment (e.g. a "Revert" button) rather than only at screen
-        load. Reads the same (namespace, path, context_key='') row
+        load. With context_key left at its default None (treated exactly
+        like ''), reads the same (namespace, path, context_key='') row
         persist_units / a positional persist=True save would have written
         (see persist_location); a Block/ParamBlock is restored as a whole
         subtree, including nested unit references, exactly like
-        restore_screen does for a persist=True Block.
+        restore_screen does for a persist=True Block — every id-carrying
+        nested dict inside the saved blob is matched back onto its live
+        counterpart, however deep (see _rebuild_value/_smart_apply_dict),
+        not just the Block's own top-level fields.
+
+        Passing a non-None context_key reads that named slot instead —
+        (namespace, path, context_key) — the counterpart to persist_units'
+        own context_key parameter: pass the same string used to save a
+        given snapshot to load exactly that one back, independently of the
+        default '' slot and of any other named snapshot saved for the same
+        unit.
 
         A unit whose position can't be resolved is skipped and logged as a
-        warning (see persist_units). A unit with nothing saved yet is
-        skipped silently — a normal "never persisted" state, not a warning.
+        warning (see persist_units). A unit with nothing saved under this
+        context_key yet is skipped silently — a normal "never persisted"
+        state, not a warning.
 
         The applied change is added to changed_units, same as a found match
         in sync_keyed_persist, so the new state reaches the client on the
@@ -871,6 +903,7 @@ class UserPersistMixin:
         if not units or not self.screen_module or not (db := self._persist_db(create=False)):
             return []
         parents, shared_roots, screen_name = self._persist_context()
+        ck = '' if context_key is None else context_key
         unit_map = {}
         for u in self._iter_units():
             identity = _persist_identity(u, parents, shared_roots, screen_name)
@@ -887,7 +920,7 @@ class UserPersistMixin:
                          f'current screen ("{screen_name}") and was skipped', type='warning')
                 continue
             namespace, path = identity
-            found = db.lookup_keyed(namespace, path, '')
+            found = db.lookup_keyed(namespace, path, ck)
             if found is _NOT_FOUND or not isinstance(found, dict):
                 continue
             _smart_apply_dict(unit, found, unit_map)

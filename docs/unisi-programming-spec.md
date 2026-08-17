@@ -423,11 +423,11 @@ To look a specific unit's saved record up directly (e.g. via `get_objects`/`get_
 For a unit you only want to snapshot or revert at one specific moment — e.g. a "Save"/"Revert" button — rather than on every change (positional, §13.1) or per selected record (keyed, §13.2), `User` exposes an explicit imperative pair:
 
 ```python
-user.persist_units(*units)    # save each unit's current state right now
-user.restore_units(*units)    # load each unit's last saved state and apply it
+user.persist_units(*units, context_key=None)    # save each unit's current state right now
+user.restore_units(*units, context_key=None)    # load each unit's last saved state and apply it
 ```
 
-Both work on **any** `Unit`, or `Block`/`ParamBlock` (whole subtree at once), whether or not it carries `persist=...` at all — that is the point: a way to persist something that is otherwise not automatically persistent. They read/write the same `(namespace, path, context_key="")` row a positional `persist=True` on that unit would use (see `persist_location`, §13.4), so this is an eager, explicit trigger for that slot rather than a separate mechanism — a unit force-saved this way is exactly what a later screen load would restore automatically if `persist=True` were added to it, and calling `persist_units` on a unit that already has `persist=True` is simply an extra, redundant-but-harmless save of the same slot the automatic mechanism already maintains.
+Both work on **any** `Unit`, or `Block`/`ParamBlock` (whole subtree at once), whether or not it carries `persist=...` at all — that is the point: a way to persist something that is otherwise not automatically persistent. With `context_key` left at its default `None` (treated exactly like `""`), they read/write the same `(namespace, path, context_key="")` row a positional `persist=True` on that unit would use (see `persist_location`, §13.4), so this is an eager, explicit trigger for that slot rather than a separate mechanism — a unit force-saved this way is exactly what a later screen load would restore automatically if `persist=True` were added to it, and calling `persist_units` on a unit that already has `persist=True` is simply an extra, redundant-but-harmless save of the same slot the automatic mechanism already maintains. A `Block`/`ParamBlock` passed in saves/restores its **whole subtree at once**, however deep — `persist_units` walks every nested `Unit` inside it into one JSON blob under the block's own path, and `restore_units` resolves every nested reference in that blob back onto its live counterpart by tree path — a grandchild three levels down is included exactly like a direct child.
 
 ```python
 draft = TextArea("Draft", "")
@@ -437,11 +437,21 @@ toolbar = [
 ]
 ```
 
+Passing a non-`None` `context_key` targets a different, explicitly-named row instead — `(namespace, path, context_key)` — so the same unit (leaf or whole `Block` subtree) can hold any number of independent on-demand snapshots side by side, without disturbing the default `""` slot or each other. It's a plain caller-chosen string, not template-matched the way a keyed-persist context_key can be (§13.2); pass the same string back to `restore_units` to load that particular snapshot, or use `get_objects`/`get_contexts` (§13.4) to enumerate what's been saved for a unit across all of its context_keys:
+
+```python
+# stash the current form as a named checkpoint before a risky bulk edit,
+# independently of the form's own default persist_units()/persist=True slot
+user.persist_units(form_block, context_key="before_bulk_edit")
+...
+user.restore_units(form_block, context_key="before_bulk_edit")
+```
+
 Behavior notes:
-- `persist_units` skips (silently) a unit whose current state already matches what's stored — no redundant write — and returns only the units it actually wrote, in call order.
-- `restore_units` skips (silently) a unit with nothing saved yet, and returns only the units it actually found and applied, in call order.
+- `persist_units` skips (silently) a unit whose current state already matches what's stored under that same `context_key` — no redundant write — and returns only the units it actually wrote, in call order.
+- `restore_units` skips (silently) a unit with nothing saved under that `context_key` yet, and returns only the units it actually found and applied, in call order.
 - Either one skips a unit that isn't reachable from the current screen — the same condition under which `persist_location` returns `None` — and logs a warning for it, since (unlike the automatic mechanisms, which routinely skip units every request as a matter of course) an explicit call naming a specific unit is more likely a mistake worth surfacing.
-- A unit already governed by keyed persist (`persist=<function>`, §13.2) has its own current-record slot maintained automatically every request by the keyed-persist mechanism; `persist_units`/`restore_units` target the unrelated positional slot on such a unit, not that keyed slot — the two don't substitute for one another.
+- A unit already governed by keyed persist (`persist=<function>`, §13.2) has its own current-record slot maintained automatically every request by the keyed-persist mechanism; `persist_units`/`restore_units` target the unrelated positional slot on such a unit (default or explicitly-keyed via `context_key`), not that keyed slot — the two don't substitute for one another.
 - Restoring a `Block` re-renders it wholesale on the client, same as any other direct mutation of a container (§13.2's rationale for why keyed persist avoids container targets applies here too) — prefer restoring individual leaf units if part of the block may be mid-edit on the client.
 
 ## 14. LLM Integration Specification

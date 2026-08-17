@@ -213,7 +213,7 @@ def ensure_unisi_typings():
     builtins_file_path = "typings/__builtins__.pyi"
     
     ensure_directory_exists(typings_dir)
-    builtins_content = "from unisi import User\n\nuser: User\nscreen: Screen"
+    builtins_content = "from unisi import User\nuser: User\n"
 
     try:
         if not os.path.exists(builtins_file_path) or \
