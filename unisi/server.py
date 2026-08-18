@@ -220,9 +220,7 @@ def ensure_unisi_typings():
            open(builtins_file_path, "r", encoding="utf-8").read() != builtins_content:
             with open(builtins_file_path, "w", encoding="utf-8") as f:
                 f.write(builtins_content)
-            print(f"File '{builtins_file_path}' created/updated for Pylance support.")
-        else:
-            print(f"File '{builtins_file_path}' already up to date.")
+            print(f"File '{builtins_file_path}' created/updated for Pylance support.")        
     except Exception as e:
         print(f"Error creating/updating '{builtins_file_path}': {e}")
 
