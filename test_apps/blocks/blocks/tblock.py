@@ -46,7 +46,7 @@ async def dialog_callback(_,value):
         user = context_user()        
         #bug in python-windows in call multiprocessing.Manager()
         #res = await user.run_process(long_function, ticks.value, None, progress_callback = user.progress)      
-        res = await serious_function(50)
+        res = await serious_function(ticks.value)
         txt.value = f'Process result is {res}'
         return txt      
         
