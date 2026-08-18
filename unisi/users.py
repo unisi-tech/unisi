@@ -84,8 +84,19 @@ class User(ModulesMixin, UserPersistMixin):
 
     async def run_process(self, long_running_task, *args, progress_callback = None, **kwargs):
         if progress_callback and notify_monitor and progress_callback != self.progress: #progress notifies the monitor
+            # original_callback, not a direct reference to progress_callback inside
+            # new_callback: new_callback is a closure over this function's local
+            # variables, looked up BY NAME at call time, not by value at definition
+            # time -- and the very next line reassigns the local `progress_callback`
+            # to `new_callback` itself. Without this separate binding, calling the
+            # wrapped callback later would look up `progress_callback` and find
+            # new_callback again, calling itself forever (a real, confirmed bug:
+            # this only stayed invisible before because the `asyncio.gather(...)`
+            # right below used to be fired-and-forgotten without an `await`, so the
+            # self-referential call was scheduled but never actually run).
+            original_callback = progress_callback
             async def new_callback(value):
-                asyncio.gather(notify_monitor('e', self.session, self.last_message), progress_callback(value))
+                await asyncio.gather(notify_monitor('e', self.session, self.last_message), original_callback(value))
             progress_callback = new_callback
         return await run_external_process(long_running_task, *args, progress_callback = progress_callback, **kwargs)
 
@@ -206,7 +217,7 @@ class User(ModulesMixin, UserPersistMixin):
             if m.element != unit.name or property != m.event or value != m.value:
                 self.changed_units.add(unit)
         if is_value_change and getattr(unit, 'type', None) == 'block':
-            self._refresh_parents_for_block(unit)
+            self._refresh_parents_for_block(unit, value)
 
     @property
     def blocks(self):
@@ -242,8 +253,12 @@ class User(ModulesMixin, UserPersistMixin):
 
     def find_path(self, elem) -> list:
         def find_in_block(block, elem, path):
-            if block == elem:
-                return [block.name, *path]
+            # No `if block == elem: ...` check here on purpose: every call
+            # site below (the loop right under this closure, and the
+            # recursive call a few lines down) already confirms via its own
+            # `== elem` check that whatever it's about to pass in as
+            # `block` is NOT `elem` before making the call -- so a check
+            # for that right here could never fire.
             for c in flatten(block.value):
                 if c == elem:
                     return [c.name, block.name, *path]
@@ -272,15 +287,31 @@ class User(ModulesMixin, UserPersistMixin):
         fill_parents(screen.toolbar, screen, parents)
         object.__setattr__(screen, '_parents', parents)
 
-    def _refresh_parents_for_block(self, block):
-        """Incrementally update _parents for a block whose value has changed."""
+    def _refresh_parents_for_block(self, block, new_value=None):
+        """
+        Incrementally update _parents for a block whose value has changed.
+
+        new_value: the value the block's own .value is ABOUT to become,
+        when known -- pass it explicitly rather than relying on this
+        method reading block.value itself. Unit.__setattr__ calls
+        _mark_changed(name, value) (which is what leads here, via
+        register_changed_unit) BEFORE its own super().__setattr__(name,
+        value) actually stores the new value, so block.value is still the
+        OLD value at the point this normally runs; reading it directly
+        here would silently miss every newly-added child. Falls back to
+        block.value for direct callers that already have an up-to-date
+        block (e.g. tests, or any future caller invoking this after the
+        real assignment has already landed).
+        """
         screen = self.screen
         parents = getattr(screen, '_parents', None)
         if parents is None:
             self.assign_parent_links()
             return
-        if getattr(block, 'type', None) == 'block' and hasattr(block, 'value'):
-            fill_parents(block.value, block, parents)
+        if getattr(block, 'type', None) == 'block':
+            children = new_value if new_value is not None else getattr(block, 'value', None)
+            if children is not None:
+                fill_parents(children, block, parents)
         # a block's children just changed (e.g. ParamBlock.params rebuilt them) — any
         # cached keyed-persist unit list/unit_map for this screen may now be stale
         self._invalidate_keyed_persist_cache()

@@ -53,6 +53,19 @@ def _app_on_path():
     os.chdir(FIXTURES_APP)
     sys.path.insert(0, str(FIXTURES_APP))
 
+    # User.screen_registry / _screen_registry_ready are CLASS-level state,
+    # shared for the life of the whole pytest PROCESS -- not just this
+    # session-scoped fixture's own duration. If some OTHER test directory
+    # with its own real fixtures_app (e.g. tests/users/) already ran first
+    # in this same pytest invocation, the registry is already marked ready
+    # and would otherwise never rescan, so User() constructions here would
+    # try to load ITS screens from OUR cwd and fail with FileNotFoundError.
+    # Forcing a rescan here makes this directory's tests correct regardless
+    # of what ran before them in the same session.
+    from unisi.users import User
+    User._screen_registry_ready = False
+    User.screen_registry = []
+
     users_dir = FIXTURES_APP / "users"
     if users_dir.exists():
         shutil.rmtree(users_dir)
@@ -62,6 +75,11 @@ def _app_on_path():
 
     os.chdir(old_cwd)
     sys.path[:] = old_path
+    # Symmetric reset on the way out too: whichever OTHER real-fixtures_app
+    # test directory happens to run after this one in the same session
+    # must not inherit a registry scanned from OUR fixtures_app either.
+    User._screen_registry_ready = False
+    User.screen_registry = []
 
 
 _session_counter = 0
