@@ -556,6 +556,17 @@ class Database:
     def create_table(
         self, id: str, fields: dict, limit: int = 100, rows=None
     ) -> "Dbtable":
+        # get_table() and setup_junction() both normalise their `fields`
+        # argument before use; create_table() is equally public (and the
+        # module docstring advertises Python-type specs as a general
+        # feature, not one scoped to get_table specifically), so it should
+        # accept the same {'name': str} / {'name': 'TEXT'} / mixed forms
+        # instead of interpolating a raw Python type into the CREATE TABLE
+        # statement and failing with a confusing SQL syntax error.
+        # normalize_field_types() is idempotent on already-normalised
+        # (uppercase string) input, so this is a no-op when called via
+        # get_table(), which normalises before delegating here.
+        fields = normalize_field_types(fields)
         cols = ", ".join(f"[{col}] {type_}" for col, type_ in fields.items())
         self.execute(
             f"CREATE TABLE IF NOT EXISTS [{id}] "
@@ -628,7 +639,16 @@ class Dbtable:
         self.table_fields: dict = table_fields or db.get_table_fields(id) or {}
         self.node_columns: list[str] = list(self.table_fields.keys())
         self._all_columns: list[str] = self.node_columns + ["ID"]
+        # Bumped by every method that changes row count directly (append_row,
+        # append_rows, delete_row, delete_rows, clear). self.list (a Dblist)
+        # compares this against its own last-synced value to detect when its
+        # chunk cache was left behind by a mutation that didn't go through
+        # the Dblist API -- see Dblist.get_delta_chunk.
+        self._version = 0
         self.init_list()
+
+    def _bump_version(self) -> None:
+        self._version += 1
 
     # ── internal helpers ─────────────────────────────────────────────────── #
 
@@ -768,17 +788,26 @@ class Dbtable:
         else:
             raise TypeError(f"row must be list or dict, got {type(row).__name__}")
 
-        cols         = ", ".join(f"[{k}]" for k in props)
-        placeholders = ", ".join("?" for _ in props)
-        values       = [_adapt_value(v) for v in props.values()]
-
-        cur = self.db.execute(
-            f"INSERT INTO [{self.id}] ({cols}) VALUES ({placeholders})", values
-        )
+        if props:
+            cols         = ", ".join(f"[{k}]" for k in props)
+            placeholders = ", ".join("?" for _ in props)
+            values       = [_adapt_value(v) for v in props.values()]
+            cur = self.db.execute(
+                f"INSERT INTO [{self.id}] ({cols}) VALUES ({placeholders})", values
+            )
+        else:
+            # Every column is either absent or explicitly None -- e.g. the
+            # "add blank row" UI flow (tables.py's append_table_row) inserts
+            # [None] * len(headers) for the user to fill in cell-by-cell
+            # afterwards. "INSERT INTO t () VALUES ()" is invalid SQLite
+            # syntax (near ")": syntax error), so use the dedicated
+            # all-defaults form instead.
+            cur = self.db.execute(f"INSERT INTO [{self.id}] DEFAULT VALUES")
         if cur is None:
             return None
         new_id = cur.lastrowid
         self.length += 1
+        self._bump_version()
 
         read_cur = self.db.execute(
             f"SELECT {self._select_cols()} FROM [{self.id}] WHERE ID = ?", (new_id,)
@@ -815,13 +844,27 @@ class Dbtable:
             else:
                 raise TypeError(f"Unsupported row type: {type(row)}")
 
-        cols         = list(dicts[0].keys())
-        col_str      = ", ".join(f"[{c}]" for c in cols)
-        placeholders = ", ".join("?" for _ in cols)
-        sql          = (
-            f"INSERT INTO [{self.id}] ({col_str}) "
-            f"VALUES ({placeholders}) RETURNING *"
-        )
+        # Union of every key seen across *all* rows, not just dicts[0]: rows
+        # may be dicts with different key sets, or lists of different
+        # lengths (each becomes a dict with only its own present indices —
+        # see the comprehension above). Using only dicts[0].keys() silently
+        # dropped any column that the first row happened not to populate,
+        # even though a later row did (missing keys default to NULL via
+        # d.get(c) below, so nothing is lost either way now).
+        cols = list(dict.fromkeys(k for d in dicts for k in d))
+        if cols:
+            col_str      = ", ".join(f"[{c}]" for c in cols)
+            placeholders = ", ".join("?" for _ in cols)
+            sql = (
+                f"INSERT INTO [{self.id}] ({col_str}) "
+                f"VALUES ({placeholders}) RETURNING *"
+            )
+        else:
+            # Every row in the batch is an empty dict -- e.g. bulk-adding
+            # several blank rows. "INSERT INTO t () VALUES ()" is invalid
+            # SQLite syntax, so use the dedicated all-defaults form instead
+            # (see append_row()'s identical guard for the single-row case).
+            sql = f"INSERT INTO [{self.id}] DEFAULT VALUES RETURNING *"
 
         inserted: list[list] = []
         try:
@@ -835,7 +878,7 @@ class Dbtable:
             # always issues COMMIT on clean exit or ROLLBACK on any exception.
             with self.db._conn:
                 for d in dicts:
-                    params = tuple(_adapt_value(d.get(c)) for c in cols)
+                    params = tuple(_adapt_value(d.get(c)) for c in cols) if cols else ()
                     cur = self.db._conn.execute(sql, params)
                     raw = cur.fetchone()
                     if raw is not None:
@@ -845,6 +888,7 @@ class Dbtable:
             return []
 
         self.length += len(inserted)
+        self._bump_version()
         return inserted
 
     def delete_row(self, row_id: int) -> bool:
@@ -854,11 +898,17 @@ class Dbtable:
         Receives the actual ID (extracted from row[-1] by Dblist.__delitem__),
         never a list offset.  This is correct even when the ID sequence has
         gaps from prior deletions.
+
+        length/version are only updated when a row was *actually* removed
+        (checked via cursor.rowcount) — a non-matching row_id (already
+        deleted, wrong ID, ...) is a no-op, not a phantom decrement.
         """
-        self.length -= 1
         result = self.db.execute(
             f"DELETE FROM [{self.id}] WHERE ID = ?", (row_id,)
         )
+        if result is not None and result.rowcount:
+            self.length -= 1
+            self._bump_version()
         return result is not None
 
     def delete_rows(self, ids) -> bool:
@@ -869,6 +919,8 @@ class Dbtable:
         )
         if result is not None:
             self.length -= result.rowcount
+            if result.rowcount:
+                self._bump_version()
         return result is not None
 
     def clear(self, detach: bool = False) -> bool:
@@ -881,6 +933,7 @@ class Dbtable:
         result = self.db.execute(f"DELETE FROM [{self.id}]")
         if result is not None:
             self.length = 0
+            self._bump_version()
         return result is not None
 
     # ── relation helpers (junction tables) ───────────────────────────────── #
@@ -942,8 +995,21 @@ class Dbtable:
 
         existing = self.db.get_table_fields(relname)
         if existing is not None:
-            if _equal_field_dicts(existing, fields):
-                return relname, existing
+            # Compare against payload fields only: get_table_fields() always
+            # includes the junction's own src_id/tgt_id structural columns,
+            # which never appear in the caller's `fields` (just the extra
+            # payload, e.g. {'qty': int}). Comparing the raw dicts meant
+            # existing.keys() ({'src_id','tgt_id','qty'}) could never equal
+            # fields.keys() ({'qty'}), so "schema unchanged" never matched
+            # and every call dropped and recreated the table -- silently
+            # destroying every existing link on every setup_junction() call
+            # (tables.py's Table.__init__ calls this on every construction
+            # of a many-to-many linked table, i.e. on every screen load).
+            existing_payload = {
+                k: v for k, v in existing.items() if k not in ("src_id", "tgt_id")
+            }
+            if _equal_field_dicts(existing_payload, fields):
+                return relname, existing_payload
             # Schema changed — drop and recreate.
             self.db.delete_table(relname)
 
@@ -1046,8 +1112,14 @@ class Dbtable:
         if not index_name:
             index_name = self.default_index_name2(link_table_id)
 
-        if link_ids:
+        if link_ids is not None:
             ids = list(link_ids)
+            if not ids:
+                # Explicit empty ID list: nothing to delete, not "fall
+                # through to the source_ids/link_node_id branch" (which
+                # would previously raise TypeError when those were also
+                # unset, since link_ids=[] is falsy just like link_ids=None).
+                return True
             ph  = ", ".join("?" for _ in ids)
             result = self.db.execute(
                 f"DELETE FROM [{index_name}] WHERE ID IN ({ph})", ids
@@ -1074,9 +1146,24 @@ class Dbtable:
 
         When *search* is non-empty, only rows whose searchable columns
         contain the search string (case-insensitive substring) are included.
+
+        When *include_rels* is True, each returned row is extended with the
+        junction table's own payload fields (as set up by setup_junction),
+        followed by the junction row's own ID -- e.g. for a many-to-many
+        link carrying a "qty" field, each row becomes
+        [<node fields...>, <node ID>, <qty>, <junction row ID>].
+        src_id/tgt_id are omitted since callers already know both ends.
         """
         ids = list(link_ids)
         ph  = ", ".join("?" for _ in ids)
+
+        # Junction columns in schema order: src_id, tgt_id, <payload...>, ID.
+        # Fetched *before* rel_cols so a missing/renamed junction table is
+        # reported the same way for every row rather than only once fetchall
+        # runs.
+        junction_fields: dict = {}
+        if include_rels:
+            junction_fields = self.db.get_table_fields(index_name, remove_id=False) or {}
         rel_cols = ", r.*" if include_rels else ""
 
         search_where, search_params = self._build_search_where(search, table_alias="a")
@@ -1091,7 +1178,24 @@ class Dbtable:
             f"ORDER BY a.[ID] ASC"
         )
         cur = self.db.execute(query, ids + search_params)
-        lst = [self._row_to_list(r) for r in cur.fetchall()] if cur else []
+        rows = cur.fetchall() if cur else []
+
+        if include_rels and junction_fields:
+            n_self = len(self._all_columns)
+            # Everything after src_id/tgt_id: payload fields, then ID.
+            rel_types = [
+                t for k, t in junction_fields.items() if k not in ("src_id", "tgt_id")
+            ]
+            lst = []
+            for r in rows:
+                base = self._row_to_list(r)
+                raw_rel = list(r)[n_self + 2 : n_self + 2 + len(rel_types)]
+                base.extend(
+                    _convert_value(v, t) for v, t in zip(raw_rel, rel_types)
+                )
+                lst.append(base)
+        else:
+            lst = [self._row_to_list(r) for r in rows]
         return Dblist(self, cache=lst)
 
 

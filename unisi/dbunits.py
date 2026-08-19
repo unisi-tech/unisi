@@ -71,6 +71,13 @@ class Dblist:
             raise AttributeError("init_list or cache has to be assigned!")
 
         self.delta_list = {0: init_list}
+        # Snapshot of dbtable._version as of the last time we know our
+        # delta_list correctly reflects the DB (either just now, at
+        # construction, or after one of our own mutator methods below ran).
+        # get_delta_chunk() compares against this to detect row-count
+        # changes made directly through the Dbtable (bypassing this Dblist),
+        # which would otherwise leave stale/short chunks cached — see there.
+        self._synced_version = dbtable._version
 
     # ------------------------------------------------------------------ #
     #  Serialisation helpers                                               #
@@ -105,6 +112,27 @@ class Dblist:
     #  Chunk management                                                    #
     # ------------------------------------------------------------------ #
 
+    def _sync_cache(self) -> None:
+        """
+        If dbtable's row count changed directly (append_row, delete_row, ...
+        called on the Dbtable itself rather than through this Dblist -- e.g.
+        a bulk-loading script), our cached chunks may be stale, short, or
+        misaligned with true DB offsets. Detect that via dbtable's version
+        counter and drop the cache so it lazily re-fetches on demand.
+
+        No-op in cache-mode: those Dblists are point-in-time snapshots (e.g.
+        search results) that never track a live dbtable to begin with.
+
+        Called from every entry point that reads *or* decides how to patch
+        delta_list (get_delta_chunk, append, extend) — checking only inside
+        get_delta_chunk is not enough, because append()/extend() inspect
+        delta_list directly (to decide whether a chunk is already cached)
+        before ever calling get_delta_chunk themselves.
+        """
+        if self.cache is None and self.dbtable._version != self._synced_version:
+            self.delta_list = {}
+            self._synced_version = self.dbtable._version
+
     def get_delta_chunk(self, index: int) -> tuple[int, list]:
         """Return (chunk_start_offset, chunk_list) for the row at *index*.
 
@@ -121,8 +149,13 @@ class Dblist:
         if self.cache is not None:
             return delta_start, self.cache[delta_start: delta_start + self.limit]
 
+        self._sync_cache()
+
         lst = self.delta_list.get(delta_start)
-        if lst is None:
+        if lst is None or (index - delta_start) >= len(lst):
+            # Cache miss, or a cached-but-too-short chunk that can't
+            # actually satisfy this index (defensive fallback for the same
+            # kind of staleness _sync_cache() guards against above).
             lst = self.dbtable.read_rows(skip=delta_start)
             self.delta_list[delta_start] = lst
         return delta_start, lst
@@ -208,6 +241,11 @@ class Dblist:
         local_idx = index - delta_start
         row_id = chunk[local_idx][-1]          # ← actual DB primary key
         self.dbtable.delete_row(row_id)        # ← pass ID, not offset!
+        # We already know exactly what changed (this one row), so resync
+        # immediately: this lets the manual chunk surgery below keep using
+        # the chunk we already have in hand instead of get_delta_chunk()
+        # wiping it out from under us as "stale" on the next call.
+        self._synced_version = self.dbtable._version
 
         update = dict(type="action", update="delete", index=index, exclude=True)
         dbupdates[self.dbtable.id].append(update)
@@ -268,16 +306,33 @@ class Dblist:
     # ------------------------------------------------------------------ #
 
     def append(self, arr):
-        """Append a row; return the stored row (including its new DB ID)."""
+        """Append a row; return the stored row (including its new DB ID),
+        or None if the insert failed (e.g. a DB/constraint error)."""
+        # Snapshot *before* inserting: was this chunk already resident in
+        # our cache? If it wasn't, don't fabricate it below — a later read
+        # reaching this offset for the first time will do a fresh DB fetch
+        # via get_delta_chunk() that *already* includes the row we're about
+        # to insert (the insert commits immediately), so appending it here
+        # too would duplicate it. Only chunks we already know the full
+        # contents of are safe to patch by hand.
+        index = len(self)
+        delta_start = (index // self.limit) * self.limit
+        if self.cache is None:
+            self._sync_cache()
+        chunk_was_cached = self.cache is None and delta_start in self.delta_list
+
         row = self.dbtable.append_row(arr)
+        self._synced_version = self.dbtable._version
+        if row is None:
+            return None  # insert failed: nothing to add to cache or UI
+
         if self.cache is not None:
             self.cache.append(row)
             return row
 
-        index = len(self) - 1
-        delta_start, lst = self.get_delta_chunk(index)
-        if lst is not None:
-            lst.append(row)
+        if chunk_was_cached:
+            self.delta_list[delta_start].append(row)
+
         update = dict(type="action", update="add", index=index, data=row)
         dbupdates[self.dbtable.id].append(update)
         return row
@@ -288,7 +343,10 @@ class Dblist:
         dbtable.length is updated atomically inside append_rows().
         """
         delta_start_index = self.dbtable.length   # capture before insert
+        if self.cache is None:
+            self._sync_cache()   # reconcile *before* our own insert bumps the version
         rows = self.dbtable.append_rows(rows)      # dbtable.length updated here
+        self._synced_version = self.dbtable._version
         len_rows = len(rows)
         i_rows = 0
         start = delta_start_index
@@ -297,6 +355,20 @@ class Dblist:
             chunk_start = (start // self.limit) * self.limit
             lst = self.delta_list.get(chunk_start)
             if lst is None:
+                if start != chunk_start:
+                    # `start` falls strictly inside this chunk, meaning the
+                    # chunk already holds pre-existing DB rows (from before
+                    # this extend() call) that we never cached. We don't
+                    # know their contents, so we can't safely fabricate the
+                    # chunk from just the new rows -- skip past it without
+                    # caching anything; a future read lazily fetches the
+                    # true contents from the DB (which already includes
+                    # these new rows too, since the insert already committed).
+                    can_fill = chunk_start + self.limit - start
+                    i_rows += can_fill
+                    start += can_fill
+                    len_rows -= can_fill
+                    continue
                 lst = []
                 self.delta_list[chunk_start] = lst
                 can_fill = self.limit
@@ -349,6 +421,7 @@ class Dblist:
 
     def clear(self, detach=False):
         self.dbtable.clear(detach)
+        self._synced_version = self.dbtable._version
         self.delta_list = {0: []}
         dbupdates[self.dbtable.id].append(
             dict(type="action", update="updates", length=0)
