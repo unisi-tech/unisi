@@ -1,5 +1,5 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
-import os, platform, requests, logging
+import os, sys, types, tempfile, atexit, shutil, platform, requests, logging
 from .common import set_defaults
 from .containers import Screen
 
@@ -18,17 +18,38 @@ except:
     if os.path.exists('config.py'):
         print('Invalid script is started! It has to be in a working directory.')
         exit()
-    f = open('config.py', 'w')  
-    f.write("""port = 8000 
+    if 'pytest' in sys.modules:
+        # Running under pytest: importing unisi must not write config.py to
+        # whatever directory pytest happens to be invoked from (usually a
+        # project's repo root, not any test's own directory) -- nor, via the
+        # logfile/upload_dir settings below, a 'log' file or a 'web'
+        # directory alongside it. Build the same default config in memory
+        # instead of on disk, only redirecting the two settings that write
+        # to the filesystem: logfile (None disables file logging entirely,
+        # see start_logging() below) and upload_dir (a throwaway per-process
+        # tmp directory instead of the relative 'web'). Everything else
+        # matches the on-disk default in the 'else' branch exactly.
+        config = types.ModuleType('config')
+        config.port = 8000
+        config.upload_dir = tempfile.mkdtemp(prefix='unisi_upload_')
+        config.hot_reload = True
+        config.logfile = None
+        config.autotest = '*'
+        config.appname = 'Unisi app'
+        sys.modules['config'] = config
+        atexit.register(shutil.rmtree, config.upload_dir, ignore_errors=True)
+    else:
+        f = open('config.py', 'w')  
+        f.write("""port = 8000 
 upload_dir = 'web'
 hot_reload  = True
 logfile  = 'log'
 autotest = '*'
 appname = 'Unisi app'
 """)
-    f.close()
-    import config
-    print("Config with default parameters is created!")
+        f.close()
+        import config
+        print("Config with default parameters is created!")
 
 #setting config variables
 set_defaults(config,  dict(
