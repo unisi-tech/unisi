@@ -29,7 +29,7 @@ def accept_cell_value(table, dval: dict):
         table.rows[dval['delta']][dval['cell']] = value    
             
 def delete_table_row(table, value):    
-    if table.selected_list:
+    if value is not None and value != []:
         if hasattr(table, 'link') and table.filter:
             link_table, rel_props, rel_name = table.rows.link
             if not isinstance(value, list):                                
@@ -173,12 +173,15 @@ class Table(Unit):
                                 else:
                                     actual = set(new_value if isinstance(new_value, list) else [] if new_value is None else [new_value])
                                     old = set(self.value if isinstance(self.value, list) else ([] if self.value is None else [self.value]))                        
+                                    master_id = link_table.rows[link_table.value][-1]
                                     deselected = old - actual                        
                                     if deselected:
-                                        self.rows.dbtable.delete_links(link_table.id, link_table.value, deselected)                            
+                                        deselected_ids = [self.rows[idx][-1] for idx in deselected]
+                                        self.rows.dbtable.delete_links(link_table.id, master_id, deselected_ids, index_name=rel_name)
                                     selected = actual - old
                                     if selected:
-                                        self.rows.dbtable.add_links(link_table.id, selected, link_table.value)                                                        
+                                        selected_ids = [self.rows[idx][-1] for idx in selected]
+                                        self.rows.dbtable.add_links(link_table.id, selected_ids, master_id, link_index_name=rel_name)
                             else:
                                 return Warning('The linked table is not in edit mode', self)
                     return self.accept(new_value)    
@@ -235,7 +238,7 @@ class Table(Unit):
             self.headers.insert(len(table_fields), 'ID')
         elif self.filter:
             self.headers.insert(len(table_fields), exclude_mark + 'ID')
-        if self.filter:
+        if self.filter and hasattr(self, 'link'):
             if only_node_headers:
                 self.headers.extend([relation_mark + pretty4(link_field) for link_field in self.link])
             if self.ids:
@@ -254,17 +257,17 @@ class Table(Unit):
                         else:
                             context = OrderedDict()
                             for dep in deps:
-                                value = values.get(dep, None)
+                                if isinstance(dep, str):
+                                    value = values.get(dep, None)
+                                elif isinstance(dep, Unit):
+                                    value = dep.value
+                                else:
+                                    raise AttributeError(f'Invalid llm parameter {dep} in {self.name} element!')
                                 if value is None:
                                     if self.llm: #exact
                                         continue   #not all fields
-                                else:                                
-                                    if isinstance(dep, str):
-                                        context[dep] = value
-                                    elif isinstance(dep, Unit):
-                                        context[dep.name] = dep.value                                    
-                                    else:
-                                        raise AttributeError(f'Invalid llm parameter {dep} in {self.name} element!')
+                                else:
+                                    context[dep if isinstance(dep, str) else dep.name] = value
                         if context:                                                    
                             async def assign(index, fld, context):
                                 self.rows[index][self.headers.index(fld)] = await get_property(fld, context)                            
@@ -294,7 +297,7 @@ def delete_panda_row(table, value):
     else:            
         delete_in_panda(value)        
     
-    #pt.reset_index(inplace=True) 
+    pt.reset_index(drop=True, inplace=True)
     delete_table_row(table, value)    
 
 def accept_panda_cell(table, value_pos: dict):
@@ -312,7 +315,6 @@ def append_panda_row(table, row_index):
     df = table.panda
     new_row = append_table_row(table, row_index)
     df.loc[len(df)] = new_row 
-    #df.loc[len(df), df.columns] = new_row
     return new_row    
 
 class PandaTable(Table):

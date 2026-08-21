@@ -21,7 +21,7 @@ class ChangedProxy:
         if name in ChangedProxy.MODIFYING_METHODS:
             super().__getattribute__('_unit')._mark_changed()
         elif not callable(value) and not isinstance(value, atomics):
-            return ChangedProxy(value, self)
+            return ChangedProxy(value, super().__getattribute__('_unit'))
         return value
     
     def __setattr__(self, name, value):                
@@ -116,9 +116,12 @@ class Unit:
 
     def mutate(self, obj):
         if self is not obj:
+            mark_changed = self._mark_changed
             self.__dict__.clear()
+            super().__setattr__('_mark_changed', mark_changed)
             for key, value in obj.__dict__.items():
-                setattr(self, key, value)
+                if key != '_mark_changed':
+                    setattr(self, key, value)
             if self._mark_changed:
                 self._mark_changed()
     
@@ -229,8 +232,9 @@ class Range(Unit):
 
 class ContentScaler(Range):
     def __init__(self, *args, **kwargs):
-        name = args[0] if args else 'Scale content'        
-        super().__init__(name, *args, **kwargs)                
+        name = args[0] if args else 'Scale content'
+        rest = args[1:] if args else args
+        super().__init__(name, *rest, **kwargs)                
         if 'options' not in kwargs:
             self.options = [0.25, 3.0, 0.25]
         self.changed = self.scaler
@@ -280,7 +284,7 @@ class Image(Unit):
         if not hasattr(self,'url'):
             self.url = self.name
         #mask full win path from Chrome detector
-        if self.url and self.url[1] == ':': 
+        if self.url and len(self.url) > 1 and self.url[1] == ':':
             self.url = f'/{self.url}'
 
 class Video(Unit):
@@ -293,9 +297,9 @@ class Video(Unit):
 
 class Sound(Unit):
     '''value contains the sound properties,  url, play, position, volume'''
-    def __init__(self, name, value = {}, handler = None, **kwargs):
+    def __init__(self, name, value = None, handler = None, **kwargs):
         super().__init__(name, [], **kwargs)
-        self.value = value
+        self.value = value if value is not None else {}
         self.type='sound'        
 
         if handler:

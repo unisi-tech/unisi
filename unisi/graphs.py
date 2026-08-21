@@ -42,7 +42,7 @@ class Graph(Unit):
     '''has to contain nodes, edges, see Readme'''
     def __init__(self, name, *args, **kwargs):
         super().__init__(name, *args, **kwargs)
-        set_defaults(self, dict(type ='graph', value = graph_default_value, nodes = [], edges = []))
+        set_defaults(self, dict(type ='graph', value = {'nodes': [], 'edges': []}, nodes = [], edges = []))
 
 Topology = lambda: defaultdict(lambda: defaultdict(lambda: None))
 
@@ -77,11 +77,11 @@ def unit2image(unit):
 
 class Net(Graph):    
     """Graph of Units"""
-    def __init__(self, name, value=graph_default_value, topology=Topology(), **kwargs):        
+    def __init__(self, name, value=None, topology=None, **kwargs):
         Unit.__init__(self, name, **kwargs)        
         self.type = 'graph'         
-        self.value = value
-        self.topology = topology
+        self.value = value if value is not None else {'nodes': [], 'edges': []}
+        self.topology = topology if topology is not None else Topology()
         self._build_from_topology()
 
         changed_handler = getattr(self, 'changed', None)
@@ -128,7 +128,9 @@ class Net(Graph):
         return self._narray
 
     def __getstate__(self):
-        _value = getattr(self, 'selected', graph_default_value)
+        _value = getattr(self, 'selected', None)
+        if _value is None:
+            _value = {'nodes': [], 'edges': []}
         state = {name: getattr(self, name) for name in self.__dict__
                  if name[0] != '_' and name not in ('topology', 'value')}
         state.update(nodes=self._nodes, edges=self._edges, value=_value)

@@ -1,4 +1,5 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
+import copy
 import importlib
 import sys
 import threading
@@ -112,7 +113,21 @@ class ModulesMixin:
         spec.loader.exec_module(module)
         screen = Screen(getattr(module, 'name', ''))
         for var, val in screen.defaults.items():
-            setattr(screen, var, getattr(module, var, val))
+            resolved = getattr(module, var, val)
+            # Screen.defaults (see unisi/utils.py) is a SINGLE dict built once
+            # at import time -- its list-valued entries ('blocks', 'toolbar')
+            # are specific, shared list objects, not fresh ones per screen.
+            # `resolved is val` means the module didn't declare its own value
+            # for `var`, so we're about to fall back to that shared object.
+            # Handing it out by reference would let the `screen.toolbar +=
+            # ...` mutation a few lines down (or any other later in-place
+            # mutation of screen.blocks/screen.toolbar, anywhere in the
+            # codebase) permanently corrupt the shared default for every
+            # OTHER screen that also doesn't declare its own -- copying here
+            # means each screen gets its own list to mutate.
+            if resolved is val and isinstance(val, (list, dict, set)):
+                resolved = copy.copy(val)
+            setattr(screen, var, resolved)
         if not isinstance(screen.blocks, list | tuple):
             screen.blocks = [screen.blocks]
 
