@@ -19,7 +19,7 @@ class Block(Unit):
             elif isinstance(self.value[0], list):
                 self.value[0].append(scaler)
             else:
-                self.value[0] = [self.value, scaler]     
+                self.value[0] = [self.value[0], scaler]     
 
         for elem in flatten(self.value):                        
             if hasattr(elem, 'llm'): 
@@ -52,7 +52,12 @@ class Block(Unit):
         if hasattr(self,'closable'):        
             def close(*_):
                 user = self._user if self._user else  Unishare.context_user()
-                delete_unit(user.screen.blocks, self.name)                
+                blocks = user.screen.blocks
+                if isinstance(blocks, ChangedProxy):
+                    blocks = blocks._obj
+                found, updated = delete_unit(blocks, self.name)
+                if found:
+                    user.screen.blocks = updated
             self.close = close      
 
     def __setattr__(self, name, value):      
@@ -98,7 +103,7 @@ class Block(Unit):
                 return e
 
 class ParamBlock(Block):
-    def __init__(self, name, *args, changed = None, row = 3, strict = 'recurse', persist = False, **params):
+    def __init__(self, name, /, *args, changed = None, row = 3, strict = 'recurse', persist = False, **params):
         """strict == 'recurse' means to recurse into dict values as an embedded ParamBlock.
         persist, like on any Block/Unit, can be a zero-arg function returning a tuple of
         defining values. Set here, it is a convenience default: each generated field is

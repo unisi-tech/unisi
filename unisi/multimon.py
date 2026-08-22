@@ -119,6 +119,69 @@ class _S:
     EXTERNAL_CALL = "p"   # external process was called (no freeze alarm)
 
 
+def _parse_message(raw: str) -> tuple[str, str, str] | None:
+    """Split a raw monitor message into (code, session, event).
+
+    Returns None for a malformed message (fewer than 3 '~'-separated parts).
+    `code` and `session` are simple identifiers not expected to contain
+    '~', but `event` commonly comes from `str(some_received_message)`,
+    which embeds arbitrary user-typed text -- if that text itself contains
+    '~', splitting on `_SPLITTER` produces more than 3 parts. Rejoining
+    everything from the 3rd part on back into `event` (instead of keeping
+    only parts[2]) means that text is preserved rather than silently
+    truncated at the first stray '~'.
+    """
+    parts = raw.split(_SPLITTER)
+    if len(parts) < 3:
+        return None
+    code, sname = parts[0], parts[1]
+    event = _SPLITTER.join(parts[2:])
+    return code, sname, event
+
+
+def _dispatch_message(
+    code: str, sname: str, event: str, session_status: dict[str, list], now: float | None = None
+) -> None:
+    """Apply one parsed monitor message to `session_status` (mutated in place).
+
+    Exactly the bookkeeping documented on `_monitor_process`, extracted so
+    it can be exercised without the surrounding infinite loop / real shared
+    memory. `now` defaults to `time.time()` but can be injected for
+    deterministic tests of the EXIT_HANDLER duration/threshold check.
+    """
+    if now is None:
+        now = time.time()
+
+    match code:
+        case _S.ENTER | _S.EXTERNAL_DONE:
+            # Session is now waiting for a handler / external call returned.
+            # Arm the freeze alarm (track_freeze=True).
+            session_status[sname] = [event, now, True]
+
+        case _S.EXIT_HANDLER:
+            entry = session_status.pop(sname, None)
+            if entry is not None:
+                event_name, tstart, _ = entry   # ignore track_freeze flag
+                duration = now - tstart
+                if profile and duration > profile:
+                    with _logging_lock:
+                        logging.warning(
+                            f"Event handler '{event_name}' for session '{sname}' "
+                            f"took {duration:.3f} s (threshold: {profile} s)"
+                        )
+
+        case _S.EXTERNAL_CALL:
+            # Session is occupied by an external process — record for
+            # profiling, but do NOT arm the freeze alarm (track_freeze=False).
+            session_status[sname] = [event, now, False]
+
+        case _:
+            with _logging_lock:
+                logging.warning(
+                    f"Monitor: unknown status code '{code}' from session '{sname}'"
+                )
+
+
 def _monitor_process(shared_arr: multiprocessing.Array) -> None:
     """Background monitoring process — never returns (runs as daemon).
 
@@ -153,42 +216,13 @@ def _monitor_process(shared_arr: multiprocessing.Array) -> None:
         raw = _read_from_shared(shared_arr)
         shared_arr[0] = b"\x00"          # free as early as possible
 
-        parts = raw.split(_SPLITTER)
-        if len(parts) < 3:
+        parsed = _parse_message(raw)
+        if parsed is None:
             with _logging_lock:
-                logging.warning(f"Monitor: malformed message {parts!r} — skipped")
+                logging.warning(f"Monitor: malformed message {raw!r} — skipped")
             continue
 
-        code, sname, event = parts[0], parts[1], parts[2]
-
-        match code:
-            case _S.ENTER | _S.EXTERNAL_DONE:
-                # Session is now waiting for a handler / external call returned.
-                # Arm the freeze alarm (track_freeze=True).
-                session_status[sname] = [event, time.time(), True]
-
-            case _S.EXIT_HANDLER:
-                entry = session_status.pop(sname, None)
-                if entry is not None:
-                    event_name, tstart, _ = entry   # ignore track_freeze flag
-                    duration = time.time() - tstart
-                    if profile and duration > profile:
-                        with _logging_lock:
-                            logging.warning(
-                                f"Event handler '{event_name}' for session '{sname}' "
-                                f"took {duration:.3f} s (threshold: {profile} s)"
-                            )
-
-            case _S.EXTERNAL_CALL:
-                # Session is occupied by an external process — record for
-                # profiling, but do NOT arm the freeze alarm (track_freeze=False).
-                session_status[sname] = [event, time.time(), False]
-
-            case _:
-                with _logging_lock:
-                    logging.warning(
-                        f"Monitor: unknown status code '{code}' from session '{sname}'"
-                    )
+        _dispatch_message(*parsed, session_status)
 
 
 def _check_for_frozen_sessions(

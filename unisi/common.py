@@ -165,19 +165,37 @@ def Answer(type, message, result):
 close_message = TypeMessage('action', 'close')
 
 def delete_unit(units, name):
-    """Deletes a unit with the given name from a nested list of units.
-        Returns True if the unit was found and deleted, False otherwise.
+    """Deletes the unit with the given name from a nested list/tuple of units.
+
+    Returns (found, updated_units). Only the first matching unit
+    (depth-first, left to right) is removed; a sub-container left empty by
+    the removal is dropped entirely from its parent.
+
+    Every level -- list or tuple, including `units` itself -- is rebuilt
+    fresh rather than mutated in place: a plain list could be `.pop()`-ed,
+    but a tuple can't be shrunk in place, and `units` is legitimately a
+    tuple sometimes (e.g. a screen module's `blocks = block_a, block_b`).
+    Rebuilding uniformly means a match works the same way regardless of
+    which container types hold it, and the caller (who knows where `units`
+    came from) is expected to write `updated_units` back there -- e.g.
+    `user.screen.blocks = updated_units` -- since a new tuple obviously
+    can't be handed back via in-place mutation.
+    `updated_units` mirrors `units`'s own type (tuple in, tuple out; list
+    in, list out) at every level; when nothing matches, it's `units`
+    unchanged (same contents, rebuilt into a fresh, equal container).
     """
-    for i in range(len(units)):
-        if isinstance(units[i], list | tuple):
-            if delete_unit(units[i], name):
-                if not units[i]: # if the sublist became empty after deletion
-                    units.pop(i) # remove sublist also
-                return True
-        elif units[i].name == name:
-            units.pop(i) 
-            return True
-    return False
+    found = False
+    result = []
+    for item in units:
+        if not found and isinstance(item, list | tuple):
+            found, item = delete_unit(item, name)
+            if found and not item:  # sub-container is now empty -- drop it
+                continue
+        elif not found and item.name == name:
+            found = True
+            continue
+        result.append(item)
+    return found, (tuple(result) if isinstance(units, tuple) else result)
 
 
 empty_app = ArgObject(
