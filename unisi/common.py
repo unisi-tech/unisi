@@ -87,8 +87,26 @@ class ArgObject:
 
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
-    def __getattr__(self, _):
-        """return None for unknown props"""
+    def __getattr__(self, name):
+        """return None for unknown props.
+
+        MERGED FIX: only for "ordinary" (non-underscore) names. The
+        _jsonpickle_exclude class attribute above already covers
+        jsonpickle's specific probe (found by normal attribute lookup,
+        without ever reaching this method) -- this is the general case:
+        unconditionally returning None for *every* missing attribute,
+        dunder and other underscore-prefixed introspection names included,
+        silently breaks the standard getattr(obj, name, default)/hasattr()
+        idiom for any *other* third-party code that probes for optional
+        hooks (e.g. hasattr(obj, '__getnewargs__') would incorrectly
+        report True), since it never sees the AttributeError that
+        default-fallback and hasattr() rely on. Leading-underscore/dunder
+        names now raise AttributeError as normal; ordinary message-field
+        access (value/event/block/...) is unaffected and still returns
+        None.
+        """
+        if name.startswith('_'):
+            raise AttributeError(name)
         return None
 
 class ReceivedMessage(ArgObject):

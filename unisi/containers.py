@@ -197,6 +197,11 @@ class Dialog:
         buttons[0].color = 'primary' 
         buttons[0].space = True        
         self.icon = icon
+        # FIX: `commands` (the button-name list) was never stored on self,
+        # so the serialised 'dialog' message had no 'commands' key at all
+        # and Proxy.dialog_commands (unisi/proxy.py: self.dialog['commands'])
+        # raised KeyError for any real dialog.
+        self.commands = commands
         self.value = [[], *content, buttons] if content else buttons        
 
     async def dialog_command_handler(self, button, _):        

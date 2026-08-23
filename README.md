@@ -1,5 +1,5 @@
 # UNISI
-UNified System Interface, GUI and Remote API
+UNIfied System Interface, Protocol, Web GUI and Remote API
 
 ### Purpose
 UNISI technology provides a unified system interface and advanced program functionality, eliminating the need for front-end and most back-end programming. It automates common tasks, as well as unique ones, significantly reducing the necessity for manual programming and effort.

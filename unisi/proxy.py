@@ -19,6 +19,16 @@ class Event(IntFlag):
     screen = 65
     complete = 128
     append = 256
+    # FIX: added, mirroring update_message/update_progress. A 'complete' or
+    # 'append' response can legitimately bundle `updates` for OTHER units
+    # that changed as a side effect of the same request (users.py's
+    # prepare_result folds self.changed_units into any Message-typed raw
+    # result -- not just the explicit 'update' type). Without these,
+    # process() had no way to signal "this was complete/append AND it also
+    # carried real local-state updates" the same way it already can for
+    # message/progress -- see process()'s 'complete'/'append' branches.
+    update_complete = 129
+    update_append = 257
 ws_header = 'ws://'
 wss_header = 'wss://'
 ws_path = 'ws'
@@ -34,7 +44,9 @@ class Proxy:
         host_port : str  — e.g. 'localhost:8000'
         timeout   : int  — WebSocket timeout in seconds
         ssl       : bool — use wss:// / https://
-        session   : str  — optional session query-string token
+        session   : str  — optional session token to reattach to (sent as
+                           the 'session' query parameter, matching
+                           server.py's parsed_query['session'])
         screen    : str  — optional screen name to activate immediately on connect.
                            Mirrors the server-side User.__init__(screen=) parameter.
         """
@@ -45,7 +57,15 @@ class Proxy:
         # Build query string: session token and/or initial screen name
         params = []
         if session:
-            params.append(session)
+            # FIX: was `params.append(session)` -- appended the raw token
+            # with no 'session=' key at all (e.g. '?::1-0' instead of
+            # '?session=%3A%3A1-0'), so server.py's
+            # parse_qs(request.query_string) never saw a 'session' key
+            # ('session' in parsed_query was always False) and silently
+            # started a brand new session instead of reattaching to the
+            # given one -- breaking the "Hot connect to running session"
+            # feature (test_apps/proxy/run_blocks.py) entirely.
+            params.append(f'session={quote(session, safe="")}')
         if screen:
             params.append(f'screen={quote(screen, safe="")}')
         if params:
@@ -173,13 +193,33 @@ class Proxy:
             return block_dict['name']
         return f'{block_dict["name"]}@{self._block_path(parent)}'
 
-    def _owning_block(self, elem_name):
+    def _owning_block(self, element):
         """
-        Return the *direct* containing block dict for the element named
-        *elem_name*, searching the full nested tree.
+        Return the *direct* containing block dict for *element*, searching
+        the full nested tree.
+
+        element : str  — match the first element found with this name.
+                  dict — match this exact element object by identity.
+
+        FIX: previously took only a name and always matched by name, even
+        when block_name() already had the specific dict in hand (e.g. one
+        entry from elements()). Two different elements on the same screen
+        can legitimately share a name (element()'s own ambiguity check
+        exists precisely because of this); matching by name alone meant
+        whichever root block happened to be searched first always won,
+        regardless of which object was actually passed in -- so a caller
+        holding a specific, disambiguated dict could still be told it
+        belongs to the wrong block. Matching by identity when a dict is
+        given resolves it correctly; string lookups (no specific dict to
+        compare against) keep the original by-name behaviour.
 
         Starts from root blocks so each element is found exactly once.
         """
+        by_name = isinstance(element, str)
+
+        def _matches(item):
+            return item.get('name') == element if by_name else item is element
+
         def _search(block_dict):
             for item in flatten(block_dict.get('value', [])):
                 if not isinstance(item, dict):
@@ -188,7 +228,7 @@ class Proxy:
                     found = _search(item)
                     if found is not None:
                         return found
-                elif item.get('name') == elem_name:
+                elif _matches(item):
                     return block_dict
             return None
 
@@ -197,6 +237,72 @@ class Proxy:
             if found is not None:
                 return found
         return None
+
+    @staticmethod
+    def _find_by_name_in_tree(value, target_name):
+        """
+        Recursively search *value* for a dict item named *target_name*, at
+        any depth -- including block-typed items themselves, not only their
+        descendants.
+
+        Added for update()'s len(path) > 1 branch: unlike
+        _iter_block_elements (which deliberately never yields a block dict
+        itself, only recurses into it -- correct for element()/elements(),
+        which must return leaf units, not containers), update() needs to
+        find whatever is *named* by path[0], and that can itself be a
+        nested block that changed as a whole (server's find_path returns
+        [block.name, parent.name, ...] for a nested block exactly like it
+        does [elem.name, block.name, ...] for a plain element -- see
+        users.py). Matching only leaves meant such updates were silently
+        unmatched.
+
+        Returns the matching dict (the actual object living in the tree,
+        so callers can mutate it in place and have that reflected
+        everywhere it's referenced from, e.g. name2block), or None.
+        """
+        for item in flatten(value):
+            if not isinstance(item, dict):
+                continue
+            if item.get('name') == target_name:
+                return item
+            if item.get('type') == 'block':
+                found = Proxy._find_by_name_in_tree(item.get('value', []), target_name)
+                if found is not None:
+                    return found
+        return None
+
+    def _replace_root_block(self, block_name, new_data):
+        """
+        Replace the root-level block named *block_name* inside
+        self.screen['blocks'] with *new_data*, in place.
+
+        Added for update()'s len(path) == 1 branch, which otherwise only
+        replaced name2block[block_name] (a flat index entry, rebound to a
+        new dict object) without ever touching self.screen['blocks'] (the
+        actual tree _root_blocks() -- and therefore elements()/commands/
+        element() without a block_name/_owning_block -- reads). That left
+        every tree-walking lookup serving the stale block indefinitely
+        after a whole-root-block replacement, even though direct
+        name2block-based lookups already saw the fresh data.
+
+        self.screen['blocks'] is whatever json.loads produced, so any
+        nested grouping is plain lists (JSON has no tuples) -- safe to
+        mutate in place. No-op (leaves the tree untouched, same as before
+        this fix existed) if *block_name* isn't found there -- update()'s
+        own name2block-driven staleness check already governs whether this
+        situation is even reachable.
+        """
+        def _replace(container):
+            for i, item in enumerate(container):
+                if isinstance(item, list):
+                    if _replace(item):
+                        return True
+                elif isinstance(item, dict) and item.get('name') == block_name:
+                    container[i] = new_data
+                    return True
+            return False
+
+        _replace(self.screen.get('blocks', []))
 
     # ──────────────────────────────────────────────
     # Public element API
@@ -218,6 +324,13 @@ class Proxy:
         result = None
 
         if block_name:
+            # FIX: guard self.screen being None (e.g. no screen received
+            # yet, or the connection's first message was an error) -- was
+            # `self.screen['name2block']` unguarded, raising TypeError
+            # instead of gracefully returning None like the no-block_name
+            # path below already does (via _root_blocks()'s own guard).
+            if not self.screen:
+                return None
             # Search only within the specified block and its nested children
             blk = self.screen['name2block'].get(block_name)
             if blk is None:
@@ -272,8 +385,9 @@ class Proxy:
         Nested elements return a multi-segment path; top-level elements return
         just their block's name.  Returns None if the element is not found.
         """
-        elem_name = element if isinstance(element, str) else element.get('name')
-        owning = self._owning_block(elem_name)
+        # FIX: pass element straight through (str or dict) instead of
+        # pre-extracting just its name -- see _owning_block()'s docstring.
+        owning = self._owning_block(element)
         if owning is None:
             return None
         return self._block_path(owning)
@@ -295,7 +409,14 @@ class Proxy:
     # ──────────────────────────────────────────────
 
     def command(self, command, value=None):
-        return self.interact(self.make_message(command, value))
+        # FIX: was `return self.interact(self.make_message(command, value))`
+        # with no guard -- for an unknown command, make_message() returns
+        # None, and interact(None)/request(None) would skip send() (message
+        # is falsy) but still call conn.recv() unconditionally, desyncing
+        # the request/response pairing (or hanging, against a real socket)
+        # instead of failing fast. Mirrors set_value()'s existing guard.
+        ms = self.make_message(command, value)
+        return self.interact(ms) if ms else Event.invalid
 
     def command_upload(self, command, fpath):
         """Upload *fpath* to the server and trigger *command*."""
@@ -396,14 +517,37 @@ class Proxy:
             self.event = Event.dialog
 
         elif mtype == 'complete':
-            return Event.complete
+            # FIX: was `return Event.complete`, bypassing self.event = ...
+            # entirely (self.event -- a documented, externally-read
+            # attribute; see test_apps/proxy/run_blocks.py's own
+            # `if proxy.event == ...` pattern -- stayed stuck on whatever
+            # it was *before* this message). Also now applies `updates` if
+            # present: a 'complete' response can legitimately bundle
+            # updates for OTHER units that changed as a side effect of the
+            # same request (users.py's prepare_result folds
+            # self.changed_units into any Message-typed raw result, not
+            # just the explicit 'update' type), and those were previously
+            # dropped silently, same class of bug as 'append' below.
+            updates = message.get('updates')
+            if updates:
+                self.update(message)
+            self.event = Event.update_complete if updates else Event.complete
 
         elif mtype == 'append':
-            self.event = Event.append
+            # FIX: never looked at message['updates'] at all -- same
+            # silently-dropped-side-effect-updates bug as 'complete' above.
+            updates = message.get('updates')
+            if updates:
+                self.update(message)
+            self.event = Event.update_append if updates else Event.append
 
         elif mtype == 'update':
-            self.update(message)
-            self.event = Event.update
+            # FIX: was `self.update(message); self.event = Event.update`,
+            # unconditionally -- discarding update()'s own verdict
+            # (Event.unknown_update) whenever part of the batch couldn't be
+            # matched against the local screen mirror, hiding a real
+            # "your local copy may now be stale" signal from the caller.
+            self.event = self.update(message)
 
         else:
             updates = message.get('updates')
@@ -432,6 +576,14 @@ class Proxy:
              (the block name is the first element of the path list)
           3. el.__dict__ = update['data'].__dict__ → el.update(data)
              (data is a dict; objects don't have __dict__ here)
+          4. A root-block replacement (len(path) == 1) now also updates
+             self.screen['blocks'] via _replace_root_block(), not just the
+             separate name2block flat index (see that method's docstring).
+          5. An element/nested-block replacement (len(path) > 1) now
+             searches via _find_by_name_in_tree() instead of
+             _iter_block_elements(), so a nested block that itself changed
+             as a whole (not just a plain element inside one) can actually
+             be found and updated (see that method's docstring).
         """
         result = Event.update
         # FIX 1: message is a dict, not an ArgObject — use .get()
@@ -451,6 +603,14 @@ class Proxy:
                 block_name = path[0]
                 if block_name in name2block:
                     name2block[block_name] = data
+                    # FIX 4: also keep self.screen['blocks'] itself (the
+                    # tree _root_blocks()/elements()/commands/element()
+                    # without a block_name actually read) in sync -- only
+                    # name2block (a separate flat index) was updated
+                    # before, so those tree-based lookups kept serving the
+                    # stale block indefinitely. See _replace_root_block()'s
+                    # docstring.
+                    self._replace_root_block(block_name, data)
                     # Re-index any nested blocks inside the replaced block
                     if isinstance(data, dict) and data.get('type') == 'block':
                         name2block.update(self._build_name2block([data]))
@@ -468,14 +628,25 @@ class Proxy:
                     continue
 
                 block = name2block[block_name]
-                found = False
+                # FIX 5: search via _find_by_name_in_tree, not
+                # _iter_block_elements -- the latter deliberately never
+                # yields a block dict itself (only recurses into it, which
+                # is correct for element()/elements()'s "give me the leaf
+                # units" contract), so whenever elem_name actually named a
+                # nested block that changed as a whole (not a plain
+                # element inside one), it could never be found and the
+                # update was silently dropped as unknown_update, leaving
+                # that block's content permanently stale.
+                target = self._find_by_name_in_tree(block.get('value', []), elem_name)
                 # FIX 3: data is a dict — use dict.update(); original tried .__dict__
-                for el in self._iter_block_elements(block.get('value', [])):
-                    if el.get('name') == elem_name:
-                        el.update(data)
-                        found = True
-                        break
-                if not found:
+                if target is not None:
+                    target.update(data)
+                    # Re-index in case the (possibly block-typed) target
+                    # gained/lost nested blocks of its own -- same
+                    # reasoning as the len(path) == 1 branch above.
+                    if target.get('type') == 'block':
+                        name2block.update(self._build_name2block([target]))
+                else:
                     result = Event.unknown_update
 
         return result
