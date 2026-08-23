@@ -8,7 +8,7 @@ from .common import  *
 from .llmrag import setup_llmrag
 from .dbunits import dbupdates
 from .db import db 
-import traceback, json, random, string
+import traceback, json, random, string, os
 from urllib.parse import parse_qs
 import config
 
@@ -28,6 +28,13 @@ def message_logger(message, type = 'error'):
     if user:    
         user.log(message, type)
     else:
+        # No user in context yet (e.g. a startup-time warning from a
+        # module that runs before any User exists) -- always logs at
+        # error level regardless of `type`, by design: start_logging()
+        # configures the root logger at WARNING, so an 'info'-level
+        # message here would otherwise be silently dropped instead of
+        # shown. See llmrag.py's setup_llmrag() docstring for the
+        # concrete case this exists for.
         with logging_lock:
             logging.error(message)
 
@@ -95,9 +102,21 @@ async def post_handler(request):
     reader = await request.multipart()
     field = await reader.next()
     if not field or not getattr(field, 'filename', None):
-        return web.HTTPBadRequest(text='No file provided')
+        # raise, not return -- aiohttp deprecated returning an
+        # HTTPException object (#2415) in favor of raising it; both
+        # currently produce the identical response (same status/body),
+        # but only raising is forward-compatible.
+        raise web.HTTPBadRequest(text='No file provided')
     # Use only the basename — prevents path traversal via crafted filenames like ../../etc/passwd
     safe_name = Path(field.filename).name
+    if not safe_name or safe_name == '..':
+        # Path(...).name is '' for inputs like '', '.', or '/', but for a
+        # bare '..' it stays '..' (pathlib treats it as an ordinary last
+        # segment, not something to resolve away) -- either way, joining
+        # it with upload_dir points at an *existing directory* (upload_dir
+        # itself, or its parent), and open(that, 'wb') below would raise
+        # an unhandled IsADirectoryError (a 500) instead of a clean 400.
+        raise web.HTTPBadRequest(text='Invalid filename')
     filename = upload_path(safe_name)
     with open(filename, 'wb') as f:
         while True:
@@ -138,7 +157,8 @@ async def static_serve(request: web.Request) -> web.StreamResponse:
     except (ValueError, RuntimeError):
         pass
 
-    return web.HTTPNotFound()
+    # raise, not return -- see the matching comment in post_handler above.
+    raise web.HTTPNotFound()
      
 async def websocket_handler(request):
     ws = web.WebSocketResponse()
@@ -168,9 +188,27 @@ async def websocket_handler(request):
                         message = None
                         if isinstance(raw_message, list):
                             if raw_message:
+                                # `result` deliberately keeps the *last
+                                # non-None* sub-result rather than
+                                # unconditionally overwriting it every
+                                # iteration: most handlers return None
+                                # (their real effect is tracked via
+                                # changed_units/touched_units and merged
+                                # into one combined update by send() below),
+                                # but a handler can also return an
+                                # explicit Error/Warning/Info/Message --
+                                # e.g. to reject one bad item partway
+                                # through a batch. Unconditionally
+                                # overwriting used to let a later message
+                                # that returns None silently erase an
+                                # earlier explicit result, so the client
+                                # would never learn about it.
+                                result = None
                                 for raw_submessage in raw_message:
-                                    message = ReceivedMessage(raw_submessage)                    
-                                    result = await user.result4message(message)
+                                    message = ReceivedMessage(raw_submessage)
+                                    sub_result = await user.result4message(message)
+                                    if sub_result is not None:
+                                        result = sub_result
                             else:                                
                                 result = Warning('Empty command batch!')
                         else:                    
@@ -216,15 +254,29 @@ def ensure_unisi_typings():
     builtins_content = "from unisi import User\nuser: User\n"
 
     try:
-        if not os.path.exists(builtins_file_path) or \
-           open(builtins_file_path, "r", encoding="utf-8").read() != builtins_content:
+        needs_write = True
+        if os.path.exists(builtins_file_path):
+            with open(builtins_file_path, "r", encoding="utf-8") as f:
+                needs_write = f.read() != builtins_content
+        if needs_write:
             with open(builtins_file_path, "w", encoding="utf-8") as f:
                 f.write(builtins_content)
             print(f"File '{builtins_file_path}' created/updated for Pylance support.")        
     except Exception as e:
         print(f"Error creating/updating '{builtins_file_path}': {e}")
 
-def start(user_type = User, http_handlers = []):    
+def start(user_type = User, http_handlers = None):    
+    # mutable-default-argument pitfall: a `[]` default here is only safe
+    # because it's never mutated in place (`http_handlers + [...]` below
+    # always builds a new list) -- start() also only ever runs once per
+    # process (web.run_app blocks forever), so the classic "leaks between
+    # calls" failure mode can't actually happen today. Still worth the
+    # standard None-default fix: it costs nothing and removes a pattern
+    # every linter flags on sight, for a function whose contract (append
+    # your own routes) invites exactly the kind of caller who might one
+    # day be tempted to `http_handlers.append(...)` before calling start().
+    if http_handlers is None:
+        http_handlers = []
     ensure_directory_exists(screens_dir)
     ensure_directory_exists(blocks_dir)
     ensure_unisi_typings()

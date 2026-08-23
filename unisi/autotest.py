@@ -211,9 +211,21 @@ def run_tests(user):
     files = config.autotest
     ok = True
     process = False
-    if os.path.exists(testdir):
+    # `files` is False when autotest is disabled (the documented default --
+    # see set_defaults in utils.py) -- `file in files` on a bool raises
+    # TypeError, and would otherwise crash *every* start() for any app
+    # that has ever recorded an autotest (creating the `autotest` dir) and
+    # later turned config.autotest back off, which used to happen
+    # silently since the two settings aren't otherwise linked.
+    if files and os.path.exists(testdir):
         for file in os.listdir(testdir):
-            if not os.path.isdir(file) and (files == '*' or file in files):
+            # os.path.isdir(file) checked `file` against the CWD, not
+            # against testdir -- a subdirectory *inside* testdir (a stray
+            # `.ipynb_checkpoints`-style dir, or just organizing tests into
+            # folders) would pass this check by accident and then crash
+            # test() with IsADirectoryError trying to open() it.
+            full_path = f'{testdir}{divpath}{file}'
+            if not os.path.isdir(full_path) and (files == '*' or file in files):
                 process = True
                 if not test(file,user):
                     ok = False

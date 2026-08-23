@@ -1,5 +1,5 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
-import jsonpickle, inspect, asyncio
+import jsonpickle, inspect, asyncio, warnings
 
 UpdateScreen = True
 Redesign = 2
@@ -18,7 +18,24 @@ def index_of(lst, target):
     return -1
   
 async def call_anysync(handler, *params):
-    return (await handler(*params)) if asyncio.iscoroutinefunction(handler) else handler(*params)
+    """Call `handler` and await the result if it turns out to be awaitable.
+
+    Deliberately calls first and inspects the *result* rather than
+    pre-classifying `handler` with asyncio.iscoroutinefunction(): that
+    only recognizes plain `async def` functions/methods, so a perfectly
+    ordinary callable *instance* whose `__call__` is a coroutine function
+    (a common way to write a stateful handler) would be invoked
+    synchronously, handing back an unawaited coroutine object as if it
+    were the real result instead of actually running it. Checking the
+    result with inspect.isawaitable() after the call covers that case,
+    functools.partial-wrapped async functions, and anything else that
+    merely *returns* an awaitable, in addition to the plain sync/async
+    functions this already handled.
+    """
+    result = handler(*params)
+    if inspect.isawaitable(result):
+        result = await result
+    return result
 
 def strpath(path):
     "array path to string"
@@ -32,8 +49,18 @@ def compose_handlers(*handlers):
             if result == UpdateScreen or result == Redesign:
                 return result
             if isinstance(result, list | tuple):
-                for obj in flatten(result):
-                    objs.add(obj)
+                # NOTE: must not reuse `obj` as the loop variable here --
+                # `obj` is compose()'s own parameter (the unit each
+                # handler in this chain is invoked with), and a bare
+                # `for` loop doesn't get its own scope in Python. Reusing
+                # the name would silently overwrite `obj` with the last
+                # item of THIS handler's result, so every later handler
+                # in the chain would be called with some unrelated
+                # changed unit instead of the original one. See
+                # tests/core/test_common.py's compose_handlers regression
+                # tests for exactly this scenario.
+                for item in flatten(result):
+                    objs.add(item)
             elif result:
                 objs.add(result)
         if objs:
@@ -44,6 +71,20 @@ def equal_dicts(dict1, dict2):
     return dict1.keys() == dict2.keys() and all(dict1[key] == dict2[key] for key in dict1)
 
 class ArgObject:
+    # jsonpickle's pickler probes `getattr(obj, '_jsonpickle_exclude', ())`
+    # (see jsonpickle.pickler.Pickler._flatten_obj_instance) using
+    # getattr()'s 3-argument form, which only falls back to the default
+    # when the attribute lookup raises AttributeError. __getattr__ below
+    # never raises -- it returns None for *any* missing name -- so without
+    # this explicit class attribute the probe finds this class's own
+    # __getattr__-synthesized None instead of jsonpickle's own default,
+    # and `set(None)` blows up with "TypeError: 'NoneType' object is not
+    # iterable" for every single ArgObject (including empty_app) passed to
+    # toJson()/jsonpickle.encode. Declaring the real jsonpickle default
+    # here as an ordinary class attribute means normal attribute lookup
+    # finds it directly and never reaches __getattr__ at all.
+    _jsonpickle_exclude = ()
+
     def __init__(self, **kwargs):
         self.__dict__.update(kwargs)
     def __getattr__(self, _):
@@ -63,7 +104,23 @@ class ReceivedMessage(ArgObject):
         return self.block == 'voice' and self.element is None
 
 def toJson(obj):
-    return jsonpickle.encode(obj,unpicklable = False)
+    # keys=False is pinned deliberately, not left as an implicit default:
+    # jsonpickle 5.0.0 will flip its own default to keys=True, but that
+    # mode only makes sense for output meant to be *unpickled* back into
+    # Python (it prefixes non-string dict keys with "json://" so the
+    # original key type survives a round trip -- e.g. {1: 'x'} becomes
+    # {"json://1": "x"}). toJson always calls unpicklable=False -- this
+    # output is for a plain JS/JSON consumer that will never round-trip
+    # through jsonpickle -- so keys=True would actively corrupt any
+    # non-string-keyed dict for that consumer instead of the harmless
+    # str(key) coercion keys=False gives it. Suppress just that one
+    # warning rather than silence DeprecationWarning wholesale, so any
+    # other, unrelated deprecation surfaces normally.
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            'ignore', message='keys will default to True', category=DeprecationWarning
+        )
+        return jsonpickle.encode(obj, unpicklable=False, keys=False)
 
 def set_defaults(self, param_defaults : dict):
     for param, value in param_defaults.items():
@@ -142,6 +199,7 @@ class Message:
             for update in self.updates:
                 if unit is update['data']:
                     return True
+        return False
 
 def TypeMessage(type, value, *data, user = None):
     message = Message(*data, user=user, type = type)    

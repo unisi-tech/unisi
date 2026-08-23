@@ -91,10 +91,14 @@ if config.froze_time == 0:
     print('froze_time in config.py can not be 0!')
     config.froze_time = None
 
-def filename2url(fn):   
-    if fn[0] == '/' or fn[1] == ':': #if full path
-        fn = fn[len(app_dir):]   
-    if fn[0] == divpath:
+def filename2url(fn):
+    # startswith()/a length-guarded index, not fn[0]/fn[1] directly --
+    # those raised IndexError for any fn shorter than 2 characters
+    # (including '') before ever getting to decide whether it looked like
+    # a full path.
+    if fn.startswith('/') or (len(fn) > 1 and fn[1] == ':'): #if full path
+        fn = fn[len(app_dir):]
+    if fn.startswith(divpath):
         fn = fn[1:]
     return fn 
 
