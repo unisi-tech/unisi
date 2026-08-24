@@ -52,7 +52,11 @@ class Ignore(ABC):
     @classmethod
     def _apply_regex_rule(cls, key, obj, rule):
         regex = rule['_re']
-        if key in obj and re.match(regex, obj[key]):
+        # isinstance(..., str): re.match() raises TypeError on a non-string
+        # subject (an int, a dict, None, ...). A regex ignore-rule is only
+        # ever meaningful for a string value, so a non-string simply doesn't
+        # match the rule instead of crashing the whole comparison.
+        if key in obj and isinstance(obj[key], str) and re.match(regex, obj[key]):
             del obj[key]
         return obj
 

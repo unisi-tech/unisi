@@ -53,10 +53,43 @@ class Recorder:
 
 recorder = Recorder()
 
+def _print_diff_node(key, obj):
+    """Descend one top-level (key, obj) pair from a comparator diff and print
+    the most specific message found, without assuming `obj` is always a
+    nested dict of sub-diffs -- a root-level type mismatch (expected/actual
+    entirely different types) explains itself directly as a flat
+    {'_message': ..., '_expected': ..., '_received': ...} dict rather than
+    one keyed by field name, and any node without further detail to descend
+    into is printed as-is instead of looping forever or crashing on
+    obj.get(...) for a non-dict obj."""
+    while True:
+        if not isinstance(obj, dict):
+            print(f"  {obj}\n")
+            return
+        err = obj.get('_message')
+        if err:
+            print(f"  {err} \n")
+            return
+        content = obj.get('_content')
+        if content and len(obj) == 1:
+            obj = content
+            continue
+        remaining = {k: v for k, v in obj.items() if k != '_content'}
+        if not remaining:
+            print(f"  {obj}\n")
+            return
+        key, subobj = next(iter(remaining.items()))
+        if isinstance(key, str):
+            name = obj.get('#name', '')
+            if name:
+                key = f'  {name}: {key}'
+            print(f"  {key}")
+        obj = subobj
+
 def test(filename, user):
     filepath = f'{testdir}{divpath}{filename}'
-    file = open(filepath, "r") 
-    data = json.loads(file.read())    
+    with open(filepath, "r") as file:
+        data = json.loads(file.read())
     error = False
     for i in range(0, len(data), 2):
         message = data[i]
@@ -68,28 +101,19 @@ def test(filename, user):
         
         diff = comparator(expected, jresponce)
         if diff != NO_DIFF:
-            print(f"\nTest {filename} is failed on message {message}:")            
-            for key, obj in diff.items():                                             
-                if key != '#name':
-                    while True:
-                        err = obj.get('_message')
-                        if err:
-                            print(f"  {err} \n")
-                            break
-                        else: 
-                            content = obj.get('_content')
-                            if content and len(obj) == 1:
-                                obj = content
-                            else:
-                                for key, subobj in obj.items():
-                                    if key != '_content': 
-                                        if isinstance(key, str):  
-                                            name = obj.get('#name', '')                                                                             
-                                            if name:
-                                                key = f'  {name}: {key}'
-                                            print(f"  {key}")
-                                        obj = subobj
-                                        break                                                                
+            print(f"\nTest {filename} is failed on message {message}:")
+            if '_message' in diff:
+                # A root-level type mismatch (e.g. expected a plain update
+                # but got a full screen reload, or vice versa): diff IS the
+                # explain() dict, not a mapping of field name -> sub-diff --
+                # print it directly instead of iterating its _message/
+                # _expected/_received entries as if they were separate
+                # top-level fields.
+                print(f"  {diff['_message']} \n")
+            else:
+                for key, obj in diff.items():
+                    if key != '#name':
+                        _print_diff_node(key, obj)
             error = True
     return not error
 
@@ -174,7 +198,12 @@ def check_module(module):
             errors += check_block(Block(toolbar, *screen.toolbar), hash_elements)
         for bl in flatten(screen.blocks):            
             if not isinstance(bl, Block):
-                errors.append(f'The screen contains invalid element {bl} instead of Block object!')                                                    
+                errors.append(f'The screen contains invalid element {bl} instead of Block object!')
+                # continue: bl isn't Block-or-better here, so check_block(bl, ...)
+                # below would crash trying to read .name/.value off it -- the same
+                # class of bug commit 6040e5d fixed for check_block's own child
+                # loop, just one level up and never applied here.
+                continue
             elif bl.name in block_names:
                 errors.append(f'The screen contains a duplicated block name {bl.name}!')    
             else:            

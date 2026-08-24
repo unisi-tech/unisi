@@ -51,7 +51,17 @@ class Compare:
         if not rules:
             rules = NO_RULES
 
-        self._config = Config(config)
+        # deepcopy: `config` defaults to the module-level DEFAULT_CONFIG, and
+        # Config never copies what it's given either -- without this, every
+        # Compare() created with the default config (or with a dict a caller
+        # still holds a reference to) would share and mutate the exact same
+        # nested dicts. _write_to_file's config.pop('name') below is exactly
+        # that kind of mutation: it used to permanently strip 'name' from
+        # whatever config object this instance's 'output.file' pointed at,
+        # silently breaking file output for every OTHER Compare instance
+        # sharing it (including, for the default case, DEFAULT_CONFIG itself
+        # for the rest of the process).
+        self._config = Config(copy.deepcopy(config))
         self._rules = rules
 
     def check(self, expected, actual):
@@ -63,7 +73,14 @@ class Compare:
 
     def _diff(self, e, a):
         t = type(e)
-        if not isinstance(a, t):
+        # type(a) is not t (an exact check, not isinstance): isinstance(True, int)
+        # is True in plain Python since bool subclasses int, so the previous
+        # `not isinstance(a, t)` here only caught a bool/int mix-up in one
+        # direction (expected a bool, got a plain int) -- the other direction
+        # (expected an int, got a bool) passed this check, then _int_diff's
+        # `a == e` also treats True == 1 as equal, so it silently reported
+        # NO_DIFF for a real type difference. The exact check is symmetric.
+        if type(a) is not t:
             return TypesNotEqual(e, a).explain()
         if t is int:
             return self._int_diff(e, a)
@@ -77,7 +94,14 @@ class Compare:
             return self._dict_diff(e, a)
         if t is list:
             return self._list_diff(e, a)
-        return NO_DIFF
+        # e/a share a type outside the explicit list above (NoneType, or
+        # anything a caller's own data might contain -- tuple, bytes, a
+        # custom class...). Falling through to an unconditional NO_DIFF here
+        # used to silently treat any two values of such a type as equal
+        # without ever actually comparing them; a plain equality check is a
+        # safe, conservative default and costs nothing for the NoneType case
+        # (isinstance(a, NoneType) at the top already guarantees a is e).
+        return NO_DIFF if e == a else ValuesNotEqual(e, a).explain()
 
     @classmethod
     def _int_diff(cls, e, a):
@@ -141,13 +165,20 @@ class Compare:
 
     def _list_diff(self, e, a):
         if not isinstance(a, list):
+            # `a` only reaches here already type-mismatched with `e` when
+            # called from _list_content_diff (a list-of-lists whose actual
+            # side has a non-list item at this position) -- _diff() itself
+            # already guarantees isinstance(a, list) before ever calling
+            # _list_diff directly. This branch used to fall off the end of
+            # the function without a `return`, silently producing None
+            # instead of an explain()-shaped dict here.
             d = {'type' : {'_message': 'Incompatible types'}}
         else:
             d = {}
             if self._need_compare_length():
                 d['_length'] = self._list_len_diff(e, a)
             d['_content'] = self._list_content_diff(e, a)
-            return self._without_empties(d)
+        return self._without_empties(d)
 
     def _need_compare_length(self):
         path = 'types.list.check_length'
@@ -214,7 +245,13 @@ class Compare:
         print(msg)
 
     def _write_to_file(self, d):
-        config = self._config.get('output.file')
+        # dict(...): self._config.get(...) returns the actual nested dict
+        # object stored in self._config, not a copy. Popping 'name' straight
+        # out of that (as this used to do) permanently removed it, so a
+        # second check() on this same instance would silently stop writing
+        # to file at all -- _need_write_to_file() would find no 'name' left
+        # and just skip the write, with no error raised anywhere.
+        config = dict(self._config.get('output.file'))
         with open(config.pop('name'), 'w') as fp:
             json.dump(d, fp, **config)
 

@@ -168,12 +168,15 @@ async def websocket_handler(request):
         await ws.send_str(toJson(status))
     else:
         async def send(res, persist=True):
+            prepared = res
             try:
                 if type(res) != str:
-                    res = toJson(user.prepare_result(res, persist=persist))        
+                    prepared = user.prepare_result(res, persist=persist)
+                    res = toJson(prepared)
                 await ws.send_str(res)
             except:
-                pass   
+                pass
+            return prepared
 
         user.send = send         
 
@@ -214,13 +217,21 @@ async def websocket_handler(request):
                         else:                    
                             message = ReceivedMessage(raw_message)            
                             result = await user.result4message(message)                    
-                        await send(result)
+                        prepared = await send(result)
                         if message:
                             if recorder.record_file:
-                                # persist=False: result was already persisted by send(result)
-                                # above; this only re-serializes the same, already-sent
-                                # response for the recorder's own fixture capture.
-                                recorder.accept(message, user.prepare_result(result, persist=False))
+                                # Reuse the exact object send() just prepared (and sent)
+                                # instead of calling prepare_result() a second time: that
+                                # function unconditionally drains changed_units/touched_units
+                                # before returning (see its own docstring), so a second call
+                                # on the same raw `result` would see those already emptied by
+                                # the call send() just made and silently capture an
+                                # incomplete/None response instead of what the client
+                                # actually received -- which used to make recorded autotest
+                                # fixtures wrong for exactly the common case (a handler
+                                # returning None, with the real update carried via
+                                # changed_units) that autotest exists to verify.
+                                recorder.accept(message, prepared)
                             # persist=False: same reason -- changed_units/touched_units are
                             # already drained by send(result), so a real persist pass here
                             # would just be recomputing keyed-persist keys against nothing.
