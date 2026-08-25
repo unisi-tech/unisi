@@ -6,4 +6,9 @@ async def handle_get(request):
 
 http_handlers = [web.get('/get', handle_get)]
 
-unisi.start(http_handlers = http_handlers)
+class Hello_user(unisi.User):
+    def __init__(self, session: str, share = None, screen: str | None = None):
+        super().__init__(session, share, screen)
+        print('New Hello user connected and created, session: {}'.format(session))
+
+unisi.start(user_type = Hello_user, http_handlers = http_handlers)

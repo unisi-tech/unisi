@@ -2,7 +2,7 @@
 from unisi import Proxy, Event
 
 #insert session from Hello user output' #
-session = '::1-0'
+session = 'RH9MaJSX2a-0'
 
 sname = 'Panda params'
 

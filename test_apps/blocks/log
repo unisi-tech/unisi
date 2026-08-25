@@ -1,0 +1,22 @@
+2026-08-25 16:03:13,724 - ERROR - Error handling request from ::1
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/aiohttp/web_protocol.py", line 510, in _handle_request
+    resp = await request_handler(request)
+  File "/home/george/.local/lib/python3.10/site-packages/aiohttp/web_app.py", line 569, in _handle
+    return await handler(request)
+  File "/home/george/Projects/unisi/unisi/server.py", line 166, in websocket_handler
+    user, status = make_user(request)
+  File "/home/george/Projects/unisi/unisi/server.py", line 75, in make_user
+    user = User.type(session, screen=requested_screen)
+TypeError: Hello_user.__init__() got an unexpected keyword argument 'screen'
+2026-08-25 16:03:15,275 - ERROR - Error handling request from ::1
+Traceback (most recent call last):
+  File "/home/george/.local/lib/python3.10/site-packages/aiohttp/web_protocol.py", line 510, in _handle_request
+    resp = await request_handler(request)
+  File "/home/george/.local/lib/python3.10/site-packages/aiohttp/web_app.py", line 569, in _handle
+    return await handler(request)
+  File "/home/george/Projects/unisi/unisi/server.py", line 166, in websocket_handler
+    user, status = make_user(request)
+  File "/home/george/Projects/unisi/unisi/server.py", line 75, in make_user
+    user = User.type(session, screen=requested_screen)
+TypeError: Hello_user.__init__() got an unexpected keyword argument 'screen'

@@ -1,2 +1,2 @@
-from unisi import *
-start()
+import unisi
+unisi.start()
