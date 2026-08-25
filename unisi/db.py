@@ -27,6 +27,9 @@ Type support
   dict           │ JSON                 │ json.dumps TEXT
   Decimal        │ DECIMAL              │ str round-trip TEXT
   uuid.UUID      │ UUID                 │ str round-trip TEXT
+  [float,float]  │ POINT                │ two REAL columns, {name}_x/{name}_y
+  (float,float)  │                      │ (x=longitude, y=latitude); see §11
+                 │                      │ "Geo-Spatial Fields" in the docs
 
 Relation support
 ────────────────
@@ -50,6 +53,7 @@ with very large sets (> ~1000 on older SQLite) should batch externally.
 
 import difflib
 import json
+import math
 import os
 import shutil
 import sqlite3
@@ -97,6 +101,51 @@ _PYTHON_TYPE_MAP: dict[type, str] = {
     uuid.UUID:"UUID",
 }
 
+# ── Geo-spatial (POINT) fields ──────────────────────────────────────────────
+#
+# A field declared as a 2-element list/tuple of `float`/`int` *types* --
+# {'position': [float, float]}  or  {'position': (float, float)} -- is
+# auto-detected as a geo-spatial point and normalised to the logical type
+# "POINT". This is deliberately distinct from the pre-existing {'tags': list}
+# / {'tags': tuple} spec (a plain Python *type*, not a 2-element container of
+# types), which keeps mapping to a single JSON column as before.
+#
+# Storage: two physical REAL columns per point field, `{name}_x` / `{name}_y`
+# (GIS/PostGIS convention: x = longitude/easting, y = latitude/northing --
+# i.e. Point(x, y) == Point(lon, lat)), plus a composite index on (y, x) so
+# the bounding-box pre-filter in search_within_radius()/search_nearest() can
+# use a B-Tree range scan instead of a full table scan. The two sub-columns
+# are declared with the distinct type names REAL_X / REAL_Y (still REAL
+# affinity -- see _physical_field_columns) purely so that
+# Database.get_table_fields() can unambiguously fold them back into one
+# logical "POINT" field when re-reading the schema from PRAGMA table_info;
+# see _fold_point_columns().
+#
+# Everywhere else in this module, "logical" fields/columns means one entry
+# per declared field (what the user wrote, what Dbtable.table_fields/
+# node_columns expose, what a GUI row has one cell for), and "physical"
+# means actual SQLite columns (where a POINT field is two). Dbtable computes
+# the logical <-> physical mapping once in self.point_fields and every
+# SQL-building / row-conversion method below is written in terms of it.
+GEO_TYPE = "POINT"
+_POINT_X_TYPE = "REAL_X"
+_POINT_Y_TYPE = "REAL_Y"
+
+
+def _is_point_spec(spec: Any) -> bool:
+    """True for a 2-element list/tuple of float/int *types*, e.g. [float, float]."""
+    return (
+        isinstance(spec, (list, tuple))
+        and len(spec) == 2
+        and all(s in (float, int) for s in spec)
+    )
+
+
+def _point_columns(field: str) -> tuple[str, str]:
+    """Physical (x_column, y_column) names backing a logical POINT field."""
+    return f"{field}_x", f"{field}_y"
+
+
 def normalize_field_types(fields: dict) -> dict:
     """
     Normalise a field-spec dict so every value is an uppercase SQLite type string.
@@ -105,10 +154,14 @@ def normalize_field_types(fields: dict) -> dict:
       - Python types:      {'age': int, 'name': str}
       - SQLite strings:    {'age': 'INTEGER', 'name': 'TEXT'}
       - Mixed:             {'age': int, 'note': 'TEXT'}
+      - Geo-spatial point:  {'position': [float, float]} or (float, float)
+        -> logical type "POINT" (see the block comment above)
     """
     result = {}
     for col, spec in fields.items():
-        if isinstance(spec, type):
+        if _is_point_spec(spec):
+            result[col] = GEO_TYPE
+        elif isinstance(spec, type):
             sql_type = _PYTHON_TYPE_MAP.get(spec)
             if sql_type is None:
                 raise TypeError(
@@ -118,12 +171,116 @@ def normalize_field_types(fields: dict) -> dict:
             result[col] = sql_type
         elif isinstance(spec, str):
             result[col] = spec.upper()
+        elif isinstance(spec, (list, tuple)):
+            raise TypeError(
+                f"Column spec for '{col}' is a {type(spec).__name__} but isn't a "
+                f"2-element [float, float] / (float, float) geo-point spec, got {spec!r}. "
+                f"Only that shape is auto-detected as a POINT field."
+            )
         else:
             raise TypeError(
                 f"Column spec for '{col}' must be a Python type or SQLite type string, "
                 f"got {type(spec)!r}"
             )
     return result
+
+
+def _physical_field_columns(fields: dict) -> list[tuple[str, str]]:
+    """
+    Expand a *logical* fields dict (POINT included) into the flat list of
+    *physical* (column_name, declared_sql_type) pairs that actually exist in
+    SQLite -- each POINT field becomes two REAL_X/REAL_Y sub-columns, in x,
+    then y order. Used everywhere a CREATE TABLE / column list needs to
+    reflect the real schema (create_table, setup_junction, schema-migration
+    data copy).
+    """
+    cols: list[tuple[str, str]] = []
+    for name, sql_type in fields.items():
+        if sql_type.upper() == GEO_TYPE:
+            x_col, y_col = _point_columns(name)
+            cols.append((x_col, _POINT_X_TYPE))
+            cols.append((y_col, _POINT_Y_TYPE))
+        else:
+            cols.append((name, sql_type))
+    return cols
+
+
+def _physical_column_names(names: list, fields: dict) -> list[str]:
+    """Like _physical_field_columns but for a plain list of logical column
+    names (e.g. a schema-migration mapping), returning names only."""
+    out: list[str] = []
+    for name in names:
+        if fields.get(name, "").upper() == GEO_TYPE:
+            out.extend(_point_columns(name))
+        else:
+            out.append(name)
+    return out
+
+
+def _fold_point_columns(raw_columns: list[tuple[str, str]]) -> dict:
+    """
+    Inverse of _physical_field_columns(): given the raw (name, declared_type)
+    pairs read from PRAGMA table_info, fold any {base}_x/REAL_X +
+    {base}_y/REAL_Y pair back into a single logical {base: "POINT"} entry.
+    Column order is preserved (folded at the position of whichever half is
+    encountered first). Everything else passes through unchanged.
+
+    Requiring *both* the REAL_X/REAL_Y declared type *and* the _x/_y name
+    suffix (rather than either alone) keeps this from ever mis-folding an
+    ordinary pair of REAL columns that simply happen to be named
+    "..._x"/"..._y" -- REAL_X/REAL_Y are never produced by any other code
+    path in this module.
+    """
+    types = dict(raw_columns)
+    point_bases = {
+        name[:-2]
+        for name, t in raw_columns
+        if t.upper() == _POINT_X_TYPE and name.endswith("_x")
+        and types.get(name[:-2] + "_y", "").upper() == _POINT_Y_TYPE
+    }
+    result: dict = {}
+    for name, sql_type in raw_columns:
+        if name.endswith(("_x", "_y")) and name[:-2] in point_bases:
+            base = name[:-2]
+            if base not in result:
+                result[base] = GEO_TYPE
+        else:
+            result[name] = sql_type
+    return result
+
+
+def _split_point_value(value: Any) -> tuple:
+    """Validate and unpack a POINT field value into its (x, y) components."""
+    if value is None:
+        return None, None
+    try:
+        x, y = value
+    except (TypeError, ValueError):
+        raise ValueError(
+            f"POINT field value must be a 2-element [x, y] list/tuple, got {value!r}"
+        )
+    return x, y
+
+
+def _expand_point_props(props: dict, point_fields: dict) -> dict:
+    """
+    Split any POINT-valued entries of *props* (a logical {field: value} dict
+    bound for INSERT/UPDATE) into their physical _x/_y keys, ready for direct
+    use as SQL column names. *point_fields* is a Dbtable.point_fields-shaped
+    {name: (x_col, y_col)} mapping. Non-point entries pass through unchanged.
+    """
+    if not point_fields:
+        return props
+    expanded = {}
+    for k, v in props.items():
+        if k in point_fields:
+            x_col, y_col = point_fields[k]
+            x, y = _split_point_value(v)
+            expanded[x_col] = x
+            expanded[y_col] = y
+        else:
+            expanded[k] = v
+    return expanded
 
 
 def _adapt_value(value: Any) -> Any:
@@ -171,6 +328,44 @@ def _convert_value(value: Any, declared_type: str) -> Any:
     except (ValueError, TypeError, AttributeError):
         return value
     return value
+
+
+# ── Geo-spatial distance ─────────────────────────────────────────────────────
+#
+# "Способ 1 + Способ 2" combined: an exact great-circle (haversine) distance
+# function registered directly into SQLite via create_function(), plus a
+# cheap equirectangular bounding-box pre-filter (search_within_radius() /
+# search_nearest() below) that lets SQLite use a plain B-Tree range scan on
+# indexed REAL columns to narrow candidates down *before* haversine_km() ever
+# runs on them. Chosen over the R*Tree virtual-table module (fast, but an
+# optional SQLite compile-time feature -- not guaranteed on every build) and
+# over SpatiaLite (needs the external mod_spatialite binary, which is rarely
+# preinstalled) because it needs nothing beyond the Python 3.10+ standard
+# library and is more than fast enough up to the tens-of-thousands-of-rows
+# range a single SQLite file is meant for. See docs/persistent_tables.md §11
+# for the full comparison and the R*Tree upgrade path for larger tables.
+
+EARTH_RADIUS_KM = 6371.0088  # IUGG mean radius
+_KM_PER_DEGREE_LAT = math.pi * EARTH_RADIUS_KM / 180
+_MIN_COS_LAT = 0.01          # clamps the longitude box near the poles
+
+
+def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float | None:
+    """
+    Great-circle distance in kilometres between two WGS-84 points.
+
+    Registered verbatim as the SQL function ``haversine_km(lat1, lng1, lat2,
+    lng2)`` on every Database connection (see Database.__init__), so it can
+    also be used directly from hand-written SQL, not just through
+    search_within_radius()/search_nearest().
+    """
+    if None in (lat1, lng1, lat2, lng2):
+        return None
+    p1, p2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlmb = math.radians(lng2 - lng1)
+    a = math.sin(dphi / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dlmb / 2) ** 2
+    return EARTH_RADIUS_KM * 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
 
 def _equal_field_dicts(d1: dict, d2: dict) -> bool:
@@ -330,6 +525,18 @@ class Database:
         self._conn.execute("PRAGMA foreign_keys=ON")
         self._conn.commit()
 
+        # Powers search_within_radius()/search_nearest() and is usable from
+        # raw SQL too. deterministic=True (SQLite >= 3.8.3, well within any
+        # Python 3.10+ bundled version) lets the query planner treat repeat
+        # calls with the same arguments as cacheable; the plain fallback
+        # keeps this from being a hard requirement on unusual SQLite builds.
+        try:
+            self._conn.create_function(
+                "haversine_km", 4, haversine_km, deterministic=True
+            )
+        except sqlite3.NotSupportedError:
+            self._conn.create_function("haversine_km", 4, haversine_km)
+
         import inspect
         sig = inspect.signature(self.get_table)
         self.table_params = {
@@ -387,15 +594,28 @@ class Database:
     def get_table_fields(
         self, table_name: str, remove_id: bool = True
     ) -> dict | None:
+        """
+        Read the *logical* schema back from SQLite.
+
+        Physical {name}_x/{name}_y REAL_X/REAL_Y pairs created for a POINT
+        field (see _physical_field_columns) are folded back into one
+        {name: "POINT"} entry via _fold_point_columns() -- this is what
+        makes a POINT field declared as ``fields={'position': [float, float]}``
+        compare equal to its own on-disk schema on every subsequent run
+        (get_table() below), instead of Smart Schema Evolution firing on
+        every restart because "position" (1 declared field) never matches
+        "position_x, position_y" (2 raw columns).
+        """
         cur = self._conn.execute(f"PRAGMA table_info('{table_name}')")
         rows = cur.fetchall()
         if not rows:
             return None
-        return {
-            row["name"]: row["type"]
+        raw = [
+            (row["name"], row["type"])
             for row in rows
             if not remove_id or row["name"] != "ID"
-        }
+        ]
+        return _fold_point_columns(raw)
 
     def delete_table(self, table_name: str) -> bool:
         return self.execute(f"DROP TABLE IF EXISTS [{table_name}]") is not None
@@ -460,11 +680,17 @@ class Database:
             # 2. Create the new table with the updated schema.
             new_table = self.create_table(table_id, new_fields, limit)
 
-            # 3. Build the column mapping for data transfer.
+            # 3. Build the column mapping for data transfer. mapping is in
+            # terms of *logical* names (e.g. a fuzzy rename "position" (new)
+            # -> "location" (old)); a POINT entry on either side has to be
+            # expanded to its physical _x/_y pair -- in matching x/y order on
+            # both sides -- before it's usable as a raw SQL identifier.
             new_cols = list(mapping.keys())
             old_cols = [mapping[nc] for nc in new_cols]
-            new_cols_str = ", ".join(f"[{c}]" for c in new_cols)
-            old_cols_str = ", ".join(f"[{c}]" for c in old_cols)
+            new_cols_phys = _physical_column_names(new_cols, new_fields)
+            old_cols_phys = _physical_column_names(old_cols, old_fields)
+            new_cols_str = ", ".join(f"[{c}]" for c in new_cols_phys)
+            old_cols_str = ", ".join(f"[{c}]" for c in old_cols_phys)
 
             # 4. Copy data (including the ID column to preserve relationships).
             self._conn.execute(
@@ -567,11 +793,23 @@ class Database:
         # (uppercase string) input, so this is a no-op when called via
         # get_table(), which normalises before delegating here.
         fields = normalize_field_types(fields)
-        cols = ", ".join(f"[{col}] {type_}" for col, type_ in fields.items())
+        cols = ", ".join(
+            f"[{col}] {type_}" for col, type_ in _physical_field_columns(fields)
+        )
         self.execute(
             f"CREATE TABLE IF NOT EXISTS [{id}] "
             f"({cols}, ID INTEGER PRIMARY KEY AUTOINCREMENT)"
         )
+        # One composite index per POINT field on (y, x) -- i.e. (lat, lng) --
+        # so search_within_radius()/search_nearest()'s bounding-box
+        # pre-filter can use a B-Tree range scan instead of a full scan.
+        for name, sql_type in fields.items():
+            if sql_type.upper() == GEO_TYPE:
+                x_col, y_col = _point_columns(name)
+                self.execute(
+                    f"CREATE INDEX IF NOT EXISTS [{id}_{name}_geo_idx] "
+                    f"ON [{id}] ([{y_col}], [{x_col}])"
+                )
         table = Dbtable(id, self, limit, fields)
         if rows:
             table.list.extend(rows)
@@ -586,6 +824,13 @@ class Database:
         props: dict,
         in_node: bool = True,
     ) -> bool:
+        # A POINT-valued prop (e.g. {'position': [lng, lat]}) has to be split
+        # into its physical position_x/position_y columns before it can be
+        # used as a SQL identifier -- self.tables holds every table's
+        # point_fields mapping (empty dict, hence a no-op, for tables with no
+        # POINT fields or -- e.g. a junction row -- no Dbtable at all).
+        dbtable = self.tables.get(table_id)
+        props = _expand_point_props(props, dbtable.point_fields if dbtable else {})
         set_clause = ", ".join(f"[{k}] = ?" for k in props)
         params = [_adapt_value(v) for v in props.values()] + [row_id]
         return self.execute(
@@ -639,6 +884,16 @@ class Dbtable:
         self.table_fields: dict = table_fields or db.get_table_fields(id) or {}
         self.node_columns: list[str] = list(self.table_fields.keys())
         self._all_columns: list[str] = self.node_columns + ["ID"]
+        # Logical POINT field name -> its physical (x_column, y_column) pair
+        # -- see the "Geo-spatial (POINT) fields" block comment near the top
+        # of this module. Every SQL-building / row-conversion method below
+        # that touches self._all_columns is written in terms of this map so
+        # that, from the outside, a POINT field is still exactly one column.
+        self.point_fields: dict[str, tuple[str, str]] = {
+            name: _point_columns(name)
+            for name, sql_type in self.table_fields.items()
+            if sql_type.upper() == GEO_TYPE
+        }
         # Bumped by every method that changes row count directly (append_row,
         # append_rows, delete_row, delete_rows, clear). self.list (a Dblist)
         # compares this against its own last-synced value to detect when its
@@ -652,21 +907,60 @@ class Dbtable:
 
     # ── internal helpers ─────────────────────────────────────────────────── #
 
+    def _physical_all_columns(self) -> list[str]:
+        """Flat physical-column list backing self._all_columns -- every
+        regular column unchanged, every POINT field expanded to its (x, y)
+        pair. This is the actual column list any SQL statement needs; it's
+        also what n_self must count in calc_linked_rows() below, since a
+        JOIN's ``a.*``-equivalent column count is physical, not logical."""
+        cols = []
+        for name in self._all_columns:
+            if name in self.point_fields:
+                cols.extend(self.point_fields[name])
+            else:
+                cols.append(name)
+        return cols
+
     def _select_cols(self) -> str:
         """Unqualified column list for simple SELECT … FROM [{id}]."""
-        return ", ".join(f"[{c}]" for c in self._all_columns)
+        return ", ".join(f"[{c}]" for c in self._physical_all_columns())
 
     def _aliased_select_cols(self, alias: str = "a") -> str:
         """Alias-qualified column list for JOINs to avoid ambiguous 'ID'."""
-        return ", ".join(f"{alias}.[{c}]" for c in self._all_columns)
+        return ", ".join(f"{alias}.[{c}]" for c in self._physical_all_columns())
 
     def _row_to_list(self, row) -> list:
-        """Convert a sqlite3.Row to a typed Python list, applying converters."""
+        """Convert a sqlite3.Row to a typed Python list, applying converters.
+
+        A POINT field consumes two physical values (its _x/_y pair) and
+        produces one logical [x, y] list entry (None if either half is
+        NULL). For a real sqlite3.Row this is done by column name, so it
+        doesn't matter where in the query's physical column order the pair
+        actually falls (e.g. append_rows()'s ``RETURNING *``, whose column
+        order follows table-creation order, not self._all_columns order).
+        The plain-sequence fallback (row is a bare list/tuple) instead
+        consumes positionally in self._physical_all_columns() order, which
+        every caller that can produce a bare sequence here builds its SELECT
+        column list from, so the two stay in lock-step.
+        """
         result = []
-        for i, key in enumerate(self._all_columns):
-            val = row[i] if not isinstance(row, sqlite3.Row) else row[key]
-            dtype = self.table_fields.get(key, "")
-            result.append(_convert_value(val, dtype))
+        is_row = isinstance(row, sqlite3.Row)
+        pos = 0
+        for key in self._all_columns:
+            if key in self.point_fields:
+                x_col, y_col = self.point_fields[key]
+                if is_row:
+                    x_val, y_val = row[x_col], row[y_col]
+                else:
+                    x_val, y_val = row[pos], row[pos + 1]
+                    pos += 2
+                result.append(None if x_val is None or y_val is None else [x_val, y_val])
+            else:
+                val = row[key] if is_row else row[pos]
+                if not is_row:
+                    pos += 1
+                dtype = self.table_fields.get(key, "")
+                result.append(_convert_value(val, dtype))
         return result
 
     # ── list initialisation ──────────────────────────────────────────────── #
@@ -695,6 +989,11 @@ class Dbtable:
     # ── search ───────────────────────────────────────────────────────────── #
 
     # Column types where LIKE search makes sense (text-representable).
+    # BLOB, JSON and POINT are deliberately absent: not text-representable
+    # (BLOB), would false-positive/false-negative match on serialised
+    # structure rather than content (JSON), or -- for POINT -- simply have
+    # no single physical column to CAST/LIKE against in the first place
+    # (see search_within_radius()/search_nearest() for POINT queries).
     _SEARCHABLE_TYPES = {
         "TEXT", "INTEGER", "REAL", "BOOLEAN",
         "DECIMAL", "UUID", "DATE", "TIMESTAMP",
@@ -767,6 +1066,116 @@ class Dbtable:
         rows = [self._row_to_list(r) for r in cur.fetchall()] if cur else []
         return Dblist(self, cache=rows)
 
+    # ── geo-spatial search ──────────────────────────────────────────────── #
+    #
+    # Both methods below implement "Способ 1 + Способ 2": a cheap
+    # equirectangular bounding-box pre-filter that lets SQLite use the
+    # (y, x) index created in Database.create_table() for a plain B-Tree
+    # range scan, followed by an exact haversine_km() cut/sort on the much
+    # smaller surviving candidate set. See the module-level comment above
+    # haversine_km() and docs/persistent_tables.md §11 for the full
+    # rationale and its trade-offs (in particular: the bounding box is a
+    # locally-flat approximation, so accuracy degrades for very large radii
+    # or latitudes near ±90°, and it does not handle antimeridian (±180°
+    # longitude) wraparound).
+
+    def _point_field_columns(self, field: str) -> tuple[str, str]:
+        if field not in self.point_fields:
+            raise ValueError(
+                f"'{field}' is not a POINT field on table '{self.id}'. "
+                f"POINT fields: {list(self.point_fields) or '(none)'}"
+            )
+        return self.point_fields[field]
+
+    def search_within_radius(
+        self,
+        field: str,
+        lat: float,
+        lng: float,
+        radius_km: float,
+        limit: int = None,
+        where: str = "",
+        params: tuple = (),
+    ) -> "Dblist":
+        """
+        Rows whose POINT column *field* lies within *radius_km* kilometres
+        of (lat, lng), nearest first. Each returned row is one longer than
+        self._all_columns: the trailing element is the row's distance from
+        (lat, lng) in kilometres (a float), so this is only combinable with
+        assign_row()/append_row() etc. after dropping that last element.
+
+        *where*/*params* add an extra, already-parameterised SQL condition
+        (e.g. ``where="status = ? AND price <= ?", params=("ACTIVE", 1500)``)
+        ANDed onto the radius filter -- mirroring the reference query this
+        feature was modelled on (geo + capability + price in one pass).
+        """
+        x_col, y_col = self._point_field_columns(field)
+
+        dlat = radius_km / _KM_PER_DEGREE_LAT
+        coslat = max(math.cos(math.radians(lat)), _MIN_COS_LAT)
+        dlng = radius_km / (_KM_PER_DEGREE_LAT * coslat)
+
+        dist_sql = f"haversine_km([{y_col}], [{x_col}], ?, ?)"
+        extra = f" AND ({where})" if where else ""
+        lim = limit if limit else self.limit
+
+        query = (
+            f"SELECT {self._select_cols()}, {dist_sql} AS _distance_km "
+            f"FROM [{self.id}] "
+            f"WHERE [{y_col}] BETWEEN ? AND ? "
+            f"  AND [{x_col}] BETWEEN ? AND ? "
+            f"  AND {dist_sql} <= ?"
+            f"{extra} "
+            f"ORDER BY _distance_km ASC "
+            f"LIMIT ?"
+        )
+        query_params = (
+            lat, lng,                     # SELECT ... AS _distance_km
+            lat - dlat, lat + dlat,       # y (lat) BETWEEN
+            lng - dlng, lng + dlng,       # x (lng) BETWEEN
+            lat, lng, radius_km,          # AND haversine_km(...) <= radius_km
+            *params,
+            lim,
+        )
+        cur = self.db.execute(query, query_params)
+        rows = []
+        if cur:
+            for r in cur.fetchall():
+                row = self._row_to_list(r)
+                row.append(r["_distance_km"])
+                rows.append(row)
+        return Dblist(self, cache=rows)
+
+    def search_nearest(
+        self,
+        field: str,
+        lat: float,
+        lng: float,
+        k: int = 10,
+        initial_radius_km: float = 5.0,
+        max_radius_km: float = 500.0,
+        where: str = "",
+        params: tuple = (),
+    ) -> "Dblist":
+        """
+        The *k* rows whose POINT column *field* is closest to (lat, lng),
+        nearest first (expanding-ring search_within_radius(): starts at
+        initial_radius_km and doubles until >= k rows are found or
+        max_radius_km is reached). Same trailing-distance row shape as
+        search_within_radius().
+
+        May return fewer than *k* rows if the table has fewer than *k*
+        matches within max_radius_km -- that cap keeps a sparse area from
+        silently degrading into a full-table scan; raise it if that
+        trade-off doesn't suit your data.
+        """
+        radius = min(initial_radius_km, max_radius_km)
+        result = self.search_within_radius(field, lat, lng, radius, limit=k, where=where, params=params)
+        while len(result) < k and radius < max_radius_km:
+            radius = min(radius * 2, max_radius_km)
+            result = self.search_within_radius(field, lat, lng, radius, limit=k, where=where, params=params)
+        return result
+
     # ── write ────────────────────────────────────────────────────────────── #
 
     def assign_row(self, row_array: list) -> bool:
@@ -787,6 +1196,8 @@ class Dbtable:
             props = {k: v for k, v in row.items() if v is not None}
         else:
             raise TypeError(f"row must be list or dict, got {type(row).__name__}")
+
+        props = _expand_point_props(props, self.point_fields)
 
         if props:
             cols         = ", ".join(f"[{k}]" for k in props)
@@ -843,6 +1254,9 @@ class Dbtable:
                 dicts.append(row)
             else:
                 raise TypeError(f"Unsupported row type: {type(row)}")
+
+        if self.point_fields:
+            dicts = [_expand_point_props(d, self.point_fields) for d in dicts]
 
         # Union of every key seen across *all* rows, not just dicts[0]: rows
         # may be dicts with different key sets, or lists of different
@@ -1014,7 +1428,9 @@ class Dbtable:
             self.db.delete_table(relname)
 
         extra = (
-            ", " + ", ".join(f"[{k}] {v}" for k, v in fields.items())
+            ", " + ", ".join(
+                f"[{col}] {type_}" for col, type_ in _physical_field_columns(fields)
+            )
             if fields else ""
         )
         self.db.execute(
@@ -1059,6 +1475,19 @@ class Dbtable:
             link_index_name = self.default_index_name2(link_table)
         if link_fields is None:
             link_fields = {}
+
+        # Junction tables have no Dbtable of their own to carry a
+        # point_fields mapping, so it's looked up on demand from the
+        # (already POINT-folding-aware) physical schema whenever payload
+        # fields are actually supplied.
+        if link_fields:
+            junction_fields = self.db.get_table_fields(link_index_name, remove_id=False) or {}
+            point_fields = {
+                name: _point_columns(name)
+                for name, t in junction_fields.items()
+                if t.upper() == GEO_TYPE
+            }
+            link_fields = _expand_point_props(link_fields, point_fields)
 
         all_fields   = {"src_id": snode_id, "tgt_id": tnode_id, **link_fields}
         cols         = ", ".join(f"[{k}]" for k in all_fields)
@@ -1181,18 +1610,35 @@ class Dbtable:
         rows = cur.fetchall() if cur else []
 
         if include_rels and junction_fields:
-            n_self = len(self._all_columns)
+            # n_self must be the *physical* column count of "a" in the SELECT
+            # (self._aliased_select_cols('a')) -- a POINT field on self makes
+            # that wider than len(self._all_columns), which would otherwise
+            # misalign every raw_rel slice below by however many POINT
+            # fields precede it.
+            n_self = len(self._physical_all_columns())
             # Everything after src_id/tgt_id: payload fields, then ID.
-            rel_types = [
-                t for k, t in junction_fields.items() if k not in ("src_id", "tgt_id")
-            ]
+            payload_fields = {
+                k: t for k, t in junction_fields.items() if k not in ("src_id", "tgt_id")
+            }
+            # A POINT payload field is likewise two physical values wide.
+            physical_payload_names = []
+            for k, t in payload_fields.items():
+                if t.upper() == GEO_TYPE:
+                    physical_payload_names.extend(_point_columns(k))
+                else:
+                    physical_payload_names.append(k)
             lst = []
             for r in rows:
                 base = self._row_to_list(r)
-                raw_rel = list(r)[n_self + 2 : n_self + 2 + len(rel_types)]
-                base.extend(
-                    _convert_value(v, t) for v, t in zip(raw_rel, rel_types)
-                )
+                raw_rel = list(r)[n_self + 2 : n_self + 2 + len(physical_payload_names)]
+                rel_map = dict(zip(physical_payload_names, raw_rel))
+                for k, t in payload_fields.items():
+                    if t.upper() == GEO_TYPE:
+                        x_col, y_col = _point_columns(k)
+                        xv, yv = rel_map.get(x_col), rel_map.get(y_col)
+                        base.append(None if xv is None or yv is None else [xv, yv])
+                    else:
+                        base.append(_convert_value(rel_map.get(k), t))
                 lst.append(base)
         else:
             lst = [self._row_to_list(r) for r in rows]

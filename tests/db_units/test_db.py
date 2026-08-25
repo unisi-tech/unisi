@@ -18,10 +18,23 @@ Organisation
   TestManyToOne             - setup_fk/set_fk/clear_fk/calc_linked_rows_fk
   TestManyToMany            - setup_junction/add_link/delete_link(s)/calc_linked_rows
   TestVersionCounter        - Dbtable._version bump semantics (see dbunits.py)
+  TestGeoPointFieldType     - [float,float]/(float,float) -> "POINT" detection
+  TestGeoPhysicalColumnHelpers - _physical_field_columns/_fold_point_columns/
+                                 _expand_point_props/_split_point_value
+  TestHaversineKm           - the haversine_km(lat1,lng1,lat2,lng2) function
+  TestGeoTableCreation      - create_table's physical _x/_y columns + index
+  TestGeoSchemaStability    - POINT schema survives re-declaration/restart
+                               without spuriously triggering Schema Evolution
+  TestGeoRowCRUD            - append_row(s)/assign_row/update_row/read with POINT
+  TestGeoSearch             - search_rows excludes POINT; search_within_radius;
+                               search_nearest
+  TestGeoSchemaMigration    - Smart Schema Evolution renaming a POINT field
+  TestGeoManyToMany         - a POINT payload field on a junction table
 
 Regression tests for bugs found while writing this suite are marked
 "Regression:" in their docstring, with a short description of the bug.
 """
+import math
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -31,9 +44,17 @@ import pytest
 from unisi.db import (
     Database,
     Dbtable,
+    GEO_TYPE,
     _adapt_value,
     _convert_value,
     _equal_field_dicts,
+    _expand_point_props,
+    _fold_point_columns,
+    _physical_field_columns,
+    _physical_column_names,
+    _point_columns,
+    _split_point_value,
+    haversine_km,
     normalize_field_types,
     sqlite_data_type,
 )
@@ -1135,3 +1156,567 @@ class TestVersionCounter:
         v0 = table._version
         table.clear()
         assert table._version == v0 + 1
+
+
+# ────────────────────────────────────────────────────────────────────────── #
+#  Geo-spatial (POINT) fields                                                #
+#                                                                             #
+#  A field declared as {'position': [float, float]} / (float, float) is     #
+#  auto-detected as a 2D point and stored as two physical REAL columns,      #
+#  {name}_x / {name}_y (x=longitude, y=latitude), indexed together for a     #
+#  bounding-box pre-filter. Everywhere outside db.py itself, it's still      #
+#  exactly one logical field with one [x, y] cell value.                    #
+# ────────────────────────────────────────────────────────────────────────── #
+
+class TestGeoPointFieldType:
+    """[float, float] / (float, float) field-spec detection -- the same
+    auto-detection TestNormalizeFieldTypes covers for every other type."""
+
+    def test_list_of_two_floats_is_point(self):
+        assert normalize_field_types({"pos": [float, float]}) == {"pos": "POINT"}
+
+    def test_tuple_of_two_floats_is_point(self):
+        assert normalize_field_types({"pos": (float, float)}) == {"pos": "POINT"}
+
+    def test_mixed_int_float_is_point(self):
+        # Coordinates are inherently continuous; int is accepted alongside
+        # float for convenience but is still stored/returned as REAL.
+        assert normalize_field_types({"pos": [int, float]}) == {"pos": "POINT"}
+        assert normalize_field_types({"pos": (int, int)}) == {"pos": "POINT"}
+
+    def test_point_mixed_with_ordinary_fields(self):
+        result = normalize_field_types(
+            {"name": str, "pos": [float, float], "age": int}
+        )
+        assert result == {"name": "TEXT", "pos": "POINT", "age": "INTEGER"}
+
+    def test_plain_list_type_is_still_json_not_point(self):
+        # {'tags': list} (the *type* list, not a 2-element container of
+        # types) must keep meaning "arbitrary JSON array", unchanged.
+        assert normalize_field_types({"tags": list}) == {"tags": "JSON"}
+        assert normalize_field_types({"tags": tuple}) == {"tags": "JSON"}
+
+    def test_wrong_element_types_raises(self):
+        with pytest.raises(TypeError):
+            normalize_field_types({"bad": [str, str]})
+
+    def test_wrong_length_raises(self):
+        with pytest.raises(TypeError):
+            normalize_field_types({"bad": [float, float, float]})
+        with pytest.raises(TypeError):
+            normalize_field_types({"bad": [float]})
+
+    def test_non_type_non_str_spec_still_raises(self):
+        # Unrelated regression guard: the new list/tuple branch in
+        # normalize_field_types() must not swallow the pre-existing
+        # "unsupported spec" error for non-list/tuple garbage.
+        with pytest.raises(TypeError):
+            normalize_field_types({"age": 42})
+
+
+class TestGeoPhysicalColumnHelpers:
+    """The logical <-> physical translation helpers, tested directly."""
+
+    def test_point_columns_naming(self):
+        assert _point_columns("position") == ("position_x", "position_y")
+
+    def test_physical_field_columns_expands_point(self):
+        cols = _physical_field_columns({"name": "TEXT", "pos": "POINT"})
+        assert cols == [
+            ("name", "TEXT"), ("pos_x", "REAL_X"), ("pos_y", "REAL_Y"),
+        ]
+
+    def test_physical_field_columns_passthrough_when_no_point(self):
+        cols = _physical_field_columns({"name": "TEXT", "age": "INTEGER"})
+        assert cols == [("name", "TEXT"), ("age", "INTEGER")]
+
+    def test_physical_column_names_expands_point_in_a_name_list(self):
+        fields = {"name": "TEXT", "pos": "POINT"}
+        assert _physical_column_names(["pos", "name"], fields) == [
+            "pos_x", "pos_y", "name",
+        ]
+
+    def test_fold_point_columns_round_trips_physical_field_columns(self):
+        logical = {"name": "TEXT", "pos": "POINT", "age": "INTEGER"}
+        physical = _physical_field_columns(logical)
+        assert _fold_point_columns(physical) == logical
+
+    def test_fold_point_columns_does_not_mis_fold_plain_real_xy_names(self):
+        # Only the REAL_X/REAL_Y declared-type marker folds a pair -- an
+        # ordinary REAL column that happens to be named "foo_x" is left
+        # alone, even if a sibling "foo_y" REAL column also exists.
+        raw = [("foo_x", "REAL"), ("foo_y", "REAL")]
+        assert _fold_point_columns(raw) == {"foo_x": "REAL", "foo_y": "REAL"}
+
+    def test_fold_point_columns_requires_both_halves(self):
+        # An _x half with no matching REAL_Y sibling is not a point field.
+        raw = [("pos_x", "REAL_X"), ("other", "TEXT")]
+        assert _fold_point_columns(raw) == {"pos_x": "REAL_X", "other": "TEXT"}
+
+    def test_split_point_value_unpacks(self):
+        assert _split_point_value([1.0, 2.0]) == (1.0, 2.0)
+        assert _split_point_value((1.0, 2.0)) == (1.0, 2.0)
+
+    def test_split_point_value_none_is_none_none(self):
+        assert _split_point_value(None) == (None, None)
+
+    def test_split_point_value_bad_shape_raises_value_error(self):
+        with pytest.raises(ValueError):
+            _split_point_value(5.0)
+        with pytest.raises(ValueError):
+            _split_point_value([1.0, 2.0, 3.0])
+
+    def test_expand_point_props_splits_matching_keys(self):
+        point_fields = {"pos": ("pos_x", "pos_y")}
+        expanded = _expand_point_props({"pos": [1.0, 2.0], "name": "A"}, point_fields)
+        assert expanded == {"pos_x": 1.0, "pos_y": 2.0, "name": "A"}
+
+    def test_expand_point_props_none_value_nulls_both_columns(self):
+        point_fields = {"pos": ("pos_x", "pos_y")}
+        expanded = _expand_point_props({"pos": None}, point_fields)
+        assert expanded == {"pos_x": None, "pos_y": None}
+
+    def test_expand_point_props_no_point_fields_is_passthrough(self):
+        props = {"name": "A", "age": 1}
+        assert _expand_point_props(props, {}) is props
+
+
+class TestHaversineKm:
+    def test_same_point_is_zero(self):
+        assert haversine_km(13.75, 100.5, 13.75, 100.5) == 0.0
+
+    def test_known_city_distance_within_tolerance(self):
+        # Bangkok <-> Chiang Mai, commonly cited as ~580-590 km great-circle.
+        d = haversine_km(13.7563, 100.5018, 18.7883, 98.9853)
+        assert 560 < d < 610
+
+    def test_none_argument_returns_none(self):
+        assert haversine_km(None, 100.5, 13.75, 100.5) is None
+        assert haversine_km(13.75, 100.5, None, None) is None
+
+    def test_symmetric(self):
+        a = haversine_km(13.75, 100.5, 18.79, 98.99)
+        b = haversine_km(18.79, 98.99, 13.75, 100.5)
+        assert a == pytest.approx(b)
+
+
+class TestGeoTableCreation:
+    def test_creates_physical_x_y_columns(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        cur = db._conn.execute("PRAGMA table_info('T')")
+        cols = {row["name"]: row["type"] for row in cur.fetchall()}
+        assert cols["pos_x"] == "REAL_X"
+        assert cols["pos_y"] == "REAL_Y"
+        assert "pos" not in cols  # no literal "pos" column exists physically
+
+    def test_creates_composite_geo_index(self, db):
+        db.create_table("T", {"name": str, "pos": [float, float]})
+        cur = db._conn.execute("PRAGMA index_list('T')")
+        names = [row["name"] for row in cur.fetchall()]
+        assert "T_pos_geo_idx" in names
+        cur = db._conn.execute("PRAGMA index_info('T_pos_geo_idx')")
+        indexed = [row["name"] for row in cur.fetchall()]
+        assert indexed == ["pos_y", "pos_x"]  # (lat, lng) order
+
+    def test_dbtable_exposes_logical_point_field(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        assert t.table_fields == {"name": "TEXT", "pos": "POINT"}
+        assert t.node_columns == ["name", "pos"]  # one logical column
+        assert t.point_fields == {"pos": ("pos_x", "pos_y")}
+
+    def test_no_index_created_without_a_point_field(self, db):
+        db.create_table("T", {"name": str})
+        cur = db._conn.execute("PRAGMA index_list('T')")
+        assert cur.fetchall() == []
+
+    def test_multiple_point_fields_each_get_own_columns_and_index(self, db):
+        t = db.create_table(
+            "T", {"from_pos": [float, float], "to_pos": [float, float]}
+        )
+        assert t.point_fields == {
+            "from_pos": ("from_pos_x", "from_pos_y"),
+            "to_pos": ("to_pos_x", "to_pos_y"),
+        }
+        cur = db._conn.execute("PRAGMA index_list('T')")
+        names = {row["name"] for row in cur.fetchall()}
+        assert {"T_from_pos_geo_idx", "T_to_pos_geo_idx"} <= names
+
+
+class TestGeoSchemaStability:
+    """
+    Regression (severe, restart-breaking): get_table_fields() used to
+    return the *physical* schema verbatim -- e.g. {'pos_x': 'REAL_X',
+    'pos_y': 'REAL_Y'} for a POINT field -- which could never compare
+    equal to the freshly normalised *logical* fields dict
+    ({'pos': 'POINT'}), even when the declared schema had not actually
+    changed at all. Smart Schema Evolution's interactive console prompt
+    would therefore fire on *every* get_table() call for a table with a
+    POINT field -- including the second call in the same process, and
+    every subsequent app restart -- destructively offering to drop the
+    table each time. get_table_fields() now folds physical _x/_y pairs
+    back into one logical POINT entry so re-declaring the same schema
+    compares equal again.
+    """
+
+    def test_redeclaring_the_same_point_schema_does_not_invoke_migration(
+        self, db, monkeypatch
+    ):
+        fields = {"name": str, "pos": [float, float]}
+        t1 = db.get_table("T", fields=fields)
+        t1.append_row({"name": "A", "pos": [1.0, 2.0]})
+
+        def fail_if_called(prompt=""):
+            raise AssertionError(
+                "Smart Schema Evolution fired on an unchanged POINT schema"
+            )
+        monkeypatch.setattr("builtins.input", fail_if_called)
+
+        t2 = db.get_table("T", fields=fields)
+
+        assert t2.table_fields == {"name": "TEXT", "pos": "POINT"}
+        assert t2.read_rows() == [["A", [1.0, 2.0], 1]]
+        assert not any(n.startswith("T_OLD_") for n in db.table_names)
+
+    def test_redeclaring_the_same_point_schema_produces_no_prompt_output(
+        self, db, capsys
+    ):
+        fields = {"name": str, "pos": [float, float]}
+        db.get_table("T", fields=fields)
+        capsys.readouterr()  # discard anything printed by table creation
+
+        db.get_table("T", fields=fields)
+
+        assert "SCHEMA CHANGE DETECTED" not in capsys.readouterr().out
+
+    def test_binds_to_existing_point_table_without_declaring_fields(self, db):
+        db.get_table("T", fields={"name": str, "pos": [float, float]})
+
+        rebound = db.get_table("T")  # Variant 3: id only, no fields=
+
+        assert rebound.table_fields["pos"] == "POINT"
+        assert rebound.point_fields == {"pos": ("pos_x", "pos_y")}
+
+    def test_survives_a_real_process_restart_on_a_file_backed_db(
+        self, tmp_path, logger
+    ):
+        """The same guarantee as above, but across two independent
+        Database connections against the same on-disk file -- the actual
+        shape of an application restart, not just a second in-process call."""
+        dbpath = str(tmp_path / "app.db")
+        fields = {"name": str, "pos": [float, float]}
+
+        db1 = Database(dbpath, message_logger=logger)
+        try:
+            t1 = db1.get_table("T", fields=fields)
+            t1.append_row({"name": "A", "pos": [13.7563, 100.5018]})
+        finally:
+            db1.close()
+
+        db2 = Database(dbpath, message_logger=logger)
+        try:
+            import builtins
+            original_input = builtins.input
+
+            def fail_if_called(prompt=""):
+                raise AssertionError("migration prompt fired across a restart")
+            builtins.input = fail_if_called
+            try:
+                t2 = db2.get_table("T", fields=fields)
+            finally:
+                builtins.input = original_input
+
+            assert t2.read_rows() == [["A", [13.7563, 100.5018], 1]]
+        finally:
+            db2.close()
+
+
+class TestGeoRowCRUD:
+    def test_append_row_dict_with_list_value(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        row = t.append_row({"name": "A", "pos": [100.5, 13.75]})
+        assert row == ["A", [100.5, 13.75], 1]
+
+    def test_append_row_dict_with_tuple_value(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        row = t.append_row({"name": "A", "pos": (100.5, 13.75)})
+        assert row == ["A", [100.5, 13.75], 1]
+
+    def test_append_row_list_form(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        row = t.append_row(["A", [100.5, 13.75]])
+        assert row == ["A", [100.5, 13.75], 1]
+
+    def test_append_row_omitted_point_defaults_to_none(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        row = t.append_row({"name": "A"})
+        assert row == ["A", None, 1]
+        cur = db._conn.execute("SELECT pos_x, pos_y FROM T WHERE ID=1")
+        assert dict(cur.fetchone()) == {"pos_x": None, "pos_y": None}
+
+    def test_append_row_invalid_point_shape_raises(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        with pytest.raises(ValueError):
+            t.append_row({"name": "A", "pos": [1.0, 2.0, 3.0]})
+
+    def test_append_rows_bulk_mixed_dict_and_none(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        rows = t.append_rows([
+            {"name": "A", "pos": [1.0, 2.0]},
+            {"name": "B", "pos": None},
+            {"name": "C", "pos": (3.0, 4.0)},
+        ])
+        assert rows == [
+            ["A", [1.0, 2.0], 1],
+            ["B", None, 2],
+            ["C", [3.0, 4.0], 3],
+        ]
+
+    def test_read_rows_round_trips_point_values(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        t.append_rows([{"name": "A", "pos": [1.5, 2.5]}, {"name": "B", "pos": None}])
+        assert t.read_rows() == [["A", [1.5, 2.5], 1], ["B", None, 2]]
+
+    def test_assign_row_updates_point_value(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        row = t.append_row({"name": "A", "pos": [1.0, 2.0]})
+        row[1] = [9.0, 9.5]
+        assert t.assign_row(row) is True
+        assert t.read_rows() == [["A", [9.0, 9.5], 1]]
+
+    def test_assign_row_nulls_out_point_value(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        row = t.append_row({"name": "A", "pos": [1.0, 2.0]})
+        row[1] = None
+        t.assign_row(row)
+        cur = db._conn.execute("SELECT pos_x, pos_y FROM T WHERE ID=1")
+        assert dict(cur.fetchone()) == {"pos_x": None, "pos_y": None}
+
+    def test_update_row_directly_with_point_prop(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        row = t.append_row({"name": "A", "pos": [1.0, 2.0]})
+        assert db.update_row("T", row[-1], {"pos": [7.0, 8.0]}) is True
+        assert t.read_rows() == [["A", [7.0, 8.0], 1]]
+
+    def test_delete_row_with_point_field_present(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        row = t.append_row({"name": "A", "pos": [1.0, 2.0]})
+        assert t.delete_row(row[-1]) is True
+        assert t.read_rows() == []
+
+
+class TestGeoSearch:
+    def _seed(self, db):
+        t = db.create_table(
+            "T", {"title": str, "pos": [float, float], "status": str}
+        )
+        # x=lng, y=lat around central Bangkok (13.7563, 100.5018).
+        t.append_rows([
+            {"title": "Solo point",  "pos": [100.49,   13.75],   "status": "ACTIVE"},   # ~1.45km
+            {"title": "Silom",       "pos": [100.5325, 13.7248], "status": "ACTIVE"},   # ~4.82km
+            {"title": "Chatuchak",   "pos": [100.5501, 13.8022], "status": "ACTIVE"},   # ~7.30km
+            {"title": "Chiang Mai",  "pos": [98.9853,  18.7883], "status": "ACTIVE"},   # ~583km
+            {"title": "No position", "pos": None,                "status": "ACTIVE"},
+            {"title": "Inactive",    "pos": [100.5018, 13.7563], "status": "INACTIVE"}, # 0km, filtered out
+        ])
+        return t
+
+    def test_search_rows_excludes_point_column_without_erroring(self, db):
+        t = self._seed(db)
+        result = t.search_rows("Silom")
+        assert [r[0] for r in result] == ["Silom"]
+
+    def test_search_rows_does_not_match_stray_coordinate_digits(self, db):
+        t = self._seed(db)
+        # 5325 appears inside Silom's longitude (100.5325) but POINT columns
+        # must never be reachable via text search.
+        assert len(t.search_rows("5325")) == 0
+
+    def test_within_radius_excludes_farther_points(self, db):
+        t = self._seed(db)
+        result = t.search_within_radius("pos", 13.7563, 100.5018, 6.0)
+        titles = [r[0] for r in result]
+        assert "Chatuchak" not in titles     # ~7.3km > 6km
+        assert "Chiang Mai" not in titles    # ~583km > 6km
+        assert "No position" not in titles   # NULL never matches BETWEEN
+
+    def test_within_radius_includes_closer_points_nearest_first(self, db):
+        t = self._seed(db)
+        result = t.search_within_radius("pos", 13.7563, 100.5018, 6.0)
+        titles = [r[0] for r in result if r[0] != "Inactive"]
+        assert titles == ["Solo point", "Silom"]  # ascending distance
+
+    def test_within_radius_appends_trailing_distance_km(self, db):
+        t = self._seed(db)
+        result = t.search_within_radius("pos", 13.7563, 100.5018, 6.0)
+        row = next(r for r in result if r[0] == "Solo point")
+        assert len(row) == len(t._all_columns) + 1
+        assert row[-1] == pytest.approx(haversine_km(13.7563, 100.5018, 13.75, 100.49))
+
+    def test_within_radius_extra_where_and_params(self, db):
+        t = self._seed(db)
+        # "Inactive" sits exactly at the query centre (0km) but is ACTIVE-
+        # filtered out; without the filter it would rank first.
+        result = t.search_within_radius(
+            "pos", 13.7563, 100.5018, 6.0, where="status = ?", params=("ACTIVE",)
+        )
+        assert "Inactive" not in [r[0] for r in result]
+
+    def test_within_radius_unknown_field_raises_value_error(self, db):
+        t = self._seed(db)
+        with pytest.raises(ValueError):
+            t.search_within_radius("title", 13.7563, 100.5018, 5.0)
+
+    def test_within_radius_respects_limit(self, db):
+        t = self._seed(db)
+        result = t.search_within_radius("pos", 13.7563, 100.5018, 1000.0, limit=2)
+        assert len(result) == 2
+
+    def test_nearest_returns_k_closest_ordered(self, db):
+        t = self._seed(db)
+        result = t.search_nearest("pos", 13.7563, 100.5018, k=2, where="status = ?", params=("ACTIVE",))
+        assert [r[0] for r in result] == ["Solo point", "Silom"]
+
+    def test_nearest_expands_radius_to_satisfy_k(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        t.append_rows([
+            {"name": "near", "pos": [100.5018, 13.7563]},
+            {"name": "far",  "pos": [100.90,   13.7563]},   # ~43km east
+        ])
+        result = t.search_nearest(
+            "pos", 13.7563, 100.5018, k=2, initial_radius_km=1.0, max_radius_km=100.0
+        )
+        assert [r[0] for r in result] == ["near", "far"]
+
+    def test_nearest_returns_fewer_than_k_when_capped(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        t.append_rows([
+            {"name": "near", "pos": [100.5018, 13.7563]},
+            {"name": "far",  "pos": [100.90,   13.7563]},   # ~43km east
+        ])
+        result = t.search_nearest(
+            "pos", 13.7563, 100.5018, k=2, initial_radius_km=1.0, max_radius_km=5.0
+        )
+        assert [r[0] for r in result] == ["near"]
+
+    def test_geo_search_at_scale_uses_the_index_not_a_full_scan(self, db):
+        """Not a timing assertion (flaky in CI) -- asserts the query plan
+        actually uses the composite geo index for the bounding-box
+        pre-filter, which is *why* it stays fast at scale."""
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        t.append_rows([
+            {"name": f"n{i}", "pos": [100.0 + i * 0.0001, 13.0 + i * 0.0001]}
+            for i in range(500)
+        ])
+        plan = db._conn.execute(
+            "EXPLAIN QUERY PLAN SELECT * FROM T "
+            "WHERE pos_y BETWEEN ? AND ? AND pos_x BETWEEN ? AND ?",
+            (13.0, 13.01, 100.0, 100.01),
+        ).fetchall()
+        assert any("T_pos_geo_idx" in row["detail"] for row in plan)
+
+
+class TestGeoSchemaMigration:
+    """Smart Schema Evolution with a POINT field involved."""
+
+    def test_fuzzy_renamed_point_field_preserves_coordinates(self, db, monkeypatch):
+        # 'geo_position' is lexically close enough to 'position' for
+        # difflib's default cutoff (0.6) to offer it as a fuzzy match.
+        t = db.get_table("T", fields={"name": str, "position": [float, float]})
+        t.append_row({"name": "A", "position": [10.0, 20.0]})
+        monkeypatch.setattr("builtins.input", lambda prompt="": "4")
+
+        result = db.get_table(
+            "T", fields={"name": str, "geo_position": [float, float]}
+        )
+
+        assert result.point_fields == {"geo_position": ("geo_position_x", "geo_position_y")}
+        assert result.read_rows() == [["A", [10.0, 20.0], 1]]
+
+    def test_point_field_added_fresh_defaults_to_none(self, db, monkeypatch):
+        t = db.get_table("T", fields={"name": str})
+        t.append_row(["Alice"])
+        monkeypatch.setattr("builtins.input", lambda prompt="": "3")
+
+        result = db.get_table("T", fields={"name": str, "pos": [float, float]})
+
+        assert result.read_rows() == [["Alice", None, 1]]
+
+    def test_point_field_dropped_on_recreate(self, db, monkeypatch):
+        t = db.get_table("T", fields={"name": str, "pos": [float, float]})
+        t.append_row({"name": "Alice", "pos": [1.0, 2.0]})
+        monkeypatch.setattr("builtins.input", lambda prompt="": "2")
+
+        result = db.get_table("T", fields={"name": str})
+
+        assert result.table_fields == {"name": "TEXT"}
+        assert result.point_fields == {}
+        assert db.qlist("SELECT * FROM T") == []
+
+
+class TestGeoManyToMany:
+    """A POINT payload field on a many-to-many junction table."""
+
+    def _seed(self, db):
+        couriers = db.create_table("Couriers", {"name": str})
+        zones = db.create_table("Zones", {"name": str})
+        relname, fields = couriers.setup_junction(
+            "Zones", {"meeting_point": [float, float], "note": str}
+        )
+        c1 = couriers.append_row({"name": "Bob"})
+        z1 = zones.append_row({"name": "Downtown"})
+        return couriers, zones, relname, c1, z1
+
+    def test_setup_junction_creates_physical_xy_columns(self, db):
+        couriers, zones, relname, c1, z1 = self._seed(db)
+        cur = db._conn.execute(f"PRAGMA table_info('{relname}')")
+        cols = {row["name"]: row["type"] for row in cur.fetchall()}
+        assert cols["meeting_point_x"] == "REAL_X"
+        assert cols["meeting_point_y"] == "REAL_Y"
+
+    def test_setup_junction_reports_logical_point_field(self, db):
+        couriers, zones, relname, c1, z1 = self._seed(db)
+        _, fields = couriers.setup_junction(
+            "Zones", {"meeting_point": [float, float], "note": str}
+        )
+        assert fields == {"meeting_point": "POINT", "note": "TEXT"}
+
+    def test_add_link_splits_point_payload(self, db):
+        couriers, zones, relname, c1, z1 = self._seed(db)
+        couriers.add_link(
+            c1[-1], "Zones", z1[-1],
+            {"meeting_point": [100.5, 13.75], "note": "front gate"},
+            relname,
+        )
+        cur = db._conn.execute(
+            f"SELECT meeting_point_x, meeting_point_y, note FROM [{relname}]"
+        )
+        assert dict(cur.fetchone()) == {
+            "meeting_point_x": 100.5, "meeting_point_y": 13.75, "note": "front gate",
+        }
+
+    def test_calc_linked_rows_include_rels_recomposes_point_payload(self, db):
+        couriers, zones, relname, c1, z1 = self._seed(db)
+        couriers.add_link(
+            c1[-1], "Zones", z1[-1],
+            {"meeting_point": [100.5, 13.75], "note": "front gate"},
+            relname,
+        )
+
+        linked = couriers.calc_linked_rows(relname, [z1[-1]], "Zones", include_rels=True)
+
+        assert list(linked) == [["Bob", 1, [100.5, 13.75], "front gate", 1]]
+
+    def test_calc_linked_rows_works_when_self_also_has_a_point_field(self, db):
+        # Exercises the n_self physical-column-count fix directly: self
+        # (Couriers) *also* has a POINT field, so the aliased "a.*"-style
+        # column count in the JOIN differs from len(self._all_columns).
+        couriers = db.create_table("Couriers", {"name": str, "base": [float, float]})
+        zones = db.create_table("Zones", {"name": str})
+        relname, _ = couriers.setup_junction("Zones", {"note": str})
+        c1 = couriers.append_row({"name": "Bob", "base": [1.0, 2.0]})
+        z1 = zones.append_row({"name": "Downtown"})
+        couriers.add_link(c1[-1], "Zones", z1[-1], {"note": "hi"}, relname)
+
+        linked = couriers.calc_linked_rows(relname, [z1[-1]], "Zones", include_rels=True)
+
+        assert list(linked) == [["Bob", [1.0, 2.0], 1, "hi", 1]]

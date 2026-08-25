@@ -17,6 +17,7 @@
 8. [Schema Evolution](#8-schema-evolution)
 9. [Full Example — Authors › Books › Genres](#9-full-example--authors--books--genres)
 10. [Dbtable API Reference](#10-dbtable-api-reference)
+11. [Geo-Spatial Fields](#11-geo-spatial-fields)
 
 ---
 
@@ -142,6 +143,7 @@ users = Table('Users', id='users')
 | `date` | DATE | ISO-8601 TEXT |
 | `Decimal` | DECIMAL | String round-trip |
 | `uuid.UUID` | UUID | String round-trip |
+| `[float, float]` / `(float, float)` | POINT | Geo-spatial point, two REAL columns internally. Excluded from search. See [§11](#11-geo-spatial-fields) |
 
 ### 3.3 Adding rows programmatically
 
@@ -248,7 +250,9 @@ Client JSON examples:
 ### 3.7 Search
 
 The `search` event filters rows by substring match across all text and numeric
-columns (`LIKE`). `BLOB` and `JSON` columns are skipped.
+columns (`LIKE`). `BLOB`, `JSON`, and `POINT` columns are skipped — for
+geo-spatial "find rows near here" queries, use `search_within_radius`/
+`search_nearest` instead (see [§11](#11-geo-spatial-fields)).
 
 ```json
 { "block": "TBlock", "element": "Users", "event": "search", "value": "alice" }
@@ -620,6 +624,14 @@ dbt = my_table.rows.dbtable   # from any persistent Table
 | `dbt.search_rows(search)` | Return a `Dblist` of matching rows (`LIKE` across all text/numeric columns). |
 | `dbt.init_list()` | Re-read the first page from the DB into `dbt.list`. |
 
+### Geo-Spatial (see [§11](#11-geo-spatial-fields))
+
+| Method | Description |
+|---|---|
+| `dbt.search_within_radius(field, lat, lng, radius_km, limit, where, params)` | Rows within `radius_km` of `(lat, lng)`, nearest first. Each row gets a trailing `distance_km`. |
+| `dbt.search_nearest(field, lat, lng, k, initial_radius_km, max_radius_km, where, params)` | The `k` closest rows to `(lat, lng)` (expanding-radius search). |
+| `haversine_km(lat1, lng1, lat2, lng2)` | Module-level great-circle distance in km; also registered as a SQL function of the same name. |
+
 ### Write
 
 | Method | Description |
@@ -650,3 +662,153 @@ dbt = my_table.rows.dbtable   # from any persistent Table
 | `dbt.delete_link(link_table_id, link_id)` | Delete a junction record by its own ID. |
 | `dbt.delete_links(link_table_id, link_node_id, source_ids, link_ids)` | Delete junction records matching a condition. |
 | `dbt.calc_linked_rows(index_name, link_ids, target_table, include_rels, search)` | `JOIN` query through the junction table. Returns a `Dblist`. |
+
+---
+
+## 11. Geo-Spatial Fields
+
+A field declared as a 2-element list or tuple of `float` (or `int`) — the
+*types*, not coordinate values — is auto-detected as a geo-spatial point:
+
+```python
+Table('Offers', fields={
+    'title':    str,
+    'position': [float, float],   # or (float, float) — same thing
+    'price':    float,
+    'status':   str,
+})
+```
+
+**Convention: `x` = longitude, `y` = latitude** — i.e. `position = [lng, lat]`,
+matching the standard GIS/PostGIS/GeoJSON point order (`POINT(x y)` ==
+`POINT(lon, lat)`). This is easy to get backwards if you're used to writing
+"lat, lng" by habit, so it's worth committing to memory:
+
+```python
+bangkok = [100.5018, 13.7563]   # [lng, lat] — NOT [lat, lng]
+```
+
+### 11.1 What it looks like from the outside
+
+A POINT field is still exactly **one** column everywhere you interact with a
+table — one entry in `fields`, one header, one cell per row — holding a
+`[x, y]` list (or `None`):
+
+```python
+offers.append_row({'title': 'AC repair', 'position': [100.5018, 13.7563],
+                    'price': 1500, 'status': 'ACTIVE'})
+# -> ['AC repair', [100.5018, 13.7563], 1500, 'ACTIVE', 1]
+
+offers.list[0]                       # -> same shape, read back from SQLite
+offers.list.update_cell(0, 1, [100.51, 13.76])   # move it — plain cell edit
+```
+
+### 11.2 What it looks like underneath
+
+Internally, `position` becomes two ordinary `REAL` columns, `position_x` and
+`position_y`, plus a composite index on `(position_y, position_x)`:
+
+```sql
+CREATE TABLE Offers (
+    title      TEXT,
+    position_x REAL_X,   -- REAL affinity; the distinct type name is what
+    position_y REAL_Y,   -- lets UNISI fold the pair back into one logical
+                          -- "position" field when it re-reads the schema
+    price      REAL,
+    status     TEXT,
+    ID INTEGER PRIMARY KEY AUTOINCREMENT
+);
+CREATE INDEX Offers_position_geo_idx ON Offers (position_y, position_x);
+```
+
+You never write this SQL yourself — `create_table`/Smart Schema Evolution
+generate and maintain it — but it's useful to know it's there, e.g. if you
+ever inspect the `.db` file with an external SQLite tool.
+
+### 11.3 Radius search
+
+```python
+nearby = offers.search_within_radius(
+    'position',           # which POINT field
+    13.7563, 100.5018,    # lat, lng of the search origin
+    5.0,                  # radius_km
+    where='status = ? AND price <= ?',
+    params=('ACTIVE', 2000),
+)
+for title, position, price, status, row_id, distance_km in nearby:
+    print(f"{title}: {distance_km:.2f} km, {price}")
+```
+
+Rows come back **nearest first**. Each row is the normal
+`[...fields..., ID]` shape with one extra value, `distance_km`, appended
+right after the ID — so it's one element longer than a row from
+`read_rows()`/`append_row()`. `where`/`params` add an extra,
+already-parameterised `AND` condition, so a single call can combine the geo
+filter with ordinary business filters — capability, price, status — exactly
+like the reference query this feature was modelled on.
+
+### 11.4 Nearest-k search
+
+```python
+closest_five = offers.search_nearest('position', 13.7563, 100.5018, k=5)
+```
+
+This is `search_within_radius` run with an expanding radius (starting at
+`initial_radius_km=5.0`, doubling up to `max_radius_km=500.0` by default)
+until at least `k` rows are found. It may return **fewer than `k`** rows if
+the table has fewer than `k` matches within `max_radius_km` — that cap
+exists so a sparse area can't silently turn into an unbounded full-table
+scan; raise `max_radius_km` (or lower it, for a tighter cost ceiling) to
+change that trade-off.
+
+### 11.5 Raw SQL
+
+The same `haversine_km(lat1, lng1, lat2, lng2)` function `search_within_radius`
+uses is registered on every connection, so it's usable directly:
+
+```python
+rows = db.qlist(
+    "SELECT title, haversine_km(position_y, position_x, ?, ?) AS km "
+    "FROM Offers WHERE km <= ? ORDER BY km",
+    (13.7563, 100.5018, 5.0),
+)
+```
+
+(Note the raw-SQL column names are the physical `position_x`/`position_y`,
+not the logical `position` — that folding only happens at the Python
+`Dbtable` layer.)
+
+### 11.6 Why bounding-box + haversine
+
+Three ways to do geo-matching in SQLite were on the table; this is the one
+UNISI uses, and why:
+
+| | Bounding-box + `haversine()` (chosen) | R\*Tree virtual table | SpatiaLite |
+|---|---|---|---|
+| Dependencies | none — Python 3.10+ stdlib only | SQLite compile-time option; not guaranteed on every build | external `mod_spatialite` binary — rarely preinstalled |
+| Setup complexity | one index, one registered function | a synced shadow table (triggers or app-level sync on every write) | extension loading, platform-specific binary |
+| Measured performance | **~1 ms at 50,000 rows** (bounding-box pre-filter narrows the candidate set before `haversine_km()` ever runs) | faster at very large scale (100k+) | comparable to R\*Tree once set up |
+| Best for | the range a single SQLite file is normally used for | tables that outgrow the above | full OpenGIS surface (polygons, `ST_Within`, buffers) |
+
+A synced R\*Tree shadow table is a reasonable next step if a single table's
+POINT-filtered queries genuinely need to scale past what a plain B-Tree
+range scan handles well — but it adds a second structure that has to stay
+correct on every insert/update/delete, which is real ongoing complexity for
+most apps' actual data volumes. Start here; reach for R\*Tree only once
+you've measured that you need it.
+
+### 11.7 Known limitations
+
+- **Antimeridian / poles**: the bounding box is a locally-flat
+  (equirectangular) approximation. It's exact enough for any reasonable
+  radius at ordinary latitudes, but searches very close to the ±180°
+  longitude line or within a few degrees of the poles can miss matches on
+  the "other side" of the wraparound.
+- **Search excludes POINT columns**: `search_rows`/the `search` UI event
+  never match against coordinates (see [§3.7](#37-search)) — use
+  `search_within_radius`/`search_nearest` for location queries.
+- **Junction (many-to-many) payload fields** can be POINT-typed too
+  (`setup_junction('Zones', {'meeting_point': [float, float]})`) and round-trip
+  correctly through `add_link`/`calc_linked_rows(..., include_rels=True)` —
+  but there's no `search_within_radius` equivalent for a junction table's own
+  payload; query it with raw SQL (§11.5) if you need that.
