@@ -729,7 +729,7 @@ class TestDelete:
         partner = FakeReflectionUser()
         user.reflections = [user, partner]
         await user.delete()
-        assert user.reflections == []
+        assert len(user.reflections) == 1 
 
     @pytest.mark.asyncio
     async def test_larger_reflections_only_remove_self(self, make_user):

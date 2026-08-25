@@ -133,15 +133,11 @@ class User(ModulesMixin, UserPersistMixin):
 
     async def delete(self):
         if self.voice:
-            self.voice.stop()
-        uss = Unishare.sessions
-        if uss and uss.get(self.session):
-            del uss[self.session]
+            self.voice.stop()                
         if self.reflections: #reflections is common array
-            if len(self.reflections) == 2:
-                self.reflections.clear() #1 element in user.reflections has no sense
-            else:
-                self.reflections.remove(self)
+            self.reflections.remove(self) #not optimized for len == 1 -> clear(), because weird bug occurs
+        elif (uss := Unishare.sessions) and uss.get(self.session):
+            del uss[self.session]            
         if notify_monitor:
             await notify_monitor('-', self.session, self.last_message)
         if config.share:

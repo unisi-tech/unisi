@@ -1,12 +1,15 @@
-#Hot connect to running session
+#Hot connect to running session and read and change values in screen
 from unisi import Proxy, Event
 
-#insert session from Hello user output' #
-session = 'RH9MaJSX2a-0'
+# !Importent for test!
+# 1. run blocks test app and switch to Panda params screen
+# 2. insert session from Hello user output' #
+
+session = 'E0IKyrkVUB-0'
 
 sname = 'Panda params'
 
-proxy = Proxy('localhost:8000', screen = sname, timeout = 7)
+proxy = Proxy('localhost:8000', session = session, screen = sname, timeout = 7)
 if proxy.event == Event.screen:
     if proxy.screen['name'] != sname:
         print('invalide screen')
