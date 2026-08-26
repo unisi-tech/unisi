@@ -137,8 +137,16 @@ class Table(Unit):
                         link_rows.link = self.rows.dbtable.link_info
                         self.rows = link_rows
                     else: 
-                        selected_ids = [link_rows[i][-1] for i in range(len(link_rows))]
-                        self.value = selected_ids  
+                        # link_rows[i][-1] is each linked row's DB *id*
+                        # (calc_linked_rows/calc_linked_rows_fk both append
+                        # it last) - but self.value indexes by *position* in
+                        # the unfiltered list assigned below (matching
+                        # Dblist/iiid elsewhere), and id == position only for
+                        # a table that's never had a row deleted. Translate
+                        # through index_of_id rather than assuming the two
+                        # coincide.
+                        dbtable = self.rows.dbtable
+                        self.value = [dbtable.index_of_id(link_rows[i][-1]) for i in range(len(link_rows))]
                         if self.search:
                             self.rows = self.rows.dbtable.search_rows(self.search)
                         elif self.rows.cache is not None:

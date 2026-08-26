@@ -783,6 +783,36 @@ class TestRowCRUD:
         assert table.assign_row(["Alicia", 31, row_id]) is True
         assert table.read_rows()[0] == ["Alicia", 31, row_id]
 
+    def test_index_of_id_returns_zero_based_position(self, db, table):
+        r1 = table.append_row(["Alice", 30])
+        r2 = table.append_row(["Bob", 25])
+        r3 = table.append_row(["Carol", 40])
+        assert table.index_of_id(r1[-1]) == 0
+        assert table.index_of_id(r2[-1]) == 1
+        assert table.index_of_id(r3[-1]) == 2
+
+    def test_regression_index_of_id_accounts_for_gaps_from_deleted_rows(self, db, table):
+        """
+        Regression: a row's DB id and its position in the default listing
+        (ORDER BY ID) only coincide for a table that's never had a row
+        deleted -- index_of_id must recompute from what's actually still
+        there rather than assuming position == id - 1. This is what
+        tables.py's link_table_selection_changed relies on to turn a
+        linked row's id into the position it needs for Table.value (see
+        tests/units/test_tables.py's matching regression tests).
+        """
+        r1 = table.append_row(["Alice", 30])
+        r2 = table.append_row(["Bob", 25])
+        r3 = table.append_row(["Carol", 40])
+        table.delete_row(r1[-1])
+        assert table.index_of_id(r2[-1]) == 0  # Bob is now first
+        assert table.index_of_id(r3[-1]) == 1
+
+    def test_index_of_id_for_an_id_past_the_end_counts_every_row(self, db, table):
+        table.append_row(["Alice", 30])  # id 1
+        table.append_row(["Bob", 25])    # id 2
+        assert table.index_of_id(999) == 2
+
 
 # ────────────────────────────────────────────────────────────────────────── #
 #  Search                                                                     #

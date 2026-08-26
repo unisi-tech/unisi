@@ -584,7 +584,19 @@ class TestTableLinkedManyToOne:
         filter_handler(orders, False)
         assert len(list(orders.rows)) == 1  # the order itself still exists, just unlinked
 
-    def test_switching_filter_off_shows_full_list_and_matching_ids_as_value(self, memdb, fake_user):
+    def test_switching_filter_off_shows_full_list_and_linked_row_position_as_value(self, memdb, fake_user):
+        """`Table.value` indexes by *position* in the base list (matching
+        Dblist/iiid, same as everywhere else .value is used), not by the
+        linked row's raw DB id. This test used to assert
+        `orders.value == [alice_order[-1]]` (i.e. == [1], alice_order's own
+        id) -- which happened to be wrong even in this simple scenario:
+        alice_order is the first row ever inserted (id=1) but that's a
+        different number from its position (0). Asserting on the id would
+        tell a client to highlight position 1 (another_order, unlinked)
+        instead of position 0 (Alice's own order). See
+        test_regression_filter_false_value_uses_position_not_raw_id below
+        for a version where id and position diverge much more clearly.
+        """
         users = make_users(memdb, ['Alice', 'Bob'])
         orders = Table('Orders', id='Orders', fields={'item': str}, link=users)
         users.value = 0
@@ -602,7 +614,36 @@ class TestTableLinkedManyToOne:
 
         assert orders.filter is False
         assert len(list(orders.rows)) == 2  # base/full list, not filtered
-        assert orders.value == [alice_order[-1]]  # only Alice's order id
+        assert orders.value == [0]  # position of alice_order in that list
+        assert orders.rows[0][-1] == alice_order[-1]  # position 0 really is Alice's order
+
+    def test_regression_filter_false_value_uses_position_not_raw_id(self, memdb, fake_user):
+        """
+        Regression: link_table_selection_changed's filter=False branch used
+        to set self.value directly to each linked row's raw DB id
+        (link_rows[i][-1]) instead of its position in the base list that
+        self.value is actually interpreted against everywhere else (client
+        iiid matching, this same function's own `if lstvalue:` branch a few
+        lines up). id and position only coincide for a table that's never
+        had a row deleted -- this test forces a gap so the two clearly
+        diverge, proving the fix (Dbtable.index_of_id) rather than an
+        accidental off-by-nothing.
+        """
+        users = make_users(memdb, ['Alice'])
+        orders = Table('Orders', id='Orders', fields={'item': str}, link=users)
+        users.value = 0
+        orders.__link_table_selection_changed__(users, 0)
+
+        doomed = orders.append(orders, '')       # id=1, deleted below -> opens a gap
+        alice_order = orders.append(orders, '')  # id=2, ends up at position 0 after the delete
+
+        orders.rows.dbtable.delete_row(doomed[-1])
+
+        filter_handler = fake_user.handlers[(orders, 'filter')]
+        filter_handler(orders, False)
+
+        assert list(orders.rows) == [alice_order]  # the only row left at all
+        assert orders.value == [0]                  # position, not alice_order[-1] (== 2)
 
     def test_changed_selection_sets_fk_when_editing_and_unfiltered(self, memdb, fake_user):
         users = make_users(memdb, ['Alice'])
@@ -779,6 +820,31 @@ class TestTableLinkedManyToMany:
         filter_handler(orders, True)
         assert list(orders.rows) == []
 
+    def test_regression_filter_false_value_uses_position_not_raw_id(self, memdb, fake_user):
+        """
+        Many-to-many counterpart of TestTableLinkedManyToOne's version of
+        this regression: the same self.value = [<raw db id>, ...] bug lived
+        in the *shared* else branch of link_table_selection_changed, so
+        calc_linked_rows (m2m) needed the same Dbtable.index_of_id fix as
+        calc_linked_rows_fk (m2o). Forces an id/position gap via delete_row
+        so the two numbers clearly diverge.
+        """
+        users = make_users(memdb, ['Alice'])
+        orders = Table('Orders', id='Orders', fields={'item': str}, link=[users, {'qty': int}])
+        users.value = 0
+        orders.__link_table_selection_changed__(users, 0)
+
+        doomed = orders.append(orders, '')       # id=1, linked to Alice, deleted below
+        alice_order = orders.append(orders, '')  # id=2, linked to Alice, ends up at position 0
+
+        orders.rows.dbtable.delete_row(doomed[-1])  # cascades: also drops its junction row
+
+        filter_handler = fake_user.handlers[(orders, 'filter')]
+        filter_handler(orders, False)
+
+        assert len(list(orders.rows)) == 1  # only alice_order is left at all
+        assert orders.value == [0]           # position, not alice_order[-1] (== 2)
+
     def test_changed_selection_returns_warning_when_not_editing(self, memdb, fake_user):
         users = make_users(memdb, ['Alice'])
         orders = Table('Orders', id='Orders', fields={'item': str}, link=[users, {'qty': int}])
@@ -792,6 +858,104 @@ class TestTableLinkedManyToMany:
         result = changed_handler(orders, 0)
 
         assert result.type == 'warning'
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+#  Seeding linked data at Table() construction time                        #
+#  (the recipe documented in docs/persistent_tables.md, "Seeding linked    #
+#  data at startup", and used by test_apps/db/screens/linked.py)           #
+# ──────────────────────────────────────────────────────────────────────── #
+
+class TestSeedingLinkedDataAtInit:
+    """`link=(...)` only creates the junction table/FK column (see
+    TestTableLinkedManyToOne/TestTableLinkedManyToMany above) - it never
+    creates link *rows*. An app that wants ready-made relationships (like
+    test_apps/db's "Linked tables" screen) has to call add_link/add_links
+    itself, right after constructing both tables, guarded so the seeding
+    only happens once even though a screen module's top level runs again
+    for every new session.
+    """
+
+    def test_rows_kwarg_alone_creates_no_links(self, memdb):
+        """This was the actual bug in test_apps/db/screens/linked.py:
+        rows= seeds independent records on both sides of a link=(...)
+        table, but creates zero relationships between them, so selecting
+        any master row showed no linked children at all."""
+        users = Table('Users', id='Users', fields={'name': str},
+                       rows=[['Alice'], ['Bob']])
+        orders = Table('Orders', id='Orders', fields={'item': str},
+                        rows=[['Widget'], ['Gadget']],
+                        link=(users, {'qty': int}))
+
+        users.value = 0  # select Alice
+        orders.__link_table_selection_changed__(users, 0)
+
+        assert list(orders.rows) == []  # nobody has been linked to anybody
+
+    def test_add_link_right_after_construction_makes_selection_show_linked_rows(self, memdb):
+        """The fix: read back the raw (unfiltered) rows via dbtable, then
+        add_link the pairs that should start out related. otable.rows
+        itself can't be used for this - see the next test - because a
+        many-to-many child table is already filtered to the (currently
+        empty) selection view by the time Table() returns."""
+        users = Table('Users', id='Users', fields={'name': str},
+                       rows=[['Alice'], ['Bob']])
+        orders = Table('Orders', id='Orders', fields={'item': str},
+                        rows=[['Widget'], ['Gadget']],
+                        link=(users, {'qty': int}))
+
+        odbt = orders.rows.dbtable
+        rel_name = orders.rows.link[2]
+        alice_id = users.rows.dbtable.read_rows(limit=2)[0][-1]
+        widget_id = odbt.read_rows(limit=2)[0][-1]
+        odbt.add_link(widget_id, users.id, alice_id, link_index_name=rel_name,
+                      link_fields={'qty': 3})
+
+        users.value = 0  # select Alice
+        orders.__link_table_selection_changed__(users, 0)
+
+        assert [row[0] for row in orders.rows] == ['Widget']
+
+    def test_a_many_to_many_child_table_starts_filtered_and_empty(self, memdb):
+        """Documents why the seeding code (and the test above) reads rows
+        via dbtable.read_rows() rather than the table's own .rows: for a
+        many-to-many link, .rows is already the (empty, since no master is
+        selected yet) filtered view by the time Table() returns, not the 2
+        raw rows just inserted via rows=."""
+        users = Table('Users', id='Users', fields={'name': str}, rows=[['Alice']])
+        orders = Table('Orders', id='Orders', fields={'item': str},
+                        rows=[['Widget'], ['Gadget']],
+                        link=(users, {'qty': int}))
+
+        assert list(orders.rows) == []
+        assert orders.rows.dbtable.length == 2  # the rows exist - just not in .rows yet
+
+    def test_seeding_guarded_by_existing_link_check_is_idempotent(self, memdb):
+        """Mirrors screens/linked.py's `if not Unishare.db.qlist(...)`
+        guard. A screen module's top level runs again for every new
+        session, so building the tables and seeding their links must be
+        safe to run more than once without duplicating links."""
+        def build_and_seed():
+            users = Table('Users', id='Users', fields={'name': str}, rows=[['Alice']])
+            orders = Table('Orders', id='Orders', fields={'item': str},
+                            rows=[['Widget']], link=(users, {'qty': int}))
+            dbt = orders.rows.dbtable
+            rel_name = orders.rows.link[2]
+            if not Unishare.db.qlist(f'SELECT 1 FROM [{rel_name}] LIMIT 1'):
+                alice_id = users.rows.dbtable.read_rows(limit=1)[0][-1]
+                widget_id = dbt.read_rows(limit=1)[0][-1]
+                dbt.add_link(widget_id, users.id, alice_id, link_index_name=rel_name,
+                             link_fields={'qty': 3})
+            return users, orders, rel_name
+
+        build_and_seed()
+        users, orders, rel_name = build_and_seed()  # simulates a second session loading the screen
+
+        assert len(Unishare.db.qlist(f'SELECT * FROM [{rel_name}]')) == 1  # not duplicated
+
+        users.value = 0
+        orders.__link_table_selection_changed__(users, 0)
+        assert [row[0] for row in orders.rows] == ['Widget']  # and the link still works
 
 
 # ──────────────────────────────────────────────────────────────────────── #

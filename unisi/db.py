@@ -986,6 +986,25 @@ class Dbtable:
         )
         return [self._row_to_list(r) for r in cur.fetchall()] if cur else []
 
+    def index_of_id(self, row_id: int) -> int:
+        """0-based position of the row with this ID under the table's
+        default ORDER BY ID ordering.
+
+        Row IDs (SQLite AUTOINCREMENT primary keys) and row *positions*
+        (a row's offset in the default listing - what Dblist/iiid/Table
+        .value actually index by) are different numbering schemes that
+        happen to coincide only for a table that has never had a row
+        deleted. Anything that computes a position from a known ID (e.g.
+        highlighting linked rows against the unfiltered list - see
+        link_table_selection_changed's filter=False branch in tables.py)
+        must go through here rather than assuming id == position + 1.
+        """
+        cur = self.db.execute(
+            f"SELECT COUNT(*) FROM [{self.id}] WHERE ID < ?", (row_id,)
+        )
+        row = cur.fetchone() if cur else None
+        return row[0] if row else 0
+
     # ── search ───────────────────────────────────────────────────────────── #
 
     # Column types where LIKE search makes sense (text-representable).

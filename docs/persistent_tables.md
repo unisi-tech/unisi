@@ -350,6 +350,11 @@ With `filter = True`, pressing **delete** on a selected row in Orders:
 > **Warning:** To delete the row physically — switch to `filter = False` and
 > delete from there, or call `dbtable.delete_row(id)` programmatically.
 
+> **Seeding initial data?** `link = customers` only creates the `link_id`
+> column — it links no rows. See [§5.8](#58-seeding-linked-data-at-startup)
+> for the full recipe (written for many-to-many, but the same idea applies
+> here with `set_fk` in place of `add_link`).
+
 ---
 
 ## 5. Many-to-Many (Junction Table)
@@ -474,6 +479,97 @@ With `filter = True`, pressing **delete** on a selected row in Products:
 > object itself. For physical deletion use `filter = False` + delete, or call
 > `dbtable.delete_row()` programmatically.
 
+### 5.8 Seeding linked data at startup
+
+`link = [tags, {...}]` (or `link = tags` for many-to-one) only creates the
+*junction table* or the `link_id` *column* — the structure a relationship
+would live in. It does **not** create any relationship. A table built like
+this:
+
+```python
+products = Table('Products', id='products', fields={'name': str, 'price': float},
+    rows = [['Widget', 9.99], ['Gadget', 19.99]],
+    link = [tags, {'weight': float}],
+)
+```
+
+seeds two independent `products` rows and whatever `rows=` gave `tags`, but
+links **neither** to the other — selecting any tag shows zero products until
+something actually calls `add_link`/`add_links`/`set_fk`. This is easy to
+miss because nothing errors: the tables just render, empty of relationships.
+`test_apps/db/screens/linked.py` demonstrates the fix end to end; the recipe
+below is the general form.
+
+**1. Fetch real rows, not `table.rows`.** By the time `Table(...)` returns,
+a *child* table with `filter = True` (the default whenever `link=` is
+given) has already had its `.rows` replaced by the current — still
+empty, since nothing is selected yet — filtered view (§5.4/§4.3). The
+`rows=` you just inserted are still in the database, just not reachable
+through `.rows` anymore. Read them back through the `Dbtable` instead:
+
+```python
+odbt = products.rows.dbtable
+all_products = odbt.read_rows(limit=odbt.length)   # unfiltered, with IDs
+```
+
+**2. Link specific rows.** Many-to-many: `add_link`/`add_links` against the
+junction name the table itself computed (`table.rows.link[2]`, the third
+element of the `(link_table, payload_fields, junction_name)` tuple `link=`
+resolves to) rather than re-deriving or hard-coding it:
+
+```python
+rel_name = products.rows.link[2]         # e.g. 'products2tags'
+odbt.add_link(all_products[0][-1], tags.id, some_tag_id,
+              link_index_name=rel_name, link_fields={'weight': 0.8})
+```
+
+Many-to-one is simpler — no junction, no payload, just the FK:
+
+```python
+odbt.set_fk(all_products[0][-1], some_customer_id)
+```
+
+**3. Guard against reseeding.** A screen module's top-level code runs again
+for *every new session* (each user gets their own screen instance — see
+`unisi/modules.py`), so unconditional `add_link` calls insert another copy
+of the same demo links on every single visit. `rows=` itself doesn't have
+this problem — `Table.__init__` only inserts them the first time a table
+with that `id` is ever created (`db.py`'s `get_table` reuses the existing
+SQLite table on every later call) — but nothing does that bookkeeping for
+you for links, since they're a separate, explicit step. Check whether the
+junction (or the FK column) is already populated before seeding:
+
+```python
+if not Unishare.db.qlist(f'SELECT 1 FROM [{rel_name}] LIMIT 1'):
+    for product, tag_id in zip(all_products, seed_tag_ids):
+        odbt.add_link(product[-1], tags.id, tag_id, link_index_name=rel_name)
+```
+
+For many-to-one, check the FK column on the child table itself instead
+(e.g. `Unishare.db.qlist(f'SELECT 1 FROM [{odbt.id}] WHERE link_id IS NOT NULL LIMIT 1')`).
+
+**Putting it together** (many-to-many, matching `test_apps/db`'s screen):
+
+```python
+# screens/shop.py
+tags = Table('Tags', id='tags', fields={'tag': str}, rows=[['Sale'], ['New']])
+products = Table('Products', id='products', fields={'name': str, 'price': float},
+    rows=[['Widget', 9.99], ['Gadget', 19.99]],
+    link=[tags, {'weight': float}],
+)
+
+odbt = products.rows.dbtable
+rel_name = products.rows.link[2]
+if not Unishare.db.qlist(f'SELECT 1 FROM [{rel_name}] LIMIT 1'):
+    all_products = odbt.read_rows(limit=odbt.length)
+    all_tags = tags.rows.dbtable.read_rows(limit=tags.rows.dbtable.length)
+    odbt.add_link(all_products[0][-1], tags.id, all_tags[0][-1],
+                  link_index_name=rel_name, link_fields={'weight': 1.0})
+```
+
+Selecting **Sale** in `tags` now shows **Widget** in `products`, with no
+extra step required from whoever opens the screen.
+
 ---
 
 ## 6. The `filter` Flag
@@ -576,6 +672,13 @@ screen = Screen(authors, books, genres, book_genres)
 ```
 
 ### Programmatic walkthrough
+
+> The walkthrough below is written as a one-off script/REPL session. If
+> this same code is going to live at the top of a **screen module**
+> instead (so the links exist as soon as the screen first loads, with no
+> manual step), see [§5.8](#58-seeding-linked-data-at-startup) first — that
+> code re-runs on every new session, so it needs an idempotency guard this
+> walkthrough doesn't.
 
 ```python
 # Add an author
