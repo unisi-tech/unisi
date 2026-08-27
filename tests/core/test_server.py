@@ -213,6 +213,51 @@ class TestMakeUser:
         assert user is not None
         assert ok
 
+    def test_share_mode_does_not_overwrite_the_root_session_entry(self, new_user, monkeypatch):
+        # A share='session' connect (a proxy/reflection hot-attaching to an
+        # existing session, e.g. Proxy() in test_apps/proxy/run_blocks.py)
+        # must NOT replace Unishare.sessions[session]. That entry has to
+        # keep pointing at the original, long-lived owner -- otherwise the
+        # NEXT share connect for the same session id resolves against this
+        # transient one instead, and once this one disconnects, that next
+        # connect is left sharing state with a dead object.
+        from unisi.common import Unishare
+
+        monkeypatch.setattr(server_mod.config, "share", False)
+        root, _ = server_mod.make_user(self._req("session=anchor-1"))
+
+        monkeypatch.setattr(server_mod.config, "share", True)
+        proxy, _ = server_mod.make_user(self._req("session=anchor-1"))
+
+        assert Unishare.sessions["anchor-1"] is root
+        assert proxy is not root
+
+    @pytest.mark.asyncio
+    async def test_sequential_share_connections_all_stay_reachable_from_root(self, new_user, monkeypatch):
+        # End-to-end regression for the run_blocks.py symptom: run a
+        # hot-connecting proxy script against the same live session twice
+        # in a row. The first proxy's set_value() reaches the root's
+        # browser; the root then must ALSO receive the second proxy's
+        # update, even though the first proxy has already disconnected by
+        # the time the second one connects.
+        from unisi.common import Unishare
+
+        monkeypatch.setattr(server_mod.config, "share", False)
+        root, _ = server_mod.make_user(self._req("session=anchor-2"))
+
+        monkeypatch.setattr(server_mod.config, "share", True)
+        proxy1, _ = server_mod.make_user(self._req("session=anchor-2"))
+        assert root.reflections == [root, proxy1]
+
+        await proxy1.delete()  # proxy.close() in run_blocks.py
+        assert root.reflections == [root]  # the lone, load-bearing self-reference
+
+        proxy2, _ = server_mod.make_user(self._req("session=anchor-2"))
+
+        assert Unishare.sessions["anchor-2"] is root
+        assert root in proxy2.reflections
+        assert proxy2.reflections is root.reflections
+
 
 class TestHandle:
     def test_registers_a_new_handler(self, new_user):

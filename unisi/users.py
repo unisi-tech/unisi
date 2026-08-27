@@ -102,11 +102,28 @@ class User(ModulesMixin, UserPersistMixin):
 
     async def broadcast(self, message, persist=True):
         screen = self.screen_module
-        if type(message) != str:
-            message = toJson(self.prepare_result(message, persist=persist))
-        await asyncio.gather(*[user.send(message)
-            for user in self.reflections
-                if user is not self and screen is user.screen_module])
+        prepared = self.prepare_result(message, persist=persist) if type(message) != str else message
+        same_screen_payload = prepared if type(prepared) == str else toJson(prepared)
+
+        async def deliver(user):
+            if user is self:
+                return
+            if user.screen_module is screen:
+                await user.send(same_screen_payload)
+            elif isinstance(prepared, Message):
+                # Different screen, but a unit can be shared (embedded) by more
+                # than one screen -- re-resolve paths against THIS recipient's
+                # own screen instead of reusing self's. fill_paths4 silently
+                # drops any unit not actually present there, so a genuinely
+                # unrelated screen still ends up with nothing sent, exactly as
+                # before.
+                retargeted = Message(*(u['data'] for u in prepared.updates), user=user, type=prepared.type)
+                if hasattr(prepared, 'value'):
+                    retargeted.value = prepared.value
+                if retargeted.updates:
+                    await user.send(toJson(retargeted))
+
+        await asyncio.gather(*(deliver(user) for user in self.reflections))
 
     async def reflect(self, message, result, persist=True):
         # message is None for an out-of-band reflect not tied to an incoming
@@ -136,8 +153,8 @@ class User(ModulesMixin, UserPersistMixin):
             self.voice.stop()                
         if self.reflections: #reflections is common array
             self.reflections.remove(self) #not optimized for len == 1 -> clear(), because weird bug occurs
-        elif (uss := Unishare.sessions) and uss.get(self.session):
-            del uss[self.session]            
+        if not self.reflections and Unishare.sessions.get(self.session) is self:
+            del Unishare.sessions[self.session]
         if notify_monitor:
             await notify_monitor('-', self.session, self.last_message)
         if config.share:

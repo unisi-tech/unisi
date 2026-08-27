@@ -591,6 +591,57 @@ class TestBroadcast:
         payload = json.loads(partner.sent[0])
         assert payload["updates"][0]["data"]["name"] == "Plain"
 
+    @pytest.mark.asyncio
+    async def test_shared_unit_reaches_a_different_screen_that_also_displays_it(self, make_user):
+        # A block/unit can be embedded in more than one screen (e.g.
+        # test_apps/blocks' tblock.eblock, imported by both the "Blocks"
+        # and "Panda params" screens). A reflection currently looking at a
+        # DIFFERENT screen than the one the change came from must still be
+        # updated, as long as that other screen also displays the changed
+        # unit -- with a path re-resolved against ITS OWN layout (which may
+        # nest the shared unit differently), not self's.
+        import json
+        from unisi.containers import Block
+
+        user = make_user("home")
+        shared = user.screen_module.plain_edit  # lives in Home's "Root" block
+
+        class FakeModule:
+            def __init__(self, screen):
+                self.screen = screen
+
+        class FakeScreen:
+            def __init__(self, blocks):
+                self.blocks = blocks
+                self.toolbar = []
+
+        def recorder():
+            sent = []
+            async def send(message):
+                sent.append(message)
+            send.sent = sent
+            return send
+
+        # Same `shared` object, nested one level deeper than on Home --
+        # proving the path is genuinely recomputed, not reused verbatim.
+        other_side = make_user("other")
+        other_side.screen_module = FakeModule(FakeScreen([Block('Imported', Block('Nested', shared))]))
+        other_side.send = recorder()
+
+        unrelated = make_user("other")  # a genuinely unrelated screen
+        unrelated.send = recorder()
+
+        user.reflections = [user, other_side, unrelated]
+
+        await user.broadcast(shared)
+
+        assert len(other_side.send.sent) == 1
+        payload = json.loads(other_side.send.sent[0])
+        assert payload["updates"][0]["data"]["name"] == "Plain"
+        assert payload["updates"][0]["path"] == ["Plain", "Nested", "Imported"]
+
+        assert unrelated.send.sent == []  # not present on that screen at all
+
 
 class TestReflect:
     @pytest.mark.asyncio

@@ -59,15 +59,25 @@ def make_user(request):
         user_id = parsed_query.get('id', [User.count])[0]
         session = f'{generate_random_string()}-{user_id}'      
           
+    register = True
     if config.share and 'session' in parsed_query:
-        user = Unishare.sessions.get(session, None)
-        if not user:
+        root = Unishare.sessions.get(session, None)
+        if not root:
             error = f'Session id "{session}" is unknown. Connection refused!'
             with logging_lock:
                 logging.error(error)
             return None, Error(error)
-        user = User.type(session, user, screen=requested_screen)
+        user = User.type(session, root, screen=requested_screen)
         ok = user.screens
+        # Don't overwrite Unishare.sessions[session]: it must keep pointing
+        # at `root`, the stable session every future share='session' lookup
+        # (and the reflections group itself) is anchored to. Registering
+        # `user` (a transient proxy/reflection) here instead makes the NEXT
+        # such connect share=this one rather than the real root -- and once
+        # this one disconnects, that next connect's own reflections list
+        # gets rebuilt from a dead object, silently dropping the root out of
+        # the broadcast group.
+        register = False
     elif config.mirror and User.count:
         user = User.type(session, User.last_user, screen=requested_screen)
         ok = user.screens
@@ -75,7 +85,8 @@ def make_user(request):
         user = User.type(session, screen=requested_screen)
         ok = user.screens
     User.count += 1
-    Unishare.sessions[session] = user 
+    if register:
+        Unishare.sessions[session] = user 
     return user, ok
 
 def handle(unit, event):
