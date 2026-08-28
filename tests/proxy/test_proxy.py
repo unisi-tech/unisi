@@ -192,7 +192,7 @@ class TestSetScreen:
         fake_conn.queue_message(screen_dict('Settings', menu=menu))
         assert p.set_screen('Settings') is True
         assert p.screen['name'] == 'Settings'
-        assert fake_conn.last_sent == {'block': 'root', 'element': None, 'value': 'Settings'}
+        assert fake_conn.last_sent == {'path': ['root'], 'value': 'Settings'}
 
     def test_returns_false_when_server_does_not_respond_with_a_screen(self, fake_conn):
         menu = [['Home', 'home'], ['Settings', 'gear']]
@@ -524,15 +524,14 @@ class TestMakeMessage:
         block = Block('Panel', Edit('Name', 'x'))
         p = make_proxy(fake_conn, screen_dict('Home', blocks=[block]))
         msg = p.make_message(p.element('Name'), 'new-value')
-        assert msg.block == 'Panel'
-        assert msg.element == 'Name'
+        assert msg.path == ['Name', 'Panel']
         assert msg.event == 'changed'
         assert msg.value == 'new-value'
 
     def test_resolves_string_element_name(self, fake_conn):
         block = Block('Panel', Edit('Name', 'x'))
         p = make_proxy(fake_conn, screen_dict('Home', blocks=[block]))
-        assert p.make_message('Name', 'new-value').element == 'Name'
+        assert p.make_message('Name', 'new-value').path[0] == 'Name'
 
     def test_returns_none_for_missing_element(self, fake_conn):
         p = make_proxy(fake_conn)
@@ -568,7 +567,7 @@ class TestSetValue:
         event = p.set_value('Name', 'new')
 
         assert p.element('Name')['value'] == 'new'  # optimistic local update
-        assert fake_conn.last_sent == {'block': 'Panel', 'element': 'Name', 'event': 'changed', 'value': 'new'}
+        assert fake_conn.last_sent == {'path': ['Name', 'Panel'], 'event': 'changed', 'value': 'new'}
         assert event == Event.update
 
     def test_returns_invalid_for_missing_element_without_sending_anything(self, fake_conn):
@@ -594,7 +593,7 @@ class TestCommand:
 
         event = p.command('Save')
 
-        assert fake_conn.last_sent == {'block': 'Panel', 'element': 'Save', 'event': 'changed', 'value': None}
+        assert fake_conn.last_sent == {'path': ['Save', 'Panel'], 'event': 'changed', 'value': None}
         assert event == Event.update
 
     def test_passes_a_value_through(self, fake_conn):
@@ -636,8 +635,8 @@ class TestRequestMethod:
     def test_sends_json_and_returns_the_processed_event(self, fake_conn):
         p = make_proxy(fake_conn)
         fake_conn.queue_message({'type': 'dialog', 'name': 'Sure?', 'commands': ['Ok'], 'value': []})
-        event = p.request(ArgObject(block='root', element=None, value='X'))
-        assert fake_conn.last_sent == {'block': 'root', 'element': None, 'value': 'X'}
+        event = p.request(ArgObject(path=['root'], value='X'))
+        assert fake_conn.last_sent == {'path': ['root'], 'value': 'X'}
         assert event == Event.dialog
 
     def test_receives_without_sending_when_message_is_none(self, fake_conn):
@@ -731,7 +730,7 @@ class TestDialog:
         fake_conn.queue_message({'type': 'update', 'updates': []})
         event = p.dialog_responce('Ok')
 
-        assert fake_conn.last_sent == {'block': 'Sure?', 'value': 'Ok'}
+        assert fake_conn.last_sent == {'path': ['Sure?'], 'value': 'Ok'}
         assert event == Event.update
 
 

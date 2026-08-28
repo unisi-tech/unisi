@@ -44,7 +44,7 @@ async def test_progress_ticks_do_not_write_to_disk(make_user, wire_send, count_w
 
     from unisi.common import ReceivedMessage
 
-    msg = ReceivedMessage({"block": "Root", "element": "Run task", "event": "changed", "value": None})
+    msg = ReceivedMessage({"path": ["Run task", "Root"], "event": "changed", "value": None})
     result = await user.result4message(msg)  # runs status="step1"->progress->"step2"->progress->"step3"
 
     assert count_writes.changed == []  # nothing written while the handler (incl. both progress ticks) ran
@@ -60,7 +60,7 @@ async def test_progress_ticks_do_not_lose_the_final_value(make_user, wire_send, 
     send = wire_send(user)
     from unisi.common import ReceivedMessage
 
-    msg = ReceivedMessage({"block": "Root", "element": "Run task", "event": "changed", "value": None})
+    msg = ReceivedMessage({"path": ["Run task", "Root"], "event": "changed", "value": None})
     result = await user.result4message(msg)
     await send(result)
 
@@ -80,7 +80,7 @@ async def test_progress_ticks_still_deliver_interim_updates_to_the_client(make_u
     send = wire_send(user)
     from unisi.common import ReceivedMessage
 
-    msg = ReceivedMessage({"block": "Root", "element": "Run task", "event": "changed", "value": None})
+    msg = ReceivedMessage({"path": ["Run task", "Root"], "event": "changed", "value": None})
     result = await user.result4message(msg)
     await send(result)
 
@@ -100,14 +100,14 @@ async def test_dialog_close_notice_does_not_write_before_the_callback_runs(
     from unisi.common import ReceivedMessage
 
     open_msg = ReceivedMessage(
-        {"block": "Root", "element": "Open dialog", "event": "changed", "value": None}
+        {"path": ["Open dialog", "Root"], "event": "changed", "value": None}
     )
     result = await user.result4message(open_msg)
     await send(result)
     assert user.active_dialog is not None
     count_writes.changed.clear()
 
-    ok_msg = ReceivedMessage({"block": "Confirm?", "element": "Ok", "event": "changed", "value": None})
+    ok_msg = ReceivedMessage({"path": ["Ok", "Confirm?"], "event": "changed", "value": None})
     result2 = await user.result4message(ok_msg)  # sends the close notice, THEN runs dialog_callback
 
     assert count_writes.changed == []  # close notice alone must not have saved anything
@@ -131,7 +131,7 @@ async def test_keyed_persist_is_also_deferred_and_not_lost(make_user, wire_send,
     # than also involving the separate first-ever-evaluation code path
     # (see test_keyed_persist.py's test_first_ever_edit_to_a_keyed_field_is_saved_immediately)
     async def _deliver(block, element, value):
-        m = ReceivedMessage({"block": block, "element": element, "event": "changed", "value": value})
+        m = ReceivedMessage({"path": [element, *block.split('@')] if element else [block], "event": "changed", "value": value})
         r = await user.result4message(m)
         await send(r)
 
@@ -141,7 +141,7 @@ async def test_keyed_persist_is_also_deferred_and_not_lost(make_user, wire_send,
     # a progress() (persist=False internally) in between two edits under the
     # SAME key must not write early, and must not cause the edit to be lost
     msg1 = ReceivedMessage(
-        {"block": "Root", "element": "Single key field", "event": "changed", "value": "first"}
+        {"path": ["Single key field", "Root"], "event": "changed", "value": "first"}
     )
     await user.result4message(msg1)
     await user.progress("halfway")  # persist=False internally
@@ -167,7 +167,7 @@ async def test_multiple_progress_calls_before_one_real_change_accumulate_correct
     from unisi.common import ReceivedMessage
 
     user.last_message = ReceivedMessage(
-        {"block": "Root", "element": "trigger", "event": "changed", "value": None}
+        {"path": ["trigger", "Root"], "event": "changed", "value": None}
     )
 
     mod.flagged.value = "a"

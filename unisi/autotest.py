@@ -47,7 +47,7 @@ class Recorder:
         if fname:
             self.ignored_1message = True
             module = User.last_user.screen_module
-            self.accept(ArgObject(block = 'root', element = None,
+            self.accept(ArgObject(path = ['root'],
                 event = 'changed', value = module.name), module.screen)
             self.ignored_1message = False
 

@@ -69,10 +69,11 @@ async def test_a_persist_true_block_saves_its_whole_subtree(make_user, deliver):
     # unlike keyed persist which never targets a container (see spec 13.2).
     # `plain_block` has no persist flag in the fixture screen itself, so it's
     # flipped on here for just this test, then a real message touches one of
-    # its children -- message.block addresses a nested element leaf-first,
-    # innermost container first, root last (same convention as persist paths
-    # -- see find_element and _unit_path_key), so "Plain block@Root" reaches
-    # `plain`, which lives in "Plain block", which lives in "Root".
+    # its children -- deliver()'s `block` argument (still "innermost@...@root",
+    # kept for test readability) becomes message.path[1:], innermost container
+    # first, root last (same convention as persist paths -- see find_element
+    # and _unit_path_key), so "Plain block@Root" reaches `plain`, which lives
+    # in "Plain block", which lives in "Root".
     user = make_user("positional")
     user.screen_module.plain_block.persist = True
 

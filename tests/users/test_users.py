@@ -28,7 +28,8 @@ from unisi.utils import testdir
 
 def received(block, element, event, value=None):
     """Shorthand for building an incoming client message."""
-    return ReceivedMessage({"block": block, "element": element, "event": event, "value": value})
+    path = [element, *block.split('@')] if element else [block]
+    return ReceivedMessage({"path": path, "event": event, "value": value})
 
 
 class FakeReflectionUser:
@@ -410,14 +411,14 @@ class TestProcess:
         user = make_user("home")
         assert user.voice is None
 
-        await user.process(ReceivedMessage({"block": "voice", "element": None, "event": "changed", "value": "hi"}))
+        await user.process(ReceivedMessage({"path": ["voice"], "event": "changed", "value": "hi"}))
 
         assert isinstance(user.voice, VoiceCom)
 
     @pytest.mark.asyncio
     async def test_voice_listen_true_starts_listening(self, make_user):
         user = make_user("home")
-        listen_msg = ReceivedMessage({"block": "voice", "element": None, "event": "listen", "value": True})
+        listen_msg = ReceivedMessage({"path": ["voice"], "event": "listen", "value": True})
 
         await user.process(listen_msg)
 
@@ -428,7 +429,7 @@ class TestProcess:
         user = make_user("home")
         stopped = []
         user.voice = type("FakeVoice", (), {"stop": lambda self: stopped.append(True)})()
-        listen_msg = ReceivedMessage({"block": "voice", "element": None, "event": "listen", "value": False})
+        listen_msg = ReceivedMessage({"path": ["voice"], "event": "listen", "value": False})
 
         await user.process(listen_msg)
 
@@ -473,7 +474,7 @@ class TestResult4MessageDialogs:
         user.active_dialog = dialog
 
         await user.result4message(
-            ReceivedMessage({"block": dialog.name, "element": None, "event": "changed", "value": "Ok"})
+            ReceivedMessage({"path": [dialog.name], "event": "changed", "value": "Ok"})
         )
 
         assert seen == ["Ok"]
@@ -502,12 +503,12 @@ class TestScreenProcessAndSetScreen:
     @pytest.mark.asyncio
     async def test_navigating_to_the_current_screen_returns_true(self, make_user):
         user = make_user("home")
-        msg = ReceivedMessage({"block": "root", "element": None, "value": "Home"})
+        msg = ReceivedMessage({"path": ["root"], "value": "Home"})
         assert user.screen_process(msg) is True
 
     def test_navigating_to_an_unknown_screen_returns_an_error(self, make_user):
         user = make_user("home")
-        msg = ReceivedMessage({"block": "root", "element": None, "value": "NoSuchScreen"})
+        msg = ReceivedMessage({"path": ["root"], "value": "NoSuchScreen"})
         result = user.screen_process(msg)
         assert isinstance(result, Message)
         assert "Unknown screen name" in result.value
@@ -526,7 +527,7 @@ class TestScreenProcessAndSetScreen:
                 self.calls.append(("start",))
         user.voice = FakeVoice()
 
-        result = user.screen_process(ReceivedMessage({"block": "root", "element": None, "value": "Other"}))
+        result = user.screen_process(ReceivedMessage({"path": ["root"], "value": "Other"}))
 
         assert result is True
         assert user.screen_module.name == "Other"
@@ -537,7 +538,7 @@ class TestScreenProcessAndSetScreen:
         user = make_user("home")
         home = user.screen_module
 
-        result = user.screen_process(ReceivedMessage({"block": "root", "element": None, "value": "Home"}))
+        result = user.screen_process(ReceivedMessage({"path": ["root"], "value": "Home"}))
 
         assert result is True
         assert user.screen_module is home
@@ -665,7 +666,7 @@ class TestReflect:
         user = make_user("home")
         partner = FakeReflectionUser(user.screen_module)
         user.reflections = [user, partner]
-        nav_msg = ReceivedMessage({"block": "root", "element": None, "value": "Home"})
+        nav_msg = ReceivedMessage({"path": ["root"], "value": "Home"})
 
         await user.reflect(nav_msg, "some result")
 

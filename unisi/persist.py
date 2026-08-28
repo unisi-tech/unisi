@@ -953,7 +953,7 @@ class UserPersistMixin:
         """True if `unit` is the element the current incoming message is directly
         about — i.e. the client just edited it and already knows its state."""
         m = self.last_message
-        return bool(m) and m.element == unit.name
+        return bool(m) and bool(m.path) and m.path[0] == unit.name
 
     def _set_persist_active(self, unit, value):
         """Set unit.active — silently (no client notification) if the client is, in

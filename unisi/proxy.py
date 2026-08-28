@@ -103,7 +103,7 @@ class Proxy:
         """
         if name not in self.screen_menu:
             return False
-        mtype = self.request(ArgObject(block='root', element=None, value=name))
+        mtype = self.request(ArgObject(path=['root'], value=name))
         return mtype == Event.screen
 
     # ──────────────────────────────────────────────
@@ -180,18 +180,24 @@ class Proxy:
                     return candidate
         return None
 
-    def _block_path(self, block_dict):
+    def _ancestor_chain(self, block_dict):
         """
-        Return the '@'-separated path string the server expects in the 'block'
-        field of a message: 'inner@outer' (deepest first, matching strpath /
-        find_element logic in users.py).
-
-        Top-level blocks return just their own name.
+        Return the ancestor chain for *block_dict* as a list: [block_dict's
+        own name, *its parent's chain...], immediate block first. This is
+        exactly path[1:] for any element living directly inside it (see
+        find_path() server-side, which builds path the same way).
         """
         parent = self._find_parent_block(block_dict)
-        if parent is None:
-            return block_dict['name']
-        return f'{block_dict["name"]}@{self._block_path(parent)}'
+        name = block_dict['name']
+        return [name] if parent is None else [name, *self._ancestor_chain(parent)]
+
+    def _block_path(self, block_dict):
+        """
+        Return the '@'-joined display form of _ancestor_chain(block_dict),
+        for the public block_name() API: 'inner@outer', deepest first.
+        Top-level blocks return just their own name.
+        """
+        return '@'.join(self._ancestor_chain(block_dict))
 
     def _owning_block(self, element):
         """
@@ -430,9 +436,10 @@ class Proxy:
             return None
         if event != 'changed' and event not in element:
             return None
+        owning = self._owning_block(element)
+        ancestors = self._ancestor_chain(owning) if owning is not None else []
         return ArgObject(
-            block=self.block_name(element),
-            element=element['name'],
+            path=[element['name'], *ancestors],
             event=event,
             value=value,
         )
@@ -487,7 +494,7 @@ class Proxy:
         if not self.dialog:
             self.event = Event.invalid
             return self.event
-        return self.interact(ArgObject(block=self.dialog['name'], value=command))
+        return self.interact(ArgObject(path=[self.dialog['name']], value=command))
 
     # ──────────────────────────────────────────────
     # Message processing

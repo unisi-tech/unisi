@@ -20,3 +20,15 @@ Traceback (most recent call last):
   File "/home/george/Projects/unisi/unisi/server.py", line 75, in make_user
     user = User.type(session, screen=requested_screen)
 TypeError: Hello_user.__init__() got an unexpected keyword argument 'screen'
+2026-08-28 22:49:56,059 - INFO - session: nAoI2KpFDA-0, screen: Blocks, message: None
+  User is connected, session: nAoI2KpFDA-0, share: None
+2026-08-28 22:52:59,133 - ERROR - Session id "C0UqQkSisd-0" is unknown. Connection refused!
+2026-08-28 22:53:34,709 - ERROR - Session id "C0UqQkSisd-0" is unknown. Connection refused!
+2026-08-28 22:54:20,530 - ERROR - Session id "C0UqQkSisd-0" is unknown. Connection refused!
+2026-08-28 22:57:13,953 - INFO - session: al4pfehpyG-0, screen: Blocks, message: None
+  User is connected, session: al4pfehpyG-0, share: None
+2026-08-28 22:57:27,319 - ERROR - Session id "C0UqQkSisd-0" is unknown. Connection refused!
+2026-08-28 22:59:53,389 - INFO - session: al4pfehpyG-0, screen: Panda params, message: None
+  User is connected, session: al4pfehpyG-0, share: al4pfehpyG-0
+2026-08-28 22:59:53,405 - INFO - session: al4pfehpyG-0, screen: Panda params, message: Edit string@Embedded block@Shared block->changed(123)
+  User is disconnected, session: al4pfehpyG-0

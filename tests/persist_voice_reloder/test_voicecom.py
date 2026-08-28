@@ -736,7 +736,7 @@ async def test_voice_is_lazily_created_on_first_voice_message(make_user):
     user = make_user("voice_target")
     assert user.voice is None
 
-    msg = ReceivedMessage({"block": "voice", "element": None, "event": "listen", "value": True})
+    msg = ReceivedMessage({"path": ["voice"], "event": "listen", "value": True})
     await user.process(msg)
 
     assert user.voice is not None
@@ -748,11 +748,11 @@ async def test_listen_true_starts_and_listen_false_stops(make_user):
     from unisi.common import ReceivedMessage
 
     user = make_user("voice_target")
-    start_msg = ReceivedMessage({"block": "voice", "element": None, "event": "listen", "value": True})
+    start_msg = ReceivedMessage({"path": ["voice"], "event": "listen", "value": True})
     await user.process(start_msg)
     assert user.voice.block in user.screen.blocks
 
-    stop_msg = ReceivedMessage({"block": "voice", "element": None, "event": "listen", "value": False})
+    stop_msg = ReceivedMessage({"path": ["voice"], "event": "listen", "value": False})
     await user.process(stop_msg)
     assert user.voice.block not in user.screen.blocks
 
@@ -762,11 +762,11 @@ async def test_non_listen_voice_message_is_routed_to_process_string(make_user):
     from unisi.common import ReceivedMessage
 
     user = make_user("voice_target")
-    start_msg = ReceivedMessage({"block": "voice", "element": None, "event": "listen", "value": True})
+    start_msg = ReceivedMessage({"path": ["voice"], "event": "listen", "value": True})
     await user.process(start_msg)
 
     speech_msg = ReceivedMessage(
-        {"block": "voice", "element": None, "event": "speech", "value": "text field"}
+        {"path": ["voice"], "event": "speech", "value": "text field"}
     )
     await user.process(speech_msg)
 
@@ -778,7 +778,7 @@ async def test_voice_follows_the_user_to_a_new_screen(make_user, deliver):
     user = make_user("voice_target")
     from unisi.common import ReceivedMessage
 
-    start_msg = ReceivedMessage({"block": "voice", "element": None, "event": "listen", "value": True})
+    start_msg = ReceivedMessage({"path": ["voice"], "event": "listen", "value": True})
     await user.process(start_msg)
     assert user.voice.block in user.screen.blocks
 

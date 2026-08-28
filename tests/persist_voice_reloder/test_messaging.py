@@ -46,7 +46,7 @@ class TestRegisterChangedUnitEchoSuppression:
         user = make_user("positional")
         unit = user.screen_module.flagged
         user.last_message = ReceivedMessage(
-            {"block": "Root", "element": "some other button", "event": "changed", "value": None}
+            {"path": ["some other button", "Root"], "event": "changed", "value": None}
         )
 
         user.register_changed_unit(unit)
@@ -60,7 +60,7 @@ class TestRegisterChangedUnitEchoSuppression:
         user = make_user("positional")
         unit = user.screen_module.flagged
         user.last_message = ReceivedMessage(
-            {"block": "Root", "element": "Flagged", "event": "changed", "value": "same"}
+            {"path": ["Flagged", "Root"], "event": "changed", "value": "same"}
         )
 
         user.register_changed_unit(unit, "value", "same")
@@ -71,7 +71,7 @@ class TestRegisterChangedUnitEchoSuppression:
         user = make_user("positional")
         unit = user.screen_module.flagged
         user.last_message = ReceivedMessage(
-            {"block": "Root", "element": "Flagged", "event": "changed", "value": "typed value"}
+            {"path": ["Flagged", "Root"], "event": "changed", "value": "typed value"}
         )
 
         # e.g. a handler normalized/overrode what the client sent
@@ -82,20 +82,12 @@ class TestRegisterChangedUnitEchoSuppression:
     def test_modify_event_on_the_same_element_and_block_is_suppressed(self, make_user):
         user = make_user("positional")
         unit = user.screen_module.flagged
-        # the 'modify' echo-suppression check compares m.block against
-        # strpath(find_path(unit)), which -- unlike the block/element split
-        # used elsewhere -- includes the element's own name (see find_path:
-        # it returns [unit.name, *ancestors]), hence "Flagged@Root" here,
-        # not just "Root".
-        from unisi.common import strpath
-
+        # the echo-suppression check is a plain `path == find_path(unit)`
+        # comparison now - no more special case for `block` meaning something
+        # different here (the full path, element name included) than it does
+        # everywhere else (just the ancestor chain).
         user.last_message = ReceivedMessage(
-            {
-                "block": strpath(user.find_path(unit)),
-                "element": "Flagged",
-                "event": "modify",
-                "value": "partial",
-            }
+            {"path": user.find_path(unit), "event": "modify", "value": "partial"}
         )
 
         result = user.register_changed_unit(unit)
@@ -107,7 +99,7 @@ class TestRegisterChangedUnitEchoSuppression:
         user = make_user("positional")
         unit = user.screen_module.flagged
         user.last_message = ReceivedMessage(
-            {"block": "Root", "element": "some other field", "event": "modify", "value": "partial"}
+            {"path": ["some other field", "Root"], "event": "modify", "value": "partial"}
         )
 
         user.register_changed_unit(unit)
@@ -126,7 +118,7 @@ class TestPrepareResultRawShapes:
         user = make_user("positional")
         unit = user.screen_module.flagged
         user.last_message = ReceivedMessage(
-            {"block": "Root", "element": "trigger", "event": "changed", "value": None}
+            {"path": ["trigger", "Root"], "event": "changed", "value": None}
         )
         user.register_changed_unit(unit)
 
@@ -178,14 +170,14 @@ class TestPrepareResultRawShapes:
 
 def test_find_element_resolves_a_top_level_unit(make_user):
     user = make_user("positional")
-    msg = ReceivedMessage({"block": "Root", "element": "Flagged", "event": "changed", "value": "x"})
+    msg = ReceivedMessage({"path": ["Flagged", "Root"], "event": "changed", "value": "x"})
     assert user.find_element(msg) is user.screen_module.flagged
 
 
 def test_find_element_resolves_a_nested_unit(make_user):
     user = make_user("positional")
     msg = ReceivedMessage(
-        {"block": "Plain block@Root", "element": "Plain", "event": "changed", "value": "x"}
+        {"path": ["Plain", "Plain block", "Root"], "event": "changed", "value": "x"}
     )
     assert user.find_element(msg) is user.screen_module.plain
 
@@ -193,6 +185,6 @@ def test_find_element_resolves_a_nested_unit(make_user):
 def test_find_element_returns_none_for_an_unknown_element(make_user):
     user = make_user("positional")
     msg = ReceivedMessage(
-        {"block": "Root", "element": "Does not exist", "event": "changed", "value": "x"}
+        {"path": ["Does not exist", "Root"], "event": "changed", "value": "x"}
     )
     assert user.find_element(msg) is None

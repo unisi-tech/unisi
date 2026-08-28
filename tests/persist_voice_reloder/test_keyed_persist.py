@@ -157,10 +157,10 @@ async def test_keyed_restore_needs_a_prepare_result_pass_unlike_positional(make_
         return user1.prepare_result(res, persist=persist)
 
     user1.send = _send
-    msg = ReceivedMessage({"block": "Root", "element": "Selector", "event": "changed", "value": "A"})
+    msg = ReceivedMessage({"path": ["Selector", "Root"], "event": "changed", "value": "A"})
     await user1.result4message(msg)
     await user1.send(None)
-    msg2 = ReceivedMessage({"block": "Root", "element": "Single key field", "event": "changed", "value": "kept"})
+    msg2 = ReceivedMessage({"path": ["Single key field", "Root"], "event": "changed", "value": "kept"})
     await user1.result4message(msg2)
     await user1.send(None)
 

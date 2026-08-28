@@ -5,7 +5,7 @@ from unisi import Proxy, Event
 # 1. run blocks test app and switch to Panda params screen
 # 2. insert session from Hello user output to 'session variable below' #
 
-session = 'C0UqQkSisd-0' # <-- insert session from Hello user output here
+session = 'al4pfehpyG-0' # <-- insert session from Hello user output here
 
 sname = 'Panda params'
 

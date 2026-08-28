@@ -396,40 +396,33 @@ class TestArgObject:
 
 class TestReceivedMessage:
     def test_fields_come_from_the_dict(self):
-        msg = ReceivedMessage({"block": "B", "element": "E", "event": "changed", "value": 5})
-        assert msg.block == "B"
-        assert msg.element == "E"
+        msg = ReceivedMessage({"path": ["E", "B"], "event": "changed", "value": 5})
+        assert msg.path == ["E", "B"]
         assert msg.event == "changed"
         assert msg.value == 5
 
     def test_missing_field_is_none_not_an_error(self):
-        msg = ReceivedMessage({"block": "B"})
-        assert msg.element is None
+        msg = ReceivedMessage({"path": ["B"]})
         assert msg.event is None
 
     def test_str_format(self):
-        msg = ReceivedMessage({"block": "B", "element": "E", "event": "changed", "value": 5})
-        assert str(msg) == "B/E->changed(5)"
+        msg = ReceivedMessage({"path": ["E", "B"], "event": "changed", "value": 5})
+        assert str(msg) == "E@B->changed(5)"
 
-    def test_screen_type_true_for_root_block_no_element(self):
-        msg = ReceivedMessage({"block": "root", "element": None})
-        assert msg.screen_type is True
+    def test_screen_type_true_for_root_path(self):
+        assert ReceivedMessage({"path": ["root"]}).screen_type is True
 
-    def test_screen_type_false_when_element_present(self):
-        msg = ReceivedMessage({"block": "root", "element": "E"})
-        assert msg.screen_type is False
+    def test_screen_type_false_when_nested_under_root(self):
+        assert ReceivedMessage({"path": ["E", "root"]}).screen_type is False
 
-    def test_screen_type_false_for_non_root_block(self):
-        msg = ReceivedMessage({"block": "other", "element": None})
-        assert msg.screen_type is False
+    def test_screen_type_false_for_non_root_path(self):
+        assert ReceivedMessage({"path": ["other"]}).screen_type is False
 
-    def test_voice_type_true_for_voice_block_no_element(self):
-        msg = ReceivedMessage({"block": "voice", "element": None})
-        assert msg.voice_type is True
+    def test_voice_type_true_for_voice_path(self):
+        assert ReceivedMessage({"path": ["voice"]}).voice_type is True
 
-    def test_voice_type_false_for_other_block(self):
-        msg = ReceivedMessage({"block": "root", "element": None})
-        assert msg.voice_type is False
+    def test_voice_type_false_for_other_path(self):
+        assert ReceivedMessage({"path": ["root"]}).voice_type is False
 
 
 class TestToJson:
@@ -737,7 +730,7 @@ class TestTypeMessageShortcuts:
         assert e.updates == [{"data": a}]
 
     def test_answer_sets_type_value_and_message(self):
-        original_msg = ReceivedMessage({"block": "B", "element": "E", "event": "complete"})
+        original_msg = ReceivedMessage({"path": ["E", "B"], "event": "complete"})
         ans = Answer("complete", original_msg, "the result")
         assert ans.type == "complete"
         assert ans.value == "the result"

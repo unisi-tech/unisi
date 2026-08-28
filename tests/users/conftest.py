@@ -191,9 +191,8 @@ def deliver(wire_send):
     async def _deliver(user, block, element, event, value=None, persist=True):
         if not getattr(user, "send", None):
             wire_send(user)
-        msg = ReceivedMessage(
-            {"block": block, "element": element, "event": event, "value": value}
-        )
+        path = [element, *block.split('@')] if element else [block]
+        msg = ReceivedMessage({"path": path, "event": event, "value": value})
         result = await user.result4message(msg)
         sent = await user.send(result, persist=persist)
         return result, sent

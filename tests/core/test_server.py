@@ -451,7 +451,7 @@ class TestWebsocketHandler:
         async with app_client.ws_connect("/ws") as ws:
             await ws.receive_json()  # initial screen
             await ws.send_str(toJson({
-                "block": "Root", "element": "Save", "event": "changed", "value": "x",
+                "path": ["Save", "Root"], "event": "changed", "value": "x",
             }))
             # on_save's return value ("saved", already a str) is sent
             # via send()'s `if type(res) != str` fast path -- straight
@@ -473,8 +473,8 @@ class TestWebsocketHandler:
         async with app_client.ws_connect("/ws") as ws:
             await ws.receive_json()  # initial screen
             batch = [
-                {"block": "Root", "element": "Save", "event": "changed", "value": "batch-1"},
-                {"block": "Root", "element": "Plain", "event": "changed", "value": "batch-2"},
+                {"path": ["Save", "Root"], "event": "changed", "value": "batch-1"},
+                {"path": ["Plain", "Root"], "event": "changed", "value": "batch-2"},
             ]
             await ws.send_str(json.dumps(batch))
             reply = await ws.receive_str()

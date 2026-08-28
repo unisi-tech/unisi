@@ -178,7 +178,7 @@ class User(ModulesMixin, UserPersistMixin):
         return self.screen_module.screen if self.screen_module else empty_app
 
     def set_screen(self, name):
-        return self.screen_process(ArgObject(block = 'root', element = None, value = name, screen_type = True))
+        return self.screen_process(ArgObject(path = ['root'], value = name, screen_type = True))
 
     def activate_session(self, session):
         was_testing = self.testing
@@ -193,7 +193,7 @@ class User(ModulesMixin, UserPersistMixin):
         result = None
         self.last_message = message
         if dialog := self.active_dialog:
-            if message.element is None: #dialog command button is pressed
+            if len(message.path) == 1: #dialog command button is pressed
                 self.active_dialog = None
                 if self.reflections:
                     # persist=False: this notice fires before dialog.changed (the
@@ -224,10 +224,10 @@ class User(ModulesMixin, UserPersistMixin):
         if is_value_change:
             property = 'changed'
         if m := self.last_message:
-            if m.event == 'modify' and m.element == unit.name and (epath :=
-                self.find_path(unit)) and m.block == strpath(epath):
+            if m.event == 'modify' and (epath := self.find_path(unit)) and m.path == epath:
                 return False
-            if m.element != unit.name or property != m.event or value != m.value:
+            mtarget = m.path[0] if m.path else None
+            if mtarget != unit.name or property != m.event or value != m.value:
                 self.changed_units.add(unit)
         if is_value_change and getattr(unit, 'type', None) == 'block':
             self._refresh_parents_for_block(unit, value)
@@ -238,14 +238,12 @@ class User(ModulesMixin, UserPersistMixin):
             self.active_dialog.value else self.screen.blocks
 
     def find_element(self, message):
-        elname = message.element
-        mb = message.block
-        if mb == 'toolbar':
+        elname, *blnames = message.path
+        if blnames == ['toolbar']:
             for e in self.screen.toolbar:
                 if e.name == elname:
                     return e
         else:
-            blnames = message.block.split('@')
             root_block_name = blnames[-1]
             for bl in flatten(self.blocks):
                 if bl.name == root_block_name:
@@ -429,7 +427,7 @@ class User(ModulesMixin, UserPersistMixin):
             elem = self.find_element(message)
             if elem:
                 return await self.process_element(elem, message)
-            error = f'Element {message.element}@{message.block} does not exist!'
+            error = f'Element {strpath(message.path)} does not exist!'
             self.log(error)
             return Error(error)
 
@@ -456,7 +454,7 @@ class User(ModulesMixin, UserPersistMixin):
             #set attribute only for declared properties
             setattr(elem, event, message.value)
         else:
-            error = f"{message.element}@{message.block} doesn't contain '{event}' method type!"
+            error = f"{strpath(message.path)} doesn't contain '{event}' method type!"
             self.log(error)
             return Error(error)
 

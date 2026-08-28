@@ -249,7 +249,7 @@ class TestAutotestFileFunction:
     def test_passes_when_actual_matches_expected(self, new_user):
         user = new_user()
         self._write_fixture("passing.json", [
-            {"block": "Root", "element": "Save", "event": "changed", "value": "clicked"},
+            {"path": ["Save", "Root"], "event": "changed", "value": "clicked"},
             {"type": "update", "updates": [
                 {"data": {"name": "Result", "value": "saved:clicked", "x": 0, "type": "string"},
                  "path": ["Result", "Root"]},
@@ -260,7 +260,7 @@ class TestAutotestFileFunction:
     def test_fails_and_prints_diff_when_mismatched(self, new_user, capsys):
         user = new_user()
         self._write_fixture("failing.json", [
-            {"block": "Root", "element": "Save", "event": "changed", "value": "clicked"},
+            {"path": ["Save", "Root"], "event": "changed", "value": "clicked"},
             {"type": "update", "updates": [
                 {"data": {"name": "Result", "value": "THIS-IS-WRONG", "x": 0, "type": "string"},
                  "path": ["Result", "Root"]},
@@ -275,9 +275,9 @@ class TestAutotestFileFunction:
     def test_multiple_pairs_all_get_checked(self, new_user):
         user = new_user()
         self._write_fixture("multi.json", [
-            {"block": "Root", "element": "Plain", "event": "changed", "value": "x"},
+            {"path": ["Plain", "Root"], "event": "changed", "value": "x"},
             None,
-            {"block": "Root", "element": "Save", "event": "changed", "value": "y"},
+            {"path": ["Save", "Root"], "event": "changed", "value": "y"},
             {"type": "update", "updates": [
                 {"data": {"name": "Result", "value": "saved:y", "x": 0, "type": "string"},
                  "path": ["Result", "Root"]},
@@ -293,7 +293,7 @@ class TestAutotestFileFunction:
         user = new_user()
         fname = "close_check.json"
         self._write_fixture(fname, [
-            {"block": "Root", "element": "Plain", "event": "changed", "value": "x"},
+            {"path": ["Plain", "Root"], "event": "changed", "value": "x"},
             None,
         ])
         fixture_path = f"{autotest_mod.testdir}{autotest_mod.divpath}{fname}"
@@ -325,7 +325,7 @@ class TestDiffPrintingRobustness:
         AUTOTEST_DIR.mkdir(exist_ok=True)
         fname = "fake_diff.json"
         (AUTOTEST_DIR / fname).write_text(json.dumps([
-            {"block": "Root", "element": "Plain", "event": "changed", "value": "x"},
+            {"path": ["Plain", "Root"], "event": "changed", "value": "x"},
             {"whatever": "the real comparator is replaced below"},
         ]))
         monkeypatch.setattr(autotest_mod, "comparator", lambda e, a: fake_diff)
@@ -394,7 +394,7 @@ class TestRecorder:
         r.start("autotest/probe.json")
         assert len(r.record_buffer) == 1
 
-        r.accept(ArgObject(block="Root", element="OkButton", event="changed", value="ok"), "noise")
+        r.accept(ArgObject(path=["OkButton", "Root"], event="changed", value="ok"), "noise")
         assert len(r.record_buffer) == 1, "the message that started recording must not itself be recorded"
 
     def test_subsequent_real_messages_are_recorded(self, new_user):
@@ -402,9 +402,9 @@ class TestRecorder:
         autotest_mod.User.last_user = user
         r = autotest_mod.Recorder()
         r.start("autotest/probe.json")
-        r.accept(ArgObject(block="Root", element="OkButton", event="changed", value="ok"), "noise")  # skipped
+        r.accept(ArgObject(path=["OkButton", "Root"], event="changed", value="ok"), "noise")  # skipped
 
-        r.accept(ArgObject(block="Root", element="Save", event="changed", value="real"), {"type": "update"})
+        r.accept(ArgObject(path=["Save", "Root"], event="changed", value="real"), {"type": "update"})
         assert len(r.record_buffer) == 2
         assert "real" in r.record_buffer[1]
 
@@ -427,8 +427,8 @@ class TestRecorder:
         r = autotest_mod.Recorder()
         target = tmp_path / "probe.json"
         r.start(str(target))
-        r.accept(ArgObject(block="Root", element="OkButton", event="changed", value="ok"), "noise")
-        r.accept(ArgObject(block="Root", element="Save", event="changed", value="real"), {"type": "update"})
+        r.accept(ArgObject(path=["OkButton", "Root"], event="changed", value="ok"), "noise")
+        r.accept(ArgObject(path=["Save", "Root"], event="changed", value="real"), {"type": "update"})
 
         info = r.stop_recording(None, "Ok")
         assert info.type == "info"
@@ -437,7 +437,7 @@ class TestRecorder:
 
         data = json.loads(target.read_text())
         assert len(data) == 4  # 2 (message, response) pairs
-        assert data[2]["element"] == "Save"
+        assert data[2]["path"] == ["Save", "Root"]
         assert data[3] == {"type": "update"}
 
 
@@ -572,7 +572,7 @@ class TestRunTests:
         import config
         AUTOTEST_DIR.mkdir(exist_ok=True)
         pair = [
-            {"block": "Root", "element": "Plain", "event": "changed", "value": "x"},
+            {"path": ["Plain", "Root"], "event": "changed", "value": "x"},
             None,
         ]
         (AUTOTEST_DIR / "a.json").write_text(json.dumps(pair))
@@ -588,11 +588,11 @@ class TestRunTests:
         import config
         AUTOTEST_DIR.mkdir(exist_ok=True)
         passing = [
-            {"block": "Root", "element": "Plain", "event": "changed", "value": "x"},
+            {"path": ["Plain", "Root"], "event": "changed", "value": "x"},
             None,
         ]
         failing = [
-            {"block": "Root", "element": "Plain", "event": "changed", "value": "x"},
+            {"path": ["Plain", "Root"], "event": "changed", "value": "x"},
             {"type": "this-will-never-match"},
         ]
         (AUTOTEST_DIR / "included.json").write_text(json.dumps(passing))
@@ -669,12 +669,12 @@ class TestRecorderServerIntegration:
             # for that same message once handling returns) and is never
             # recorded. Send a throwaway message to stand in for it.
             await ws.send_str(toJson({
-                "block": "Root", "element": "Plain", "event": "changed", "value": "throwaway-start-noise",
+                "path": ["Plain", "Root"], "event": "changed", "value": "throwaway-start-noise",
             }))
             await ws.receive_str()
 
             await ws.send_str(toJson({
-                "block": "Root", "element": "Save", "event": "changed", "value": "clicked",
+                "path": ["Save", "Root"], "event": "changed", "value": "clicked",
             }))
             real_reply = json.loads(await ws.receive_str())
 
@@ -697,11 +697,11 @@ class TestRecorderServerIntegration:
             await ws.receive_json()
             recorder.start("autotest/roundtrip2.json")
             await ws.send_str(toJson({
-                "block": "Root", "element": "Plain", "event": "changed", "value": "throwaway-start-noise",
+                "path": ["Plain", "Root"], "event": "changed", "value": "throwaway-start-noise",
             }))
             await ws.receive_str()
             await ws.send_str(toJson({
-                "block": "Root", "element": "Save", "event": "changed", "value": "clicked-for-replay",
+                "path": ["Save", "Root"], "event": "changed", "value": "clicked-for-replay",
             }))
             await ws.receive_str()
             recorder.stop_recording(None, "Ok")

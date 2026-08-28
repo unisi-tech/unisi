@@ -113,13 +113,13 @@ class ReceivedMessage(ArgObject):
     def __init__(self, kwargs):
         self.__dict__.update(kwargs)
     def __str__(self):
-        return f'{self.block}/{self.element}->{self.event}({self.value})'    
+        return f'{strpath(self.path or [])}->{self.event}({self.value})'
     @property
     def screen_type(self):
-        return self.block == 'root' and self.element is None
+        return self.path == ['root']
     @property
     def voice_type(self):
-        return self.block == 'voice' and self.element is None
+        return self.path == ['voice']
 
 def toJson(obj):
     # keys=False is pinned deliberately, not left as an implicit default:
