@@ -81,6 +81,52 @@ class TestConstruction:
         assert user.reflections == []
         assert user.handlers == {}
 
+    def test_seeds_handlers_from_pending_handlers_registered_before_construction(
+        self, make_user
+    ):
+        """
+        A persistent Table() declared at plain module level -- a shared
+        table meant to be usable from backend code as well as from a
+        screen, so declared once at ordinary import time rather than
+        re-created inside each user's own screen compilation -- registers
+        its search/filter/changed handlers via handle() before a single
+        User has ever been constructed (User.last_user is None then). See
+        Unishare.pending_handlers / handle() in server.py: anything
+        registered in that state lands there instead of crashing, and this
+        is the other half of the fix -- every subsequently-constructed
+        User must actually pick it up, or the handler a real session needs
+        for e.g. search to work would simply never arrive.
+        """
+        from unisi.common import Unishare
+        from unisi.users import User
+
+        User.last_user = None
+        marker = object()
+        fn = lambda obj, value: None  # noqa: E731
+        Unishare.handle(marker, "search")(fn)
+
+        user = make_user(session=testdir)
+
+        assert user.handlers[(marker, "search")] is fn
+
+    def test_pending_handlers_seed_is_a_copy_not_shared_across_sessions(
+        self, make_user
+    ):
+        """Each independent (non-share=) session must accumulate its own
+        further handlers on top without leaking them into every other
+        session or into Unishare.pending_handlers itself."""
+        from unisi.common import Unishare
+        from unisi.users import User
+
+        User.last_user = None
+        Unishare.handle(object(), "search")(lambda obj, value: None)
+        pending_size_before = len(Unishare.pending_handlers)
+
+        user = make_user(session=testdir)
+        user.handlers[(object(), "changed")] = lambda obj, value: None
+
+        assert len(Unishare.pending_handlers) == pending_size_before
+
     def test_no_share_has_no_send_method(self, make_user):
         # send is only ever attached post-hoc (server.py's websocket
         # handler in production; wire_send() in these tests).

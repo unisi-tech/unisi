@@ -369,9 +369,43 @@ def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float | 
 
 
 def _equal_field_dicts(d1: dict, d2: dict) -> bool:
-    return d1.keys() == d2.keys() and all(
-        d1[k].upper() == d2[k].upper() for k in d1
-    )
+    """
+    True if d1 (existing, on-disk schema) and d2 (freshly declared fields)
+    describe the same table for Smart Schema Evolution purposes.
+
+    d1 is allowed exactly one extra column beyond d2: "link_id" (see
+    Dbtable.LINK_ID). A many-to-one Table(link=...) always ends up with
+    this column, but it's added by Dbtable.setup_fk() *after* get_table()
+    already ran and compared schemas (see Table.__init__ in tables.py,
+    where setup_fk() is only reachable once self.rows -- and therefore the
+    Dbtable this comparison is for -- already exists). So on every restart
+    against an existing linked table, d1 legitimately has link_id and d2
+    (the caller's plain `fields=` dict, which never mentions the FK column
+    it didn't ask for by name) never will.
+
+    Without this allowance, every single restart of a server with any
+    Table(link=...) triggers an interactive "SCHEMA CHANGE DETECTED"
+    migration prompt (input()) for that table, forever, even though
+    nothing about its fields ever changed -- confirmed by running the same
+    app twice in a row against its own freshly-created database. For a
+    headless deployment (systemd/Docker/etc.) that's a process hang on
+    every restart, not just a cosmetic false alarm. See
+    tests/db_units/test_db.py::TestManyToOneSchemaStability for the
+    restart-simulation regression test, mirroring
+    TestGeoSchemaStability's existing pattern for the analogous POINT-field
+    case (_fold_point_columns) this fix is modelled on.
+    """
+    d1_keys = d1.keys()
+    if Dbtable.LINK_ID not in d2.keys():
+        # The caller didn't declare link_id explicitly -- ignore it as an
+        # extra, framework-added column on the existing/on-disk side (see
+        # the timing explanation above). If the caller DID declare it
+        # themselves, compare it normally instead of silently ignoring a
+        # real mismatch on it.
+        d1_keys = d1_keys - {Dbtable.LINK_ID}
+    if d1_keys != d2.keys():
+        return False
+    return all(d1[k].upper() == d2[k].upper() for k in d1_keys)
 
 
 # ── sqlite3 adapters / converters — registered once at import time ────────────
@@ -833,9 +867,25 @@ class Database:
         props = _expand_point_props(props, dbtable.point_fields if dbtable else {})
         set_clause = ", ".join(f"[{k}] = ?" for k in props)
         params = [_adapt_value(v) for v in props.values()] + [row_id]
-        return self.execute(
+        ok = self.execute(
             f"UPDATE [{table_id}] SET {set_clause} WHERE ID = ?", params
         ) is not None
+        if ok and dbtable:
+            # Every Dblist.list read path (get_delta_chunk -> _sync_cache)
+            # trusts dbtable._version to know whether its cached chunks are
+            # still good -- see Dbtable._bump_version()'s docstring. Until
+            # this line, only append_row/append_rows/delete_row/delete_rows/
+            # clear bumped it (all row-*count*-changing ops); a plain value
+            # UPDATE left every existing Dblist cache silently serving
+            # pre-update values for that row, potentially forever in a
+            # process that only ever updates rows without also appending or
+            # deleting any. See tests/db_units/test_dbunits.py::
+            # TestDirectDbtableBypass for the equivalent append/delete
+            # regression tests this mirrors, and
+            # test_regression_direct_update_row_is_not_served_stale
+            # for this one specifically.
+            dbtable._bump_version()
+        return ok
 
     # ── query helpers ────────────────────────────────────────────────────── #
 
@@ -1390,6 +1440,96 @@ class Dbtable:
             "SELECT name FROM sqlite_master WHERE type='table'"
         )
         return {row[0] for row in cur.fetchall()}
+
+    def row_to_dict(self, row: list, extra_fields: tuple = ()) -> dict:
+        """
+        Label a row (the plain [*fields, ID] list every read path on this
+        class returns -- get()/find_one() convert into this internally,
+        but search_within_radius()/search_nearest() append one more
+        column, distance_km, beyond [*fields, ID] and so can't reuse those
+        two directly) into a {field_name: value, ..., 'id': ...} dict:
+
+            for row in offers.search_within_radius('position', lat, lng, 10):
+                offer = offers.row_to_dict(row, extra_fields=('distance_km',))
+
+        extra_fields names any columns appended after ID, in order, for
+        exactly this kind of case.
+        """
+        result = {name: row[i] for i, name in enumerate(self.node_columns)}
+        result["id"] = row[len(self.node_columns)]
+        for i, name in enumerate(extra_fields):
+            result[name] = row[len(self.node_columns) + 1 + i]
+        return result
+
+    def _raw_to_dict(self, raw) -> dict:
+        """Shared by get()/find_one(): a fetchone() row -> row_to_dict(),
+        going through the same logical-column machinery (_row_to_list) as
+        every other public read path, so a POINT field comes back as one
+        [lng, lat] entry here exactly like it does from self.list/
+        search_rows/etc."""
+        return self.row_to_dict(self._row_to_list(raw))
+
+    def get(self, row_id: int) -> dict | None:
+        """
+        Fetch one row by ID, fresh from the database -- never from a
+        cached Dblist chunk (see Dblist._sync_cache/self.list, which is a
+        *view* meant for paginated/GUI consumption and is only as fresh as
+        the last operation that bumped self._version).
+
+        Returns {field_name: value, ..., 'id': row_id}, or None if no row
+        with this ID exists. This is the direct, no-surprises counterpart
+        to append_row() for reading a single row backend code already
+        knows the ID of -- e.g. a webhook handler re-checking a status
+        flag another request may just have written.
+        """
+        cur = self.db.execute(
+            f"SELECT {self._select_cols()} FROM [{self.id}] WHERE ID = ?", (row_id,)
+        )
+        raw = cur.fetchone() if cur else None
+        return self._raw_to_dict(raw) if raw is not None else None
+
+    def find_one(self, **field_equals) -> dict | None:
+        """
+        Fetch the first row where every given field exactly equals the
+        given value (AND-combined), fresh from the database. Returns None
+        if nothing matches.
+
+            actors.find_one(vapi_call_id=call_id)
+
+        Narrower than search_rows() on purpose: search_rows() is a
+        case-insensitive *substring* match across every text column (built
+        for a GUI search box), which is the wrong tool for "does a row
+        with exactly this key exist" -- a capability value that happens to
+        be a substring of another one would match both. Every value here
+        is bound as a query parameter (never interpolated), so this is
+        safe to call with arbitrary field values; field *names* still go
+        through normal Python keyword-argument rules, not user input.
+        """
+        where = " AND ".join(f"[{k}] = ?" for k in field_equals)
+        cur = self.db.execute(
+            f"SELECT {self._select_cols()} FROM [{self.id}] WHERE {where} LIMIT 1",
+            tuple(field_equals.values()),
+        )
+        raw = cur.fetchone() if cur else None
+        return self._raw_to_dict(raw) if raw is not None else None
+
+    def update(self, row_id: int, fields: dict) -> dict | None:
+        """
+        Patch specific fields on one row by ID; returns the fresh row (see
+        get()) on success, or None if the row doesn't exist / the update
+        failed.
+
+        Unlike Dblist.update_cell() (delta/cell address a position in a
+        *currently rendered GUI page*, not a stable row identifier) and
+        assign_row() (needs the entire row passed back as a positional
+        list), this takes just the ID and only the fields actually
+        changing -- the natural shape for backend code (a webhook handler,
+        a scheduled job, ...) that knows which row and which fields, not
+        which page happens to be open in someone's browser right now.
+        """
+        if not self.db.update_row(self.id, row_id, fields):
+            return None
+        return self.get(row_id)
 
     LINK_ID = "link_id"   # fixed FK column name for many-to-one relations
 

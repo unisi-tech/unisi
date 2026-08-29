@@ -20,7 +20,7 @@ import pytest
 from aiohttp.test_utils import make_mocked_request
 
 import unisi.server as server_mod
-from unisi.common import Message, ReceivedMessage, toJson
+from unisi.common import Message, ReceivedMessage, Unishare, toJson
 from unisi.users import User
 
 
@@ -303,6 +303,63 @@ class TestHandle:
 
         assert (marker, "clicked") in user_a.handlers
         assert (marker, "clicked") not in user_b.handlers
+
+    def test_falls_back_to_pending_handlers_when_no_user_exists_yet(self):
+        """
+        Regression: a persistent Table() declared at plain module level
+        (e.g. a shared table meant to be usable from backend code, not
+        only from inside a screen module) registers its search/filter/
+        changed handlers unconditionally at *import* time, before
+        unisi.start() has created a single User -- User.last_user is None
+        then, and handle() used to crash with
+        AttributeError: 'NoneType' object has no attribute 'handlers'
+        before a single test could even run. It must not.
+        """
+        User.last_user = None
+        marker = object()
+
+        def fn(obj, value):
+            return None
+
+        server_mod.handle(marker, "clicked")(fn)  # must not raise
+
+        assert Unishare.pending_handlers[(marker, "clicked")] is fn
+
+    def test_pending_handlers_composes_like_a_real_users_handlers_do(self):
+        """Same compose-on-collision behaviour as
+        test_second_registration_for_the_same_key_composes, just landing
+        in Unishare.pending_handlers instead of a User's own dict."""
+        User.last_user = None
+        calls = []
+
+        def fn1(obj, value):
+            calls.append("fn1")
+
+        def fn2(obj, value):
+            calls.append("fn2")
+
+        marker = object()
+        server_mod.handle(marker, "clicked")(fn1)
+        server_mod.handle(marker, "clicked")(fn2)
+
+        composed = Unishare.pending_handlers[(marker, "clicked")]
+        assert composed not in (fn1, fn2)
+
+    def test_a_real_user_created_later_does_not_retroactively_gain_it(self, new_user):
+        """pending_handlers is only ever *read* by handle() while
+        User.last_user is still None, and only ever *seeded into* a User
+        at that User's own construction time (see User.__init__ in
+        users.py) -- registering something into it and only afterwards
+        constructing a User is the intended case (a module-level Table()
+        always runs before unisi.start() creates anyone), and is covered
+        by test_users.py's construction tests, not duplicated here."""
+        User.last_user = None
+        marker = object()
+        server_mod.handle(marker, "clicked")(lambda obj, value: None)
+
+        user = new_user()  # constructed AFTER the registration above
+
+        assert (marker, "clicked") in user.handlers  # seeded at construction
 
 
 class TestPostHandler:

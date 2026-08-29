@@ -185,7 +185,7 @@ def get_default_args(func):
             defaults[name] = param.default
     return defaults
 
-Unishare = ArgObject(context_user = lambda: None, sessions = {})
+Unishare = ArgObject(context_user = lambda: None, sessions = {}, pending_handlers = {})
 
 class Message:
     def __init__(self, *units, user = None, type = 'update'):        

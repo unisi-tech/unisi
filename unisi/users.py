@@ -44,7 +44,14 @@ class User(ModulesMixin, UserPersistMixin):
         else:
             self.screens = []
             self.reflections = []
-            self.handlers = {}
+            # Seed with whatever was registered before any User existed
+            # (e.g. a shared, persistent Table() declared at plain module
+            # level -- see Unishare.pending_handlers / handle() in
+            # server.py for why this exists and what it fixes). A copy,
+            # not the same dict, so each independent session can still
+            # accumulate its own additional per-screen handlers without
+            # them leaking into every other session.
+            self.handlers = dict(Unishare.pending_handlers)
 
         User.last_user = self
         if share and screen:

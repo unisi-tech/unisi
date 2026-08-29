@@ -219,6 +219,18 @@ def reject_based(unit, value):
 
 Interception is registered in global handler map and executed before/default instead of element-local event logic.
 
+> `@handle`/`Unishare.handle` targets whichever `User` is "current"
+> (`User.last_user`) at registration time — the normal case, since a
+> screen's handlers register while that screen is being compiled for a
+> specific session. A persistent `Table` declared at plain module level
+> (outside any screen, so it's constructed once and shared — see §12)
+> registers its own `search`/`filter`/`changed` handlers the same way, at
+> plain `import` time, before `unisi.start()` has created anyone: there is
+> no "current" `User` yet. That case is handled, not an error — the
+> registration is held and every subsequently-constructed `User` starts
+> with it already present, so the shared table's handlers still reach
+> every real session correctly.
+
 ## 10. Dialog Specification
 
 Constructor:
@@ -286,6 +298,19 @@ Table("Zoo Table", panda=df)
 Persistent DB mode (requires `config.db_path` or `UNISI_DB_PATH` env var):
 - provide `id` and `fields` or compatible DB schema
 - supports `ids`, `filter`, `search`, linking
+- safe to declare at plain module level (e.g. a `data_model.py` imported
+  by both a screen and plain backend code such as an HTTP handler), not
+  only inside a screen's own compilation — construction no longer depends
+  on a `User` already existing (see §9)
+- restart-safe: redeclaring the same `fields`/`link=` against an existing
+  database does not re-trigger Schema Evolution just because the FK
+  column (`link_id`) isn't spelled out in `fields` — see
+  `docs/persistent_tables.md` §8 for the underlying reason
+- single-row access from backend code (webhook handlers, jobs, …) that
+  only knows a row's ID or an exact field value: `dbtable.get(row_id)`,
+  `dbtable.find_one(**field_equals)`, `dbtable.update(row_id, fields)` —
+  see `docs/persistent_tables.md` §3.4/§10 for the full reference; reads
+  always go straight to SQLite, never through `dbt.list`'s page cache
 
 Linked tables:
 

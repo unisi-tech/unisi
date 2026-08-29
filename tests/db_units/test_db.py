@@ -14,8 +14,13 @@ Organisation
   TestSchemaMigration       - Smart Schema Evolution (interactive_migration_choice)
   TestTypeRoundTrip         - every supported type survives a write/read cycle
   TestRowCRUD               - append_row/append_rows/delete_row/delete_rows/clear
+  TestRowToDict             - Dbtable.row_to_dict (incl. extra_fields, POINT folding)
+  TestGetFindOneUpdate      - Dbtable.get/find_one/update (single-row, cache-fresh access)
   TestSearch                - search_rows / _build_search_where
   TestManyToOne             - setup_fk/set_fk/clear_fk/calc_linked_rows_fk
+  TestManyToOneSchemaStability - link_id doesn't trigger spurious Schema
+                                 Evolution across a restart (mirrors
+                                 TestGeoSchemaStability for POINT fields)
   TestManyToMany            - setup_junction/add_link/delete_link(s)/calc_linked_rows
   TestVersionCounter        - Dbtable._version bump semantics (see dbunits.py)
   TestGeoPointFieldType     - [float,float]/(float,float) -> "POINT" detection
@@ -221,6 +226,41 @@ class TestEqualFieldDicts:
 
     def test_different_types(self):
         assert not _equal_field_dicts({"a": "TEXT"}, {"a": "INTEGER"})
+
+    def test_extra_link_id_on_existing_side_is_allowed(self):
+        """A many-to-one Table(link=...) always ends up with an on-disk
+        link_id column that the caller's freshly-declared `fields` dict
+        never mentions (setup_fk() adds it *after* this comparison runs --
+        see Table.__init__ in tables.py). Without this allowance every
+        restart against an existing linked table looks like a schema
+        change when nothing actually changed."""
+        existing = {"item": "TEXT", Dbtable.LINK_ID: "INTEGER"}
+        fresh = {"item": "TEXT"}
+        assert _equal_field_dicts(existing, fresh)
+
+    def test_extra_link_id_does_not_mask_a_real_field_difference(self):
+        """The link_id allowance is narrow: a genuinely new/removed field
+        alongside it must still be detected."""
+        existing = {"item": "TEXT", Dbtable.LINK_ID: "INTEGER"}
+        fresh = {"item": "TEXT", "note": "TEXT"}
+        assert not _equal_field_dicts(existing, fresh)
+
+    def test_link_id_present_on_both_sides_still_compares_normally(self):
+        """If the caller (unusually) does declare link_id explicitly
+        themselves, both sides already agree on it -- no special-casing
+        needed or applied."""
+        existing = {"item": "TEXT", Dbtable.LINK_ID: "INTEGER"}
+        fresh = {"item": "TEXT", Dbtable.LINK_ID: "INTEGER"}
+        assert _equal_field_dicts(existing, fresh)
+
+    def test_missing_link_id_on_existing_side_is_a_real_difference(self):
+        """Only an *extra* link_id on the existing/on-disk side is
+        tolerated -- a table that never had one but is now being declared
+        with an (unusual, self-declared) link_id field is a genuine
+        mismatch, not the restart scenario this allowance exists for."""
+        existing = {"item": "TEXT"}
+        fresh = {"item": "TEXT", Dbtable.LINK_ID: "INTEGER"}
+        assert not _equal_field_dicts(existing, fresh)
 
 
 # ────────────────────────────────────────────────────────────────────────── #
@@ -815,6 +855,124 @@ class TestRowCRUD:
 
 
 # ────────────────────────────────────────────────────────────────────────── #
+#  Single-row access: get / find_one / update / row_to_dict                   #
+# ────────────────────────────────────────────────────────────────────────── #
+
+class TestRowToDict:
+    def test_labels_fields_and_appends_id(self, db, table):
+        row = table.append_row(["Alice", 30])
+        assert table.row_to_dict(row) == {"name": "Alice", "age": 30, "id": row[-1]}
+
+    def test_extra_fields_labelled_in_order_after_id(self, db, table):
+        row = table.append_row(["Alice", 30])
+        tagged = [*row, 4.2, "bonus"]  # e.g. distance_km, then something else
+        result = table.row_to_dict(tagged, extra_fields=("distance_km", "note"))
+        assert result == {
+            "name": "Alice", "age": 30, "id": row[-1],
+            "distance_km": 4.2, "note": "bonus",
+        }
+
+    def test_no_extra_fields_by_default(self, db, table):
+        row = table.append_row(["Alice", 30])
+        assert "distance_km" not in table.row_to_dict(row)
+
+    def test_folds_a_point_field_back_into_one_entry(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        row = t.append_row({"name": "A", "pos": [13.7563, 100.5018]})
+        assert t.row_to_dict(row) == {
+            "name": "A", "pos": [13.7563, 100.5018], "id": row[-1],
+        }
+
+
+class TestGetFindOneUpdate:
+    def test_get_returns_a_labelled_dict(self, db, table):
+        row = table.append_row(["Alice", 30])
+        assert table.get(row[-1]) == {"name": "Alice", "age": 30, "id": row[-1]}
+
+    def test_get_missing_id_returns_none(self, db, table):
+        assert table.get(999999) is None
+
+    def test_get_reads_fresh_not_from_a_stale_list_cache(self, db, table):
+        """The whole point of get(): unlike table.list (a Dblist view that
+        is only as fresh as the last operation that bumped
+        Dbtable._version), it never reads a cached chunk -- see
+        test_dbunits.py::TestDirectDbtableBypass::
+        test_regression_direct_update_row_is_not_served_stale for the
+        underlying cache-staleness bug this sidesteps entirely by never
+        touching the cache in the first place."""
+        row = table.append_row(["Alice", 30])
+        row_id = row[-1]
+        list(table.list)  # populate the Dblist cache
+
+        db.update_row("T", row_id, {"age": 99})
+
+        assert table.get(row_id)["age"] == 99
+
+    def test_find_one_matches_a_single_field(self, db, table):
+        table.append_row(["Alice", 30])
+        table.append_row(["Bob", 25])
+        assert table.find_one(name="Bob") == {"name": "Bob", "age": 25, "id": 2}
+
+    def test_find_one_matches_multiple_fields_combined_with_and(self, db, table):
+        table.append_row(["Alice", 30])
+        table.append_row(["Alice", 40])
+        result = table.find_one(name="Alice", age=40)
+        assert result["age"] == 40
+
+    def test_find_one_no_match_returns_none(self, db, table):
+        table.append_row(["Alice", 30])
+        assert table.find_one(name="Zoe") is None
+
+    def test_find_one_is_an_exact_match_not_a_substring(self, db, table):
+        """The reason find_one() exists instead of reusing search_rows():
+        search_rows() is a case-insensitive *substring* match across every
+        text column -- 'repair' would match both 'repair' and
+        'computer_repair'. find_one() must not."""
+        table.append_row(["computer_repair", 1])
+        assert table.find_one(name="repair") is None
+        assert table.find_one(name="computer_repair") is not None
+
+    def test_find_one_values_are_parameterised_not_interpolated(self, db, table):
+        """A value containing SQL-special characters must be treated as
+        literal data, not syntax -- proof that field values go through the
+        parameter list rather than being formatted into the query text."""
+        table.append_row(["O'Brien", 30])
+        assert table.find_one(name="O'Brien")["age"] == 30
+
+    def test_update_patches_only_the_given_fields(self, db, table):
+        row = table.append_row(["Alice", 30])
+        result = table.update(row[-1], {"age": 31})
+        assert result == {"name": "Alice", "age": 31, "id": row[-1]}
+
+    def test_update_persists_to_the_database(self, db, table):
+        row = table.append_row(["Alice", 30])
+        table.update(row[-1], {"age": 31})
+        assert db.qlist("SELECT age FROM [T] WHERE ID = ?", (row[-1],)) == [[31]]
+
+    def test_update_missing_id_returns_none(self, db, table):
+        assert table.update(999999, {"age": 31}) is None
+
+    def test_update_bumps_version_so_other_dblist_reads_see_it(self, db, table):
+        """Regression: see test_dbunits.py::TestDirectDbtableBypass::
+        test_regression_direct_update_row_is_not_served_stale -- update()
+        goes through Database.update_row(), which now bumps
+        Dbtable._version on a successful write, same as append_row/
+        delete_row already did."""
+        row = table.append_row(["Alice", 30])
+        list(table.list)  # populate the cache
+
+        table.update(row[-1], {"age": 31})
+
+        assert list(table.list)[0][1] == 31
+
+    def test_update_expands_a_point_field(self, db):
+        t = db.create_table("T", {"name": str, "pos": [float, float]})
+        row = t.append_row({"name": "A", "pos": [1.0, 2.0]})
+        result = t.update(row[-1], {"pos": [3.0, 4.0]})
+        assert result["pos"] == [3.0, 4.0]
+
+
+# ────────────────────────────────────────────────────────────────────────── #
 #  Search                                                                     #
 # ────────────────────────────────────────────────────────────────────────── #
 
@@ -924,6 +1082,130 @@ class TestManyToOne:
 
         result = orders.calc_linked_rows_fk([u[-1]], search="Widg")
         assert [r[0] for r in result] == ["Widget"]
+
+
+# ────────────────────────────────────────────────────────────────────────── #
+#  Many-to-one Smart Schema Evolution stability                               #
+# ────────────────────────────────────────────────────────────────────────── #
+
+class TestManyToOneSchemaStability:
+    """
+    Regression (severe, restart-breaking): get_table()'s schema comparison
+    (_equal_field_dicts) runs against the caller's plain `fields=` dict,
+    which never mentions link_id -- that column is only added afterwards,
+    by an explicit setup_fk() call once the Dbtable already exists (see
+    Table.__init__ in tables.py: it calls Unishare.db.set_db_list(self) --
+    i.e. get_table() -- *before* its `match self.link:` block reaches
+    self.rows.dbtable.setup_fk(...)). On a table's very first creation this
+    is harmless (get_table_fields() returns None, so the comparison is
+    skipped entirely). On every subsequent call, though, the on-disk schema
+    legitimately *does* have link_id (added last time), the freshly-passed
+    `fields` dict never will, and without the allowance added to
+    _equal_field_dicts, Smart Schema Evolution's interactive console prompt
+    (input()) fires -- destructively offering to drop the table -- on
+    every single restart of every app with any Table(link=...), forever,
+    even though nothing about the declared fields ever changed.
+
+    Mirrors TestGeoSchemaStability's three-test shape exactly (in-process
+    re-declaration, no console output, real two-connection restart) -- the
+    analogous fix for the analogous problem with a different
+    framework-managed column (link_id vs POINT's physical _x/_y pair).
+    """
+
+    def _linked_orders(self, db, fields=None):
+        """Simulates tables.py's actual Table.__init__ sequence for a
+        Table(link=...): get_table() first (fields never include link_id),
+        setup_fk() afterwards -- not db.create_table()+setup_fk(), which
+        (as TestManyToOne already covers) bypasses get_table()'s
+        comparison entirely and so can't exercise this bug."""
+        fields = fields or {"item": str}
+        users = db.create_table("Users", {"name": str})
+        orders = db.get_table("Orders", fields=fields)
+        orders.setup_fk(users.id)
+        return orders
+
+    def test_redeclaring_a_linked_table_does_not_invoke_migration(
+        self, db, monkeypatch
+    ):
+        fields = {"item": str}
+        self._linked_orders(db, fields)
+
+        def fail_if_called(prompt=""):
+            raise AssertionError(
+                "Smart Schema Evolution fired on an unchanged link= schema"
+            )
+        monkeypatch.setattr("builtins.input", fail_if_called)
+
+        # "Restart": get_table() called again with the SAME fields -- the
+        # caller still doesn't (and never does) declare link_id explicitly.
+        orders2 = db.get_table("Orders", fields=fields)
+
+        assert "link_id" in orders2.node_columns
+        assert not any(n.startswith("Orders_OLD_") for n in db.table_names)
+
+    def test_redeclaring_a_linked_table_produces_no_prompt_output(
+        self, db, capsys
+    ):
+        fields = {"item": str}
+        self._linked_orders(db, fields)
+        capsys.readouterr()  # discard anything printed by table/FK setup
+
+        db.get_table("Orders", fields=fields)
+
+        assert "SCHEMA CHANGE DETECTED" not in capsys.readouterr().out
+
+    def test_a_real_schema_change_alongside_link_id_still_migrates(
+        self, db, monkeypatch
+    ):
+        """The allowance is narrow: adding a genuinely new field to an
+        already-linked table must still trigger migration, exactly as for
+        any other table."""
+        self._linked_orders(db, {"item": str})
+        monkeypatch.setattr("builtins.input", lambda prompt="": "1")  # cancel
+
+        result = db.get_table("Orders", fields={"item": str, "note": str})
+
+        assert "note" not in result.node_columns  # cancelled -- old schema kept
+        assert "link_id" in result.node_columns
+
+    def test_survives_a_real_process_restart_on_a_file_backed_db(
+        self, tmp_path, logger
+    ):
+        """The same guarantee as above, but across two independent
+        Database connections against the same on-disk file -- the actual
+        shape of an application restart, not just a second in-process
+        call."""
+        dbpath = str(tmp_path / "app.db")
+        fields = {"item": str}
+
+        db1 = Database(dbpath, message_logger=logger)
+        try:
+            users = db1.create_table("Users", {"name": str})
+            orders = db1.get_table("Orders", fields=fields)
+            orders.setup_fk(users.id)
+            u = users.append_row(["Alice"])
+            o = orders.append_row(["Widget"])
+            orders.set_fk(o[-1], u[-1])
+        finally:
+            db1.close()
+
+        db2 = Database(dbpath, message_logger=logger)
+        try:
+            import builtins
+            original_input = builtins.input
+
+            def fail_if_called(prompt=""):
+                raise AssertionError("migration prompt fired across a restart")
+            builtins.input = fail_if_called
+            try:
+                orders2 = db2.get_table("Orders", fields=fields)
+            finally:
+                builtins.input = original_input
+
+            assert orders2.read_rows()[0][0] == "Widget"
+            assert "link_id" in orders2.node_columns
+        finally:
+            db2.close()
 
 
 # ────────────────────────────────────────────────────────────────────────── #

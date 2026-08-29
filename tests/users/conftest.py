@@ -85,9 +85,11 @@ def _app_on_path():
 def _isolate_user_class_and_config_state():
     """
     User.last_user is reassigned unconditionally by every construction, and
-    Unishare.sessions / config's attributes are process-lifetime globals a
-    test might deliberately mutate (activate_session, monitor's config.share
-    check, ...). Snapshot/restore around every test so none of that leaks
+    Unishare.sessions/Unishare.pending_handlers/config's attributes are
+    process-lifetime globals a test might deliberately mutate
+    (activate_session, monitor's config.share check, a User constructed
+    while Unishare.pending_handlers held something from a prior handle()
+    call, ...). Snapshot/restore around every test so none of that leaks
     into the next one. Deliberately does NOT touch User.screen_registry /
     _screen_registry_ready -- those are meant to stay populated for the
     whole session (see _app_on_path above); resetting them per-test would
@@ -101,6 +103,7 @@ def _isolate_user_class_and_config_state():
 
     last_user_snapshot = User.last_user
     sessions_snapshot = dict(Unishare.sessions)
+    pending_handlers_snapshot = dict(Unishare.pending_handlers)
     config_snapshot = dict(config.__dict__)
 
     yield
@@ -108,6 +111,8 @@ def _isolate_user_class_and_config_state():
     User.last_user = last_user_snapshot
     Unishare.sessions.clear()
     Unishare.sessions.update(sessions_snapshot)
+    Unishare.pending_handlers.clear()
+    Unishare.pending_handlers.update(pending_handlers_snapshot)
     config.__dict__.clear()
     config.__dict__.update(config_snapshot)
 

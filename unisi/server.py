@@ -90,7 +90,17 @@ def make_user(request):
     return user, ok
 
 def handle(unit, event):
-    handler_map = User.last_user.handlers        
+    # User.last_user is None until the first User is constructed -- true
+    # for any persistent Table() declared at plain module level (a shared
+    # table meant to be usable from backend code, not only from inside a
+    # screen module), which registers its search/filter/changed handlers
+    # unconditionally at import time, before unisi.start() has created
+    # anyone (see Table.__init__ in tables.py). Anything registered while
+    # User.last_user is still falsy lands in Unishare.pending_handlers
+    # instead of crashing; every subsequently-created User seeds its own
+    # self.handlers from a copy of it (see User.__init__ in users.py), so
+    # a shared table's handlers still correctly reach every real session.
+    handler_map = User.last_user.handlers if User.last_user else Unishare.pending_handlers
     def h(fn):
         key = unit, event        
         func = handler_map.get(key, None)        

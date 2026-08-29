@@ -204,6 +204,32 @@ row[2] = 31                 # change age
 dbtable.assign_row(row)     # writes to SQLite
 ```
 
+**Single-row access from backend code**
+
+`update_cell`'s `delta`/`cell` address a position in whatever page happens
+to be rendered in a browser right now, and `assign_row` needs the entire
+row passed back as a positional list — both are the right tool when you're
+already holding a row from `dbt.list`, but awkward from code that only
+knows a row's *ID* and which *field(s)* it wants to touch: a webhook
+handler, a scheduled job, a data-migration script. `get`, `find_one`, and
+`update` are the direct counterparts for that case — by field name, not
+position, and always read fresh from the database rather than through
+`dbt.list`'s page cache (see the caching note in [§10](#10-dbtable-api-reference)):
+
+```python
+# Fetch one row by ID — {field: value, ..., 'id': ...}, or None
+user = dbtable.get(42)
+
+# Fetch the first row matching exact field values (AND-combined) — not a
+# substring/LIKE search like search_rows(); every value is a bound query
+# parameter
+user = dbtable.find_one(email='alice@example.com')
+
+# Patch just the given fields by ID; returns the fresh row, or None if the
+# ID doesn't exist
+user = dbtable.update(42, {'age': 31})
+```
+
 ### 3.5 Deleting rows
 
 ```python
@@ -305,7 +331,15 @@ orders = Table('Orders',
 ```
 
 > **Note:** On first run UNISI adds the `link_id` column via `ALTER TABLE`.
-> Subsequent runs skip this step if the column already exists.
+> Subsequent runs skip this step if the column already exists. This is
+> separate from — and doesn't by itself guarantee — restart safety against
+> Smart Schema Evolution's own comparison (see [§8](#8-schema-evolution)):
+> that comparison runs *before* `setup_fk` gets a chance to add `link_id`,
+> using only the `fields` the caller declared, which never include
+> `link_id` since it isn't something you name yourself. UNISI accounts for
+> this specifically (an on-disk `link_id` the declared `fields` doesn't
+> mention is expected, not a real change) — worth knowing if you're
+> ever comparing schemas yourself instead of going through `Table(...)`.
 
 ### 4.3 Behaviour in the UI
 
@@ -631,6 +665,16 @@ If a mismatch is detected, **Smart Schema Evolution** kicks in:
 > **Note:** A backup is created automatically with the suffix `_backup_YYYYMMDD`.
 > No original data is lost.
 
+> **Restart safety:** "Schema matches" accounts for two kinds of columns
+> that exist on disk but are never spelled out in a `Table(...)`'s own
+> `fields=` — a `link_id` FK column (added by `setup_fk`, see
+> [§4.2](#42-declaration)) and a POINT field's physical `_x`/`_y` pair
+> (see [§11](#11-geo-spatial-fields)). Neither makes "schema matches" fail
+> just because the caller's `fields` dict doesn't mention them by those
+> exact names — otherwise every restart of an app with a linked or
+> geo-tagged table would hit the interactive migration prompt below for a
+> schema that, from the caller's point of view, never actually changed.
+
 ---
 
 ## 9. Full Example — Authors › Books › Genres
@@ -726,6 +770,42 @@ dbt = my_table.rows.dbtable   # from any persistent Table
 | `dbt.read_rows(skip, limit)` | Read a range of rows directly from SQLite. |
 | `dbt.search_rows(search)` | Return a `Dblist` of matching rows (`LIKE` across all text/numeric columns). |
 | `dbt.init_list()` | Re-read the first page from the DB into `dbt.list`. |
+
+### Single-Row Access
+
+Reads here always go straight to SQLite — never through `dbt.list`'s page
+cache. That cache is a *view*, kept in sync with the database by bumping
+an internal version counter whenever a row is added, removed, or (as of
+this section's methods existing) updated — but only through the methods
+that know to bump it. Writing to a row by some *other* route entirely
+(another process, direct SQL, …) and then immediately reading it back
+through `get`/`find_one` is always safe; reading it back through `dbt.list`
+is only as fresh as the last operation on *this* `Dbtable` that touched
+the counter.
+
+| Method | Description |
+|---|---|
+| `dbt.get(row_id)` | One row by ID, as `{field: value, ..., 'id': ...}`, or `None`. |
+| `dbt.find_one(**field_equals)` | First row matching exact field values (AND-combined), or `None`. Values are bound query parameters, not string-interpolated. |
+| `dbt.update(row_id, fields)` | Patch the given fields by ID; returns the fresh row, or `None` if the ID doesn't exist. |
+| `dbt.row_to_dict(row, extra_fields=())` | Label a raw `[*fields, ID]` row (the shape every read method above, and `search_within_radius`/`search_nearest` below, actually return) into the same `{field: value, ..., 'id': ...}` shape `get`/`find_one` use. `extra_fields` names any columns appended after `ID` — e.g. `('distance_km',)` for a geo-search result. |
+
+```python
+user = dbt.get(42)
+user = dbt.find_one(email='alice@example.com')
+user = dbt.update(42, {'active': False})
+
+for row in dbt.search_within_radius('location', lat, lng, 10):
+    place = dbt.row_to_dict(row, extra_fields=('distance_km',))
+```
+
+> **Why not just use `search_rows`?** `search_rows` is a case-insensitive
+> **substring** match across every text/numeric column — built for a GUI
+> search box, where "close enough" is the point. `find_one(field=value)`
+> is an exact match on the field(s) you name, which is what "does a row
+> with exactly this key exist" actually needs — a `capability` value of
+> `'repair'` would substring-match `'computer_repair'` too under
+> `search_rows`, silently returning the wrong row.
 
 ### Geo-Spatial (see [§11](#11-geo-spatial-fields))
 

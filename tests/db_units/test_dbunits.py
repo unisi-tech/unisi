@@ -401,9 +401,11 @@ class TestDirectDbtableBypass:
     Dbtable.append_row/append_rows/delete_row/delete_rows/clear are public
     methods that a bulk-loading script might call directly instead of going
     through table.list. Dblist detects this via Dbtable._version (bumped by
-    each of those methods) and drops its stale chunk cache the next time it
-    needs to decide whether that cache can be trusted -- see
-    Dblist._sync_cache()'s docstring.
+    each of those methods, AND -- since the regression tests below -- by
+    Database.update_row() too, whether called directly or via Dbtable.
+    assign_row()/Dblist.update_cell(), both of which route through it) and
+    drops its stale chunk cache the next time it needs to decide whether
+    that cache can be trusted -- see Dblist._sync_cache()'s docstring.
     """
 
     def test_regression_direct_append_row_does_not_crash_dblist(self, db):
@@ -436,6 +438,42 @@ class TestDirectDbtableBypass:
         t.delete_row(row_id)  # bypasses t.list entirely
 
         assert [r[0] for r in t.list] == ["n0", "n2", "n3", "n4"]
+
+    def test_regression_direct_update_row_is_not_served_stale(self, db):
+        """
+        Regression: Dbtable._version was previously bumped ONLY by
+        append_row/append_rows/delete_row/delete_rows/clear -- every
+        method that changes row *count* -- never by a plain value UPDATE
+        (Database.update_row(), called directly or via Dbtable.
+        assign_row()/Dblist.update_cell()). A Dblist that had already
+        cached the affected row's chunk kept serving the pre-update value
+        forever, since nothing about a value-only change ever invalidated
+        it. Caught live, not just here: in an application built on this
+        table, a webhook handler's second call re-checking a status flag
+        it had itself just set to 'accepted' a moment earlier (via a
+        direct db.update_row(), same as here) still saw 'pending', and
+        went on to accept the same request twice.
+        """
+        t = db.create_table("T", {"name": "TEXT", "status": "TEXT"})
+        t.list.append(["Alice", "pending"])
+        row_id = t.list[0][-1]
+        list(t.list)  # ensure the chunk is actually cached, not just appended
+
+        db.update_row("T", row_id, {"status": "accepted"})  # bypasses t.list entirely
+
+        assert t.list[0][1] == "accepted"
+
+    def test_regression_assign_row_update_is_not_served_stale(self, db):
+        """Same regression as above, via assign_row() -- which itself
+        calls Database.update_row() (see db.py) and so is fixed by the
+        same one-line change, not by anything specific to assign_row()."""
+        t = db.create_table("T", {"name": "TEXT", "age": "INTEGER"})
+        row = t.append_row(["Alice", 30])
+        list(t.list)
+
+        t.assign_row(["Alice", 31, row[-1]])
+
+        assert t.list[0][1] == 31
 
     def test_regression_self_heals_even_when_only_len_was_checked_in_between(self, db):
         """

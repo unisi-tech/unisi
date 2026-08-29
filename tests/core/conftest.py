@@ -94,13 +94,14 @@ def _app_on_path():
 @pytest.fixture(autouse=True)
 def _isolate_core_state():
     """
-    User.last_user/User.count, Unishare.sessions/Unishare.test_list, and
-    config's attributes are process-lifetime globals that make_user(),
-    handle(), and test() (all in server.py) mutate directly. Snapshot/
-    restore around every test so nothing leaks into the next one -- same
-    discipline as tests/users/conftest.py's
+    User.last_user/User.count, Unishare.sessions/Unishare.test_list/
+    Unishare.pending_handlers, and config's attributes are process-lifetime
+    globals that make_user(), handle(), and test() (all in server.py)
+    mutate directly. Snapshot/restore around every test so nothing leaks
+    into the next one -- same discipline as tests/users/conftest.py's
     _isolate_user_class_and_config_state, extended to the extra globals
-    server.py itself owns (Unishare.test_list, User.count).
+    server.py itself owns (Unishare.test_list, User.count,
+    Unishare.pending_handlers).
     """
     from unisi.users import User
     from unisi.common import Unishare
@@ -110,6 +111,7 @@ def _isolate_core_state():
     count_snapshot = User.count
     sessions_snapshot = dict(Unishare.sessions)
     test_list_snapshot = list(Unishare.test_list)
+    pending_handlers_snapshot = dict(Unishare.pending_handlers)
     config_snapshot = dict(config.__dict__)
 
     yield
@@ -119,6 +121,8 @@ def _isolate_core_state():
     Unishare.sessions.clear()
     Unishare.sessions.update(sessions_snapshot)
     Unishare.test_list[:] = test_list_snapshot
+    Unishare.pending_handlers.clear()
+    Unishare.pending_handlers.update(pending_handlers_snapshot)
     config.__dict__.clear()
     config.__dict__.update(config_snapshot)
 
