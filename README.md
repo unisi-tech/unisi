@@ -342,7 +342,7 @@ Graph can handle invalid edges and null nodes in the nodes array.
 
 ### Dialog
 ```
-Dialog(question, dialog_callback, commands = ['Ok', 'Cancel'], *units)
+Dialog(question, dialog_callback, *units, commands = ['Ok', 'Cancel'])
 ```
 where buttons is a list of the dialog command names,
 Dialog callback has the signature as the other handlers with a pushed button name value
