@@ -90,17 +90,37 @@ def make_user(request):
     return user, ok
 
 def handle(unit, event):
-    # User.last_user is None until the first User is constructed -- true
-    # for any persistent Table() declared at plain module level (a shared
-    # table meant to be usable from backend code, not only from inside a
-    # screen module), which registers its search/filter/changed handlers
-    # unconditionally at import time, before unisi.start() has created
-    # anyone (see Table.__init__ in tables.py). Anything registered while
-    # User.last_user is still falsy lands in Unishare.pending_handlers
-    # instead of crashing; every subsequently-created User seeds its own
-    # self.handlers from a copy of it (see User.__init__ in users.py), so
-    # a shared table's handlers still correctly reach every real session.
-    handler_map = User.last_user.handlers if User.last_user else Unishare.pending_handlers
+    # Resolve "the current user" primarily from the real call stack
+    # (context_user()), not from a process-wide "last constructed"
+    # pointer. compile_screen() runs synchronously as a method on the
+    # exact User whose screen is being (lazily) loaded -- via
+    # User.__init__ for a user's first screen, or via
+    # ensure_screen()/screen_process() for any screen an already-connected
+    # user navigates to later -- so that User's frame is reliably on the
+    # stack here, regardless of how many other Users are concurrently
+    # connected/active. User.last_user only tracks the most recently
+    # *constructed* user process-wide: correct for a user's own first
+    # screen (set immediately before that synchronous load), but stale
+    # the moment another User is constructed afterwards -- so any screen a
+    # previously-connected user lazily loads later used to attribute its
+    # handlers to whoever happened to be last_user *now*, not to the user
+    # actually loading that screen.
+    #
+    # `or User.last_user`: context_user() finds nothing when handle() (or
+    # a persistent Table(), which calls it from Table.__init__ -- see
+    # tables.py) runs with no User anywhere on the stack -- e.g. a
+    # module-level Table() imported before unisi.start() has created
+    # anyone, or one built directly by a unit test with no real screen
+    # load involved. User.last_user remains the fallback there, same as
+    # before: falsy before the first User ever exists (still routes to
+    # Unishare.pending_handlers below), or whatever the caller has wired
+    # up as "the current user" otherwise (a real User for a Table()
+    # declared inside a screen module but reached via some indirection
+    # context_user() doesn't see, or a duck-typed test double). This
+    # fallback never overrides a real context_user() hit -- `or` only
+    # reaches it when the stack genuinely has no User on it.
+    user = context_user() or User.last_user
+    handler_map = user.handlers if user else Unishare.pending_handlers
     def h(fn):
         key = unit, event        
         func = handler_map.get(key, None)        

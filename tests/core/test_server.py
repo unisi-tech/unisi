@@ -259,23 +259,37 @@ class TestMakeUser:
         assert proxy2.reflections is root.reflections
 
 
+def _call_as_user(user, fn):
+    """Call fn() from inside a frame whose first positional arg is `user`,
+    so context_user() (and therefore handle()) resolves to `user` -- this
+    mirrors how compile_screen()/exec_module() genuinely run as a method
+    on the specific User whose screen is being (lazily) loaded during a
+    real screen load, letting handle()'s @handle(...) decorators see the
+    right user on the stack. Same mechanism as
+    TestContextUserAndScreen.test_context_user_finds_user_from_a_user_method,
+    factored out here since TestHandle needs it repeatedly."""
+    User._probe_handle = lambda self: fn()
+    try:
+        return user._probe_handle()
+    finally:
+        del User._probe_handle
+
+
 class TestHandle:
     def test_registers_a_new_handler(self, new_user):
         user = new_user()
-        User.last_user = user
 
         def fn(obj, value):
             return None
 
         marker = object()
-        server_mod.handle(marker, "clicked")(fn)
+        _call_as_user(user, lambda: server_mod.handle(marker, "clicked")(fn))
 
         assert user.handlers[(marker, "clicked")] is fn
 
     @pytest.mark.asyncio
     async def test_second_registration_for_the_same_key_composes(self, new_user):
         user = new_user()
-        User.last_user = user
         calls = []
 
         def fn1(obj, value):
@@ -285,24 +299,63 @@ class TestHandle:
             calls.append("fn2")
 
         marker = object()
-        server_mod.handle(marker, "clicked")(fn1)
-        server_mod.handle(marker, "clicked")(fn2)
+
+        def register_both():
+            server_mod.handle(marker, "clicked")(fn1)
+            server_mod.handle(marker, "clicked")(fn2)
+
+        _call_as_user(user, register_both)  # both decorators fire in the
+        # same screen-exec pass in real usage, so register both in one go
 
         composed = user.handlers[(marker, "clicked")]
         assert composed not in (fn1, fn2)  # it's compose_handlers' wrapper now
         await composed(marker, "v")
         assert calls == ["fn1", "fn2"]
 
-    def test_targets_user_last_users_handlers_specifically(self, new_user):
+    def test_targets_the_context_users_handlers_specifically(self, new_user):
+        """Regression test for the User.last_user -> context_user() fix
+        (see handle()'s docstring comment in server.py): handle() must
+        attribute a handler to whichever User's call stack is actually
+        registering it -- e.g. a previously-connected user lazily loading
+        a screen they haven't visited yet -- not to whichever User was
+        most recently *constructed* process-wide. user_b stands in for
+        "someone else connected in the meantime": User.last_user is
+        user_b, yet the handler must still land on user_a, the one
+        actually in context."""
         user_a = new_user()
         user_b = new_user()
+        assert User.last_user is user_b  # user_b, not user_a, is "last" here
 
-        User.last_user = user_a
         marker = object()
-        server_mod.handle(marker, "clicked")(lambda obj, value: None)
+        _call_as_user(
+            user_a, lambda: server_mod.handle(marker, "clicked")(lambda obj, value: None)
+        )
 
         assert (marker, "clicked") in user_a.handlers
         assert (marker, "clicked") not in user_b.handlers
+
+    def test_falls_back_to_user_last_user_when_no_user_is_on_the_stack(self, new_user):
+        """handle() (and, transitively, Table.__init__ in tables.py, which
+        calls it) doesn't always run inside a User method's call chain --
+        e.g. a persistent Table() built directly by a unit test, with no
+        real screen load involved (see tests/units/conftest.py's FakeUser,
+        wired in as User.last_user rather than found via context_user()).
+        context_user() correctly finds nothing on the stack in that case,
+        and handle() must still fall back to User.last_user rather than
+        landing everything in Unishare.pending_handlers -- that fallback
+        is what test_targets_the_context_users_handlers_specifically above
+        confirms context_user() correctly takes priority over whenever a
+        real User *is* in context."""
+        user = new_user()
+        User.last_user = user  # e.g. FakeUser() in tests/units/conftest.py
+        marker = object()
+
+        def fn(obj, value):
+            return None
+
+        server_mod.handle(marker, "clicked")(fn)  # called with no User on the stack
+
+        assert user.handlers[(marker, "clicked")] is fn
 
     def test_falls_back_to_pending_handlers_when_no_user_exists_yet(self):
         """
