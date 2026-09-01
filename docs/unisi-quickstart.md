@@ -97,4 +97,5 @@ UNISI auto-loads all `screens/*.py` modules and builds the menu.
 2. Data tables: use `Table(...)` with `rows`/`headers`.
 3. Persistent DB tables: set `db_path` in `config.py` (or `UNISI_DB_PATH` env var).
 4. LLM fields and queries: set `llm` in `config.py`, then use `llm=...` and `Q(...)`
+5. Custom web client: set `web_client = 'path/to/your/client'` in `config.py` to serve your own UNISI-protocol front end at `/` instead of the bundled one (which then stays available at `/default`). See [§17 of the Programming Spec](./unisi-programming-spec.md#17-custom-web-client-configweb_client).
 

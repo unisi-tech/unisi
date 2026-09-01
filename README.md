@@ -6,6 +6,7 @@ UNISI technology provides a unified system interface and advanced program functi
 
 ### Provided automatic functionality
  - WEB GUI Client
+ - Custom web client support
  - Client-server data synchronization
  - Unified Remote API
  - Autoconfiguring
@@ -25,6 +26,14 @@ UNISI technology provides a unified system interface and advanced program functi
 ```
 pip install unisi
 ```
+
+### Documentation
+This README is a tour of the framework. For depth on one topic, see `docs/`:
+- [`unisi-quickstart.md`](docs/unisi-quickstart.md) — minimal path to a first running app
+- [`unisi-programming-spec.md`](docs/unisi-programming-spec.md) — full constructor/option reference
+- [`persistent_tables.md`](docs/persistent_tables.md) — DB-backed tables, links, schema evolution, geo-spatial fields
+- [`voicecom.md`](docs/voicecom.md) — the voice-command subsystem in depth
+- [`UNISI skill.md`](docs/UNISI%20skill.md) — internals and gotchas for AI coding agents working on a UNISI app
 
 ### Programming
 Automatic functionality means that only configuration has to be defined and for all parameters UNISI has defaults that can be redefined in config.py file.
@@ -64,6 +73,7 @@ blocks = block
 | icon  | Optional | str | MD icon of screen to show in the screen menu |
 | prepare | Optional | def prepare() | Synchronizes Unit/GUI elements one to another and with the program/system data. It is called before screen appearing if defined. |
 | persist  | Optional | boolean | Persist all units on screen for the user |
+| voice | Optional | boolean | Enable voice control on this screen. Default True (False when config.mirror is set) |
 
 
 ### Server start
@@ -122,6 +132,18 @@ def changed(elem, value):
 edit = Edit('Involving', 0.6, changed)
 ```
 
+#### Intercepting events without touching the original handler
+`handle(unit, event)` registers an additional handler for a unit/event pair from anywhere — a screen can add screen-specific behavior to a `Table` or other unit declared in a shared block, without editing that block's own source:
+```
+from unisi import handle, Warning
+
+@handle(shared_table, 'changed')
+def reject_based(unit, value):
+    if value == 'Based':
+        return Warning('This mode is not allowed here', unit)
+```
+It composes with any handler the unit already has — both run, in registration order — rather than replacing it.
+
 ### Block details
 The width and height of blocks is calculated automatically depending on their children. It is possible to set the block width, or make it scrollable , for example for images list. Possible to add MD icon to the header, if required. width, scroll, height, icon are optional.
 ```
@@ -159,7 +181,7 @@ blocks = [b1,b2], [b3, [b4, b5]]
 ![image](https://github.com/user-attachments/assets/16ab9909-08b3-429e-9205-9b388b10aba7)
 
 ### ParamBlock
-ParamBlock(name, *units, row = 3, **parameters)
+ParamBlock(name, *units, changed = None, row = 3, strict = 'recurse', persist = False, **parameters)
 
 ParamBlock creates blocks with Unit elements formed from parameters. Parameters can be string, bool, number and optional types. Example:
 ```
@@ -174,6 +196,8 @@ For optional types Select, Tree, Range the value has to contain the current valu
 device = (‘cpu’,['cpu', 'gpu'])
 ```
 means the current value of 'device' is 'cpu' and options are ['cpu', 'gpu'] .
+
+`changed` is an optional handler called when any generated parameter field changes. `strict = 'recurse'` (default) turns a nested dict parameter into its own embedded ParamBlock; a dict value is otherwise rejected. `persist`, same as on any Unit, makes each generated field individually persistent.
 
 
 ### Basic information element - Unit
@@ -192,7 +216,9 @@ Unit('Name', some_value, changed_handler)
 calling the method 
 def accept(self, value) 
 causes  a call changed handler if it defined, otherwise just save value to the element 'value'.
-persist = True in a Unit constructor make Unit persistent.
+
+#### Persistence
+`persist = True` in a Unit, Block, or screen module constructor makes that widget's value remembered per user across screen reloads and reconnects — stored server-side, restored automatically before `prepare()` runs on the next load. `persist` can also be a zero-argument function returning a key, in which case the widget remembers a *different* value per key (e.g. a note field that remembers separately per selected table row). Beyond widget persistence, `User` also exposes a plain key-value store (`user.set_key(key, value)` / `user.get_key(key)`) for app-level data not tied to any widget, and an explicit `user.persist_units(*units)` / `user.restore_units(*units)` pair for saving/loading a snapshot only on demand (e.g. Save/Revert buttons).
 
 ### Button
 Normal button.
@@ -215,6 +241,11 @@ UploadButton('Load', handler_when_loading_finish, icon = 'photo_library')
 ```
 handler_when_loading_finish(button_, the_loaded_file_filename) where the_loaded_file_filename is a file name in upload server folder. This folder name is defined in config.py .
 
+### Camera Button
+A button variant that captures a photo from the device camera and uploads it, same handler signature as UploadButton.
+```
+CameraButton('Take a photo', handler_when_loading_finish)
+```
 ### Edit and Text field.
 ```
 Edit(name,value = '', changed_handler = None) #for string value
@@ -248,6 +279,10 @@ Example:
 Range('Scale content',  1, options=[0.25, 3, 0.25])
 ```
 
+`ContentScaler` is a `Range` subclass with exactly this configuration (name `'Scale content'`, value `1`, options `[0.25, 3, 0.25]`) pre-set, wired to rescale a set of elements. Passing `scaler = True` to a `Block` constructor adds one automatically, rescaling that block's content:
+```
+Block('Pictures', images, scaler = True)
+```
 
 ### Radio button
 ```
@@ -271,6 +306,20 @@ It is useful for image lists, galleries, etc.
 ```
 Image(image_path, value?, changed_handler?, label?, url?, width?, height?)
 ```
+
+### Video
+An embedded video player with an optional set of clickable fragments.
+```
+Video(name, value?, changed_handler?, fragments = [])
+```
+`value` is a dict describing playback state: `{"position": seconds, "play": bool, "sound": bool}`.
+
+### Sound
+An embedded audio player.
+```
+Sound(name, value?, handler?)
+```
+`value` is a dict: `{"url", "play", "position", "volume"}`.
 
 ### Tree. The element for tree-like data.
 ```
@@ -310,6 +359,8 @@ value = [0] means 0 row is selected in multiselect mode (in array). multimode is
 | tools  | default True, then  Table has toolbar with search field and icon action buttons. |
 | show   | default False, the table scrolls to (the first) selected row, if True and it is not visible |
 | multimode | default True, allows to select single or multi selection mode |
+| search | for a persistent (`id=`) table, the live text in its search field; default `''` |
+| filter | for a persistent (`id=`) table, restricts displayed rows — see [`docs/persistent_tables.md`](docs/persistent_tables.md) §6 |
 
 
 ### Chart
@@ -340,11 +391,24 @@ With pressed 'Shift' multi (de)select works for nodes and edges.
 Node and edge `id` fields are optional; if node ids are omitted, edge `source` and `target` must reference the node's index in the nodes array.
 Graph can handle invalid edges and null nodes in the nodes array.   
 
+### Net
+A Graph automatically built from the topology of Unit objects (screens, blocks, and their nested units) instead of manually declared nodes and edges — useful for visualizing the structure of the app itself.
+```
+Net(name, value?, topology?, **kwargs)
+```
+
+### HTML
+Displays a raw HTML/JS string.
+```
+HTML(name, html_string, changed_handler?)
+```
+Adding a `scale` value (e.g. `HTML(name, html_string, scale = 1)`) renders an interactive zoom slider above the content, letting the user scale the whole block — text, images, layout — from 0.5x to 3.0x.
+
 ### Dialog
 ```
-Dialog(question, dialog_callback, *units, commands = ['Ok', 'Cancel'])
+Dialog(question, dialog_callback, *units, commands = ['Ok', 'Cancel'], icon = 'not_listed_location')
 ```
-where buttons is a list of the dialog command names,
+where buttons is a list of the dialog command names, the first of which is drawn as the primary action. `icon` is an optional MD icon name for the dialog header.
 Dialog callback has the signature as the other handlers with a pushed button name value
 ```
 def dialog_callback(current_dialog, command_button_name):
@@ -384,15 +448,26 @@ class Hello_user(unisi.User):
         super().__init__(session, share)
         print('New Hello user connected and created!')
 
-unisi.start('Hello app', user_type = Hello_user)
+unisi.start(user_type = Hello_user)
 ```
+The app name shown in the header is not a `start()` argument — set `appname` in config.py instead.
+
 In screens and blocks sources we can access the user by 'user' variable, which is defined by UNISI on screen init.
 ```
 print(isinstance(user, Hello_user))
 ```
 
+#### Shared sessions
+Two config.py switches change how a *new* connection relates to existing ones — both default to `False`, so by default every connection is fully independent:
+- `share = True` — a client that reconnects with the same `?session=` query parameter (or a `Proxy(session=...)`, see Unified Remote API below) joins the *same* session as an additional live view. All views of a shared session stay in sync in real time and each keeps whatever screen it is currently on.
+- `mirror = True` — every new anonymous connection starts as a live reflection of the most recently connected user, always on that user's first/home screen rather than wherever that user currently is. Useful for a kiosk or public display.
+
 ### Unified Remote API
 For using UNISI apps from remote programs Unified Remote API is an optimal choice.
+```
+Proxy(host_port, timeout = 7, ssl = False, session = '', screen = None)
+```
+`session` reattaches to an existing session instead of starting a new one (server needs `share = True` in config.py); `screen` activates a screen immediately on connect.
 
 | Proxy methods, properties | Description |
 | :--- | :--- |
@@ -438,9 +513,27 @@ if proxy.set_screen("Image analysis"):
 proxy.close()
 ```
 
+### Custom web client
+
+Activation: `web_client = 'path/to/files'` in config.py
+
+By default UNISI serves its own bundled Quasar-based web client. If you build a separate front end that speaks the UNISI protocol (connects to `/ws` and exchanges the same JSON messages), point `web_client` at the directory holding that client's built files (an `index.html` plus its assets), and UNISI serves it at `/` instead:
+
+```python
+# config.py
+web_client = 'custom_client/dist'
+```
+
+```
+http://localhost:8000/          -> your custom client
+http://localhost:8000/default   -> the bundled UNISI client, always
+```
+
+The bundled client is never removed — it stays reachable at `/default` (and everything under it) no matter what `web_client` is set to, so it's always available as a reference or fallback UI. Any file your custom client's own directory doesn't provide (favicon, fonts, an icon you didn't bother to copy over) is also transparently served from the bundled client instead of 404ing, so a minimal custom client still works. If `web_client` doesn't point to a valid client (no `index.html` there), UNISI logs a warning on startup and simply keeps serving the bundled client at `/` until it's fixed.
+
 ### Monitoring
 
-Activation: `freeze_time = max_freeze_time` in config.py
+Activation: `froze_time = max_freeze_time` in config.py
 The system monitor tracks current tasks and their execution time. If a task takes longer than `max_freeze_time` seconds, the monitor writes a message in the log about the state of the system queue, the execution or waiting time of each session, and the event that triggered it. This lets you identify the offending handler and take corrective action.
 
 ### Profiling
@@ -469,25 +562,50 @@ UNISI supports the following data types for persistent tables and links:
 - `bytes` — Blob (excluded from search)
 - `list` / `dict` — JSON (excluded from search)
 - `Decimal`, `uuid.UUID` — stored as strings
+- `[float, float]` / `(float, float)` — a geo-spatial point (`x`=longitude, `y`=latitude), excluded from search but queryable via radius/nearest-neighbor search
 
 For using the functionality, `db_path` in config.py has to be defined as a path to the database file, or set the UNISI_DB_PATH environment variable.
 
+For the full picture — many-to-one and many-to-many links end to end, schema evolution, geo-spatial radius search, the complete `Dbtable` API — see [`docs/persistent_tables.md`](docs/persistent_tables.md).
+
 ### LLM-RAG interactions
 UNISI supports LLM-RAG transparent interactions without the need of programming prompts and LLM details. Screen data contains all required data for processing queries to LLM and decode a result. A user has to define only what data from LLM is required by setting ‘llm’ parameter in Unit constructor.  All other jobs are automated by UNISI.
-Possible to set a LLM  temperature if required. By default it is 0.
-temperature  = 0.2
-For using the service define llm in config.py:
-llm = provider, model_name
-Where provider can be ‘host’ for local or deployed custom models using LM Studio, Ollama, or LlamaCpp.
-The other support providers are ‘google’ (== ‘gemini’), ‘openai’, ‘groq’ . They require setting some of API key in system variables:
+
+For using the service define `llm` in config.py as a `[provider, model]` list (or a longer form for a custom endpoint):
+```
+llm = ['openai', 'gpt-5.1']
+llm = ['host', 'http://localhost:1234/v1']                    # local/custom endpoint, no key needed
+llm = ['host', address, 'MY_KEY_ENV', 'model-name']            # custom endpoint with a key
+llm = ['openai', 'gpt-5.1', 'https://my-proxy.example.com/v1'] # cloud provider, custom base URL
+```
+`provider` can be `'host'` for local or deployed custom models using LM Studio, Ollama, LlamaCpp, OpenRouter, or any other OpenAI-compatible endpoint. The other supported providers are `'google'` (== `'gemini'`), `'openai'`, `'groq'`, `'mistral'`, `'xai'`. Cloud providers require the matching API key in an environment variable:
 ```export GROQ_API_KEY=’my_groq_key’
 export GOOGLE_API_KEY=’my_google_key’
 export OPENAI_API_KEY=’my_open_key’
+export MISTRAL_API_KEY=’my_mistral_key’
+export XAI_API_KEY=’my_xai_key’
 ```
+Optional config.py settings: `temperature` (default `0`), `strict_schema` (default `True`, set `False` if a provider rejects strict JSON-Schema mode), `reasoning` (effort level for reasoning models), and `llm_cache` (a directory path, to persist `Q()`/`Qx()` results across restarts, optionally with `llm_cache_ttl` in seconds).
+```
+temperature = 0.2
+```
+
+#### Automatic — the `llm` Unit/Table parameter
 Any Unit except Button can be calculated using llm parameter in constructor, which can be `True` for automatic context evaluation, or a list of Unit objects whose values are required for the calculation. Unisi automatically calculates such unit value when its context is changed and its value is empty.
 For table fields in rows ‘llm’ can be True for automatic context evaluation or enumeration of units and field names for tables which are required for its calculation.
 Example: [test_apps/llm/screens/main.py](https://github.com/unisi-tech/unisi/blob/main/test_apps/llm/screens/main.py) — Date of birth and Occupation are calculated from a person's name.
 
+#### Explicit — `Q()` and `Qx()`
+For a direct query outside the automatic Unit/Table mechanism, call `Q()` (extended with an assistant system prompt) or `Qx()` (raw prompt, sent as written) from any handler:
+```
+from unisi import Q, Qx
+
+country_info = await Q("Provide information about {country}.",
+    dict(capital = str, population = int, currency = str), country = "Thailand")
+
+raw_text = await Qx("Free-form prompt, sent exactly as written")
+```
+The second argument is the expected type — `str`, `int`, a `dict(field=type, ...)` schema for structured JSON, etc. Any `{name}` placeholder in the prompt is filled from a matching keyword argument; braces that don't correspond to a passed keyword (JSON examples, code, etc.) are left untouched, so there is no need to escape them. Both `Q()` and `Qx()` accept an optional `images=` argument (a URL, local file path, raw bytes, or a list of these) for vision-capable models.
 
 ### Voice interaction
 This functionality allows users to interact with a user interface using voice commands instead of fingers or a mouse. It facilitates voice interaction with a graphical user interface composed of various Units. It recognizes spoken words, interprets them as commands or element selections, and performs corresponding actions. The system supports various modes of interaction, including text input, number input, element selection, screen navigation, and command execution. The user speaks commands or element names. The module recognizes words and updates the Mate block, which exposes the state of the module and what it expects to listen.
@@ -507,7 +625,7 @@ Graph Mode: Supports graph element manipulation (nodes and edges).
 
 Table Mode: Supports table navigation and editing with commands like "page", "row", "column", "left", "right", "up", "down", "backspace", and "delete." 
 
-Examples are in test_apps folder.
+Examples are in test_apps folder. For the full state machine, command vocabulary, and how to extend it, see [`docs/voicecom.md`](docs/voicecom.md).
 
 Demo project: [unisi-tech/vision](https://github.com/unisi-tech/vision)
 

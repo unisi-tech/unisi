@@ -36,18 +36,28 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `appname` | str | `"Unisi app"` | Default app header |
 | `upload_dir` | str | `"web"` | Upload/static exposed dir |
 | `hot_reload` | bool | `False` | Reload code changes |
-| `autotest` | bool/str | `False` | Autotest mode or pattern |
+| `autotest` | bool/str/list | `False` | Autotest mode: `True`/`'*'` runs every recorded fixture, a list restricts to named files |
 | `logfile` | str/None | `None` | Optional log file |
-| `mirror` | bool | `False` | Mirror screens across sessions |
-| `share` | bool | `False` | Shared sessions mode |
-| `profile` | int | `0` | Profiling mode |
+| `mirror` | bool | `False` | New anonymous connections reflect the most recent user's session |
+| `share` | bool | `False` | Session reattachment via `?session=` |
+| `profile` | int/float | `0` | Log a warning if a handler runs longer than this many seconds |
+| `froze_time` | int/float/None | `None` | Log a warning if a session waits longer than this many seconds (monitoring) |
+| `monitor_tick` | float | `0.005` | Poll interval, in seconds, for the monitor process and `run_process` |
+| `pool` | int/None | `None` | Size of the `multiprocessing.Pool` used by `user.run_process()`; `None` = `os.cpu_count()` |
+| `debug` | bool | `False` | Debug flag read by the runtime |
 | `llm` | tuple/list/None | `None` | LLM provider config |
-| `llm_cache` | str (optional) | unset | Cache file for LLM calls |
+| `llm_cache` | str (optional) | unset | Directory enabling a persistent disk cache for `Q()`/`Qx()` results |
+| `llm_cache_ttl` | int/None | `None` | Cache entry lifetime in seconds; `None` = never expires |
+| `temperature` | float | `0.0` | LLM sampling temperature |
+| `strict_schema` | bool | `True` | Whether structured `Q()` calls request strict JSON-Schema enforcement |
+| `reasoning` | str (optional) | unset | Effort level (e.g. `'medium'`) forwarded as `extra_body.reasoning` for reasoning models |
 | `db_path` | str/None | `None` | DB file path for persistent tables (or set `UNISI_DB_PATH` env var) |
 | `lang` | str | `"en-US"` | UI language |
 | `public_dirs` | list[str] | `[]` | Extra static roots |
+| `web_client` | str/None | `None` | Root dir of a custom UNISI-protocol web client to serve at `/` instead of the bundled one (still reachable at `/default`) — see §17 |
 | `image` | str | `"icons/favicon-32x32.png"` | App icon |
 | `session` | str/None | None | optional session/user id for debugging |
+| `persist` | bool | `False` | Persist every unit on every screen, globally |
 
 ## 4. Programming Model
 
@@ -300,7 +310,7 @@ Persistent DB mode (requires `config.db_path` or `UNISI_DB_PATH` env var):
 - supports `ids`, `filter`, `search`, linking
 - safe to declare at plain module level (e.g. a `data_model.py` imported
   by both a screen and plain backend code such as an HTTP handler), not
-  only inside a screen's own compilation — construction no longer depends
+  only inside a screen's own compilation — construction does not depend
   on a `User` already existing (see §9)
 - restart-safe: redeclaring the same `fields`/`link=` against an existing
   database does not re-trigger Schema Evolution just because the FK
@@ -551,7 +561,34 @@ Use interception (`@handle`) in screen module when you need screen-specific beha
 
 For how `persist` behaves on a unit living in a shared block — storage anchored to the block's own module rather than to whichever screen displays it — see §13.6.
 
-## 17. End-to-End Example (Runnable Pattern)
+## 17. Custom Web Client (`config.web_client`)
+
+UNISI's HTTP layer (`static_serve` in `server.py`) can serve a separate front end in place of its own bundled Quasar-based client, as long as that front end speaks the UNISI protocol (opens a WebSocket to `/ws` and exchanges the same JSON messages `handle`/`websocket_handler` produce and consume — `config.web_client` only changes which static files answer `GET /`, never the protocol itself).
+
+Activation:
+
+```python
+# config.py
+web_client = 'custom_client/dist'  # relative (to cwd) or absolute path
+```
+
+Resolution order for any request path, inside `static_serve`:
+
+1. `/default` or `/default/<anything>` — always the bundled client (`unisi/web`, exposed as `webpath`), regardless of `config.web_client`. This path segment is reserved; a custom client cannot serve its own content there.
+2. Otherwise, the active root: `config.web_client` if set, else the bundled client (`active_webpath()`).
+3. If a custom client is active and step 2 missed, the bundled client again, as a fallback (see below for why).
+4. `config.public_dirs`, unchanged from the no-`web_client` case.
+5. 404.
+
+Steps 1–3 all apply the same traversal protection as the original webpath lookup (`resolve_in_root`): the resolved path must stay inside whichever root is being checked.
+
+**Why the step-3 fallback exists.** The bundled client's production build hardcodes its webpack `publicPath` as `"/"` and references its own entry scripts with root-relative paths (`/js/<hash>.js`), not paths relative to wherever its HTML was actually served from. A `<base>` tag doesn't change that — it only affects relative URLs, not ones that already start with `/`. So even while the bundled client's `index.html` is being viewed through `/default`, the browser still requests its JS/CSS/icons from unprefixed root paths like `/js/<hash>.js`. Without step 3, those requests would 404 against a custom client's own root instead of resolving, and `/default` would render as an unstyled, non-functional shell whenever a different `web_client` is active. Step 3 is what keeps `/default` genuinely usable in that case; as a side effect it also lets a custom client omit files (favicon, fonts, ...) it's happy to inherit from the bundled one.
+
+**Startup validation.** `start()` calls `warn_if_web_client_misconfigured()`, which prints a warning (not a hard failure) if `config.web_client` is set but has no `index.html` at its root. A misconfigured `web_client` degrades gracefully rather than breaking the app: every lookup against it simply misses, so `/` ends up served entirely by the bundled client via the step-3 fallback until the path is fixed.
+
+Relevant names, all in `unisi/server.py` next to `static_serve()`: `DEFAULT_CLIENT_ROUTE`, `active_webpath()`, `resolve_in_root()`, `warn_if_web_client_misconfigured()`. Tests: `tests/core/test_web_client.py`.
+
+## 18. End-to-End Example (Runnable Pattern)
 
 ```python
 # run.py
@@ -582,7 +619,7 @@ controls = Block("Controls", [Button("Run", run_task)], ratio, log, icon="api")
 blocks = [controls]
 ```
 
-## 18. Behavior Notes and Constraints
+## 19. Behavior Notes and Constraints
 
 - Screen and block names should be unique in their active context.
 - For DB-backed `Table`, `config.db_path` (or `UNISI_DB_PATH`) must be set; otherwise creation fails.
@@ -593,11 +630,14 @@ blocks = [controls]
 - A keyed-persist key function (§13.2) should return plain, JSON-serializable values and read *other* units, not the persisted unit's own value — a key derived from the unit's own state is self-referential and won't behave usefully.
 - If a keyed-persist key function raises, the error is logged and that unit's persistence is skipped for the request; it does not fail the request.
 
-## 19. Example Sources in This Repository
+## 20. Example Sources in This Repository
 
-- `tests/blocks/screens/main.py` (blocks, graph/net, toolbar, interception)
-- `tests/blocks/screens/zoo.py` (ParamBlock, HTML, pandas table)
-- `tests/blocks/blocks/tblock.py` (dialogs, table hooks, autocomplete, tree)
-- `tests/db/screens/single.py` (persistent table basics)
-- `tests/db/screens/linked.py` (linked persistent tables)
-- `tests/llm/screens/main.py` (LLM unit/table workflows, `Q` usage)
+- `test_apps/blocks/screens/main.py` (blocks, graph/net, toolbar, interception)
+- `test_apps/blocks/screens/zoo.py` (ParamBlock, HTML, pandas table)
+- `test_apps/blocks/blocks/tblock.py` (dialogs, table hooks, autocomplete, tree)
+- `test_apps/db/screens/single.py` (persistent table basics)
+- `test_apps/db/screens/linked.py` (linked persistent tables)
+- `test_apps/llm/screens/main.py` (LLM unit/table workflows, `Q` usage)
+- `test_apps/persistence/screens/animals.py`, `notes.py` (positional and keyed `persist`)
+- `test_apps/proxy/run_blocks.py`, `run_vision.py` (Remote API / `Proxy`)
+- `tests/core/test_web_client.py` (`config.web_client` switching, `/default`, and the bundled-client fallback — see §17)

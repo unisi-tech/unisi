@@ -760,3 +760,17 @@ class TestStart:
 
         assert "/one" in first_paths and "/one" not in second_paths
         assert "/two" in second_paths
+
+    def test_warns_when_web_client_is_misconfigured(self, no_op_start, monkeypatch, capsys):
+        """start() wires warn_if_web_client_misconfigured() in -- see
+        TestWarnIfWebClientMisconfigured in test_web_client.py for the
+        function's own behavior in isolation.
+        """
+        monkeypatch.setattr(server_mod.config, "web_client", "no-such-directory")
+        server_mod.start()
+        assert "web_client" in capsys.readouterr().out
+
+    def test_no_web_client_warning_when_not_configured(self, no_op_start, monkeypatch, capsys):
+        monkeypatch.setattr(server_mod.config, "web_client", None)
+        server_mod.start()
+        assert "web_client" not in capsys.readouterr().out

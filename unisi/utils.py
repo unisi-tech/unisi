@@ -9,6 +9,10 @@ testdir = 'autotest'
 
 divpath = '\\' if platform.system() == 'Windows' else '/'
 libpath = os.path.dirname(os.path.realpath(__file__))
+# The framework's own bundled web client (always shipped inside the unisi
+# package -- see MANIFEST.in). This stays fixed regardless of
+# config.web_client: server.py always keeps it reachable at /default, and
+# falls back to it for any file a custom config.web_client doesn't provide.
 webpath = f'{libpath}{divpath}web' 
 app_dir = os.getcwd()
 
@@ -68,6 +72,7 @@ set_defaults(config,  dict(
     db_path = None,
     lang = 'en-US',
     public_dirs = [],
+    web_client = None,
     debug = False,
     session = None,
     image = 'icons/favicon-32x32.png'

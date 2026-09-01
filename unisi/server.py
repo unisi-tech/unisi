@@ -167,20 +167,80 @@ async def post_handler(request):
             f.write(chunk)
     return web.Response(text=filename)
 
+# The framework's bundled default web client always stays reachable under
+# this path, however config.web_client is set -- see static_serve() below.
+DEFAULT_CLIENT_ROUTE = '/default'
+
+def active_webpath():
+    """Directory currently served at '/': config.web_client when a custom
+    UNISI-protocol web client is configured, otherwise the framework's own
+    bundled client (webpath). The bundled client itself is unaffected by
+    this setting -- it always stays reachable at DEFAULT_CLIENT_ROUTE, see
+    static_serve().
+    """
+    return config.web_client or webpath
+
+def resolve_in_root(root, rpath):
+    """Resolve rpath (a request path, e.g. '/js/app.js') to a file inside
+    root, with path traversal protection. Returns the resolved Path if it
+    exists inside root, else None. root may be relative (resolved against
+    the current working directory, matching config.public_dirs) or
+    absolute, and need not exist -- a missing/invalid root simply yields no
+    matches, it never raises.
+    """
+    try:
+        base = Path(root).resolve()
+        file_path = (base / rpath.lstrip('/')).resolve()
+        if file_path.is_relative_to(base) and file_path.exists():
+            return file_path
+    except (ValueError, RuntimeError):
+        pass
+    return None
+
 async def static_serve(request: web.Request) -> web.StreamResponse:
     rpath = request.path
+
+    # The bundled default client stays reachable at /default (and anything
+    # under it) no matter what config.web_client is set to -- resolved
+    # against `webpath` specifically, never the active/custom root, so it
+    # keeps working as a fixed reference UI regardless of configuration.
+    # This intentionally reserves /default: a custom web_client cannot
+    # serve its own content at that exact path.
+    if rpath == DEFAULT_CLIENT_ROUTE or rpath.startswith(f'{DEFAULT_CLIENT_ROUTE}/'):
+        sub_path = rpath[len(DEFAULT_CLIENT_ROUTE):] or '/'
+        if sub_path == '/':
+            sub_path = '/index.html'
+        file_path = resolve_in_root(webpath, sub_path)
+        if file_path:
+            return web.FileResponse(file_path)
+        raise web.HTTPNotFound()
 
     if rpath == '/':
         rpath = '/index.html'
 
-    # 1. Serve from webpath with path traversal protection
-    try:
-        base_webpath = Path(webpath).resolve()
-        file_path = (Path(webpath) / rpath.lstrip('/')).resolve()
-        if file_path.is_relative_to(base_webpath) and file_path.exists():
+    # 1. Serve from the active web client (config.web_client if a custom
+    # UNISI-protocol client is configured, otherwise the bundled default)
+    # with path traversal protection.
+    file_path = resolve_in_root(active_webpath(), rpath)
+    if file_path:
+        return web.FileResponse(file_path)
+
+    # 1b. A custom web_client is configured but doesn't have this file --
+    # fall back to the bundled client's own copy before giving up on it.
+    # Without this, a custom client could never fully own '/': the bundled
+    # client's build hardcodes absolute, root-relative asset paths (e.g.
+    # /js/<hash>.js) that keep getting requested from '/' even while the
+    # page itself is being viewed through /default, since a <base> tag
+    # only affects relative URLs. This same fallback is what makes those
+    # requests resolve correctly, and it also lets a custom client
+    # knowingly omit files (icons, fonts, favicon...) it's happy to
+    # inherit from the bundled one. A misconfigured web_client (missing or
+    # wrong path) degrades gracefully the same way: every lookup in it
+    # simply misses, so '/' ends up fully served by the bundled client.
+    if config.web_client:
+        file_path = resolve_in_root(webpath, rpath)
+        if file_path:
             return web.FileResponse(file_path)
-    except (ValueError, RuntimeError):
-        pass
 
     # 2. Serve from public_dirs (with Windows path unmasking)
     # unmask win path: /C:/public/img.png -> C:/public/img.png
@@ -317,6 +377,21 @@ def ensure_unisi_typings():
     except Exception as e:
         print(f"Error creating/updating '{builtins_file_path}': {e}")
 
+def warn_if_web_client_misconfigured():
+    """Print a startup warning if config.web_client is set but doesn't look
+    like a servable UNISI web client (no index.html at its root).
+
+    This is advisory only: static_serve()'s fallback (step 1b) already
+    means '/' keeps serving the bundled default client for any file a
+    misconfigured web_client doesn't provide, so this never blocks
+    startup -- it just helps catch a wrong path in config.py early instead
+    of silently always falling back.
+    """
+    if config.web_client and not (Path(config.web_client) / 'index.html').is_file():
+        print(f"web_client '{config.web_client}' in config.py has no index.html. "
+              f"'/' will keep serving the bundled default client "
+              f"(also always available at {DEFAULT_CLIENT_ROUTE}) until this is fixed.")
+
 def start(user_type = User, http_handlers = None):    
     # mutable-default-argument pitfall: a `[]` default here is only safe
     # because it's never mutated in place (`http_handlers + [...]` below
@@ -332,6 +407,7 @@ def start(user_type = User, http_handlers = None):
     ensure_directory_exists(screens_dir)
     ensure_directory_exists(blocks_dir)
     ensure_unisi_typings()
+    warn_if_web_client_misconfigured()
     setup_llmrag()
 
     User.type = user_type        
