@@ -6,7 +6,6 @@ UNISI technology provides a unified system interface and advanced program functi
 
 ### Provided automatic functionality
  - WEB GUI Client
- - Custom web client support
  - Client-server data synchronization
  - Unified Remote API
  - Autoconfiguring
@@ -31,6 +30,7 @@ pip install unisi
 This README is a tour of the framework. For depth on one topic, see `docs/`:
 - [`unisi-quickstart.md`](docs/unisi-quickstart.md) — minimal path to a first running app
 - [`unisi-programming-spec.md`](docs/unisi-programming-spec.md) — full constructor/option reference
+- [`protocol.md`](docs/protocol.md) — the WebSocket wire protocol, for building a custom client
 - [`persistent_tables.md`](docs/persistent_tables.md) — DB-backed tables, links, schema evolution, geo-spatial fields
 - [`voicecom.md`](docs/voicecom.md) — the voice-command subsystem in depth
 - [`UNISI skill.md`](docs/UNISI%20skill.md) — internals and gotchas for AI coding agents working on a UNISI app
@@ -517,7 +517,7 @@ proxy.close()
 
 Activation: `web_client = 'path/to/files'` in config.py
 
-By default UNISI serves its own bundled Quasar-based web client. If you build a separate front end that speaks the UNISI protocol (connects to `/ws` and exchanges the same JSON messages), point `web_client` at the directory holding that client's built files (an `index.html` plus its assets), and UNISI serves it at `/` instead:
+By default UNISI serves its own bundled Quasar-based web client. If you build a separate front end that speaks the UNISI protocol (connects to `/ws` and exchanges the same JSON messages — see [`docs/protocol.md`](docs/protocol.md)), point `web_client` at the directory holding that client's built files (an `index.html` plus its assets), and UNISI serves it at `/` instead:
 
 ```python
 # config.py
@@ -600,8 +600,8 @@ For a direct query outside the automatic Unit/Table mechanism, call `Q()` (exten
 ```
 from unisi import Q, Qx
 
-country_info = await Q("Provide information about {country}.",
-    dict(capital = str, population = int, currency = str), country = "Thailand")
+country_info = await Q("Provide information about Thailand.",
+    dict(capital = str, population = int, currency = str))
 
 raw_text = await Qx("Free-form prompt, sent exactly as written")
 ```

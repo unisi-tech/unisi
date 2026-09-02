@@ -137,8 +137,14 @@ class Dblist:
         """Return (chunk_start_offset, chunk_list) for the row at *index*.
 
         Negative indices are normalised before the chunk calculation so that
-        ``-1 // limit`` does not produce a negative chunk key.
+        ``-1 // limit`` does not produce a negative chunk key. A non-int
+        index (e.g. a client sending `null` over the wire -- see
+        tables.get_chunk, which is the normal caller and already rejects
+        this itself) is treated the same as an out-of-range one rather than
+        raising, since arithmetic below assumes a real int.
         """
+        if not isinstance(index, int) or isinstance(index, bool):
+            return -1, None
         if index < 0:
             index = len(self) + index
         if index < 0 or index >= len(self):

@@ -451,6 +451,30 @@ class TestUnitMutateAcceptDelattr:
         u.accept(7)
         assert u.value == 7
 
+    def test_accept_called_from_within_own_handler_does_not_recurse(self):
+        # README's documented handler pattern: `def changed(elem, value):
+        # ...; elem.accept(value)`. Guards against the handler re-entering
+        # itself through accept() -> self.changed -> accept() -> ...
+        calls = []
+        def handler(unit, value):
+            calls.append(value)
+            unit.accept(value)  # must not re-invoke handler()
+        u = Unit('widget', changed=handler)
+        u.accept(5)
+        assert calls == [5]        # handler ran exactly once
+        assert u.value == 5        # and the value was still set
+
+    def test_accept_reentrancy_guard_is_per_instance(self):
+        # accept() on a *different* unit from within a handler must still
+        # dispatch normally -- the guard is not global.
+        other_calls = []
+        other = Unit('other', changed=lambda unit, value: other_calls.append(value))
+        def handler(unit, value):
+            other.accept(value)
+        u = Unit('widget', changed=handler)
+        u.accept(9)
+        assert other_calls == [9]
+
     def test_delattr_removes_existing_attribute(self):
         u = Unit('widget', color='red')
         u.delattr('color')

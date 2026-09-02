@@ -126,8 +126,20 @@ class Unit:
                 self._mark_changed()
     
     def accept(self, value):
-        if hasattr(self, 'changed'):
-            self.changed(self, value)
+        # A `changed` handler is documented (README, "Handling events") to
+        # call elem.accept(value) on itself to finalize a value it decides
+        # to keep. Without the reentrancy guard below, that call would
+        # invoke self.changed again -- which is the very function already
+        # running -- recursing until RecursionError. The guard makes a
+        # nested self-call just set the value directly, while a *fresh*
+        # call (not from within self.changed) still dispatches to the
+        # handler as before.
+        if hasattr(self, 'changed') and not getattr(self, '_accepting', False):
+            self._accepting = True
+            try:
+                self.changed(self, value)
+            finally:
+                self._accepting = False
         else:
             self.value = value
 

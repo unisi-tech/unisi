@@ -379,6 +379,20 @@ class TestTablePersistentBasic:
         assert t.ids is False
         assert t.search == ''
 
+    def test_get_chunk_rejects_non_int_value_instead_of_crashing(self, memdb):
+        """`get` is reachable directly over the wire with whatever value a
+        (possibly custom) client sends. A non-int value used to reach
+        Dblist.get_delta_chunk() unchecked and raise TypeError there,
+        which -- since get_chunk is exactly the handler the WebSocket
+        message-processing loop calls -- crashed the whole request instead
+        of producing the graceful Error every other bad client message
+        gets (unknown path, unsupported event, ...)."""
+        from unisi.common import Message
+        t = Table('People', id='People', fields={'name': str, 'age': int})
+        for bad in (None, "0", 1.5, True, [0]):
+            result = get_chunk(t, bad)
+            assert isinstance(result, Message) and result.type == 'error'
+
     def test_headers_auto_generated_from_fields_when_not_given(self, memdb):
         t = Table('People', id='People', fields={'name': str, 'age': int})
         assert t.headers == ['Name', 'Age']

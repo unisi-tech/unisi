@@ -11,6 +11,8 @@ exclude_mark = '✘'
 max_len_rows4llm = 30
 
 def get_chunk(obj, start_index):
+    if not isinstance(start_index, int) or isinstance(start_index, bool):
+        return Error(f"get requires an integer row index, got {start_index!r}", obj)
     delta, data = obj.rows.get_delta_chunk(start_index)
     return {'update': 'updates', 'index': delta, 'data': data}
 

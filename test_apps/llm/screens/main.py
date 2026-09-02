@@ -62,8 +62,16 @@ async def test(*_):
     await geo_code()
 
 button = Button("Run", test)
+
+async def test_sipmle(*_):
+    res = await Q("Provide information about Thailand.",
+    dict(capital = str, population = int, currency = str))
+    return Info(str(res))
+
+simple_button = Button("Info about Thailand", test_sipmle)
+
 tblock = Block("Geo calculations", [ecountry, button], ecountry_info, tcapitals, width=400)
 
-eblock = Block('Text operations', [etopic, Button('Extract info', extract_info)], extext, equestions)
+eblock = Block('Text operations', [etopic, simple_button, Button('Extract info', extract_info)], extext, equestions)
 
 blocks = [[block2, block1], [tblock, eblock]]

@@ -54,6 +54,8 @@ File: `unisi/voicecom.py`
 │                         ANY MODE                                │
 │   Words: root / reset / select / cancel / screen / menu / stop  │
 │   → always intercepted BEFORE the mode handler                  │
+│   (synonyms select/cancel/menu only in the non-strict modes —   │
+│   see the note below the table)                                 │
 └────────────────────────────┬────────────────────────────────────┘
                              │
               ┌──────────────▼──────────────┐
@@ -83,12 +85,17 @@ File: `unisi/voicecom.py`
 
 | From | Command | To |
 |------|---------|-----|
-| any | `root` / `reset` / `select` / `cancel` | `root` |
-| any | `screen` / `menu` | `screen` |
+| any | `root` / `reset` / `select` / `cancel` * | `root` |
+| any | `screen` / `menu` * | `screen` |
 | any | `stop` | Mate hidden |
 | `root` | element name (fuzzy ≥ 0.8) | element's mode |
 | `root` | `ok` + confirmation | element's mode |
 | `screen` | screen name (fuzzy > 0.9) | `root` (new screen) |
+
+\* Only in `root`, `switch`/`check`, and `select`/`list`/`radio`/`tree` mode.
+In `text`, `number`, `graph`, `net`, and `table` mode (`STRICT_MODES`), a
+synonym does **not** escape — only the literal words `root`, `reset`,
+`screen`, `stop` do. See [§6](#6-global-escape-commands) for why.
 
 ---
 
@@ -250,12 +257,16 @@ If the last word in the buffer equals the new word AND it maps to a `text` comma
 
 #### Global escape commands (intercepted before the mode handler)
 
-| Word | Synonyms | Destination |
-|------|---------|------------|
-| `root` | `select`, `choose`, `set` | → `root` mode |
-| `reset` | `cancel` | → `root` mode |
-| `screen` | `menu` | → `screen` mode |
-| `stop` | — | → hide Mate |
+`text` is one of the `STRICT_MODES` (§6): only the literal word escapes, not
+its synonyms — saying "choose" or "cancel" or "menu" while dictating just
+inserts that word into the field like any other dictated word.
+
+| Word | Destination |
+|------|------------|
+| `root` | → `root` mode |
+| `reset` | → `root` mode |
+| `screen` | → `screen` mode |
+| `stop` | → hide Mate |
 
 ---
 
@@ -490,16 +501,27 @@ The threshold `0.9` (stricter than for elements) reduces the risk of accidentall
 
 ## 6. Global Escape Commands
 
-The following commands are intercepted **in `process_word` before any mode-specific handler**. They work from any mode, including `text` and `number`, and are never inserted into an input field.
+The canonical words below are intercepted **in `process_word` before any
+mode-specific handler**, in every mode, and are never inserted into an input
+field:
 
-| Word | Synonyms | Result |
-|------|---------|--------|
-| `root` | `select`, `choose`, `set` | `reset()` → `root` mode |
-| `reset` | `cancel` | `reset()` → `root` mode |
-| `screen` | `menu` | `set_mode("screen")` |
-| `stop` | — | `stop()` → hide Mate |
+| Word | Result |
+|------|--------|
+| `root` | `reset()` → `root` mode |
+| `reset` | `reset()` → `root` mode |
+| `screen` | `set_mode("screen")` |
+| `stop` | `stop()` → hide Mate |
 
-> `ok` is **not** a global escape command: it has different meanings in different modes (confirm a choice, press a button). Only the four commands above act as strict escapes.
+Their synonyms (`select`/`choose`/`set` for `root`, `cancel` for `reset`,
+`menu` for `screen`) escape too, but **only** in `root`, `switch`/`check`,
+and `select`/`list`/`radio`/`tree` mode. In `text`, `number`, `graph`, `net`,
+and `table` mode (the module's `STRICT_MODES`), only the literal canonical
+word escapes — a synonym is passed to the mode handler instead, because it
+can collide with real vocabulary in that mode: `select` is itself a `graph`/
+`net` command (§5.6), so treating it as an escape there would make
+`select`-to-refresh unreachable by voice.
+
+> `ok` is **not** a global escape command: it has different meanings in different modes (confirm a choice, press a button). Only `root`/`reset`/`screen`/`stop` (and, outside `STRICT_MODES`, their synonyms) act as escapes.
 
 ---
 
@@ -595,12 +617,12 @@ The order of operations inside the method is critical:
 
 ```python
 def set_screen(self, screen):
-    self.screen = screen            # 1. assign first
-    self.calc_interactive_units()  # 2. then index
+    self.screen = screen              # 1. assign first
+    self._index_interactive_units()   # 2. then index
     self.reset()
 ```
 
-`calc_interactive_units()` reads `self.screen`, **not** `self.user.screen`. This matters: at the moment `VoiceCom.set_screen()` is called, `self.user.screen` may still point to the old screen if the user session updates its own reference later. Using `self.screen` guarantees that the screen actually passed as the argument is the one being indexed.
+`_index_interactive_units()` reads `self.screen`, **not** `self.user.screen`. This matters: at the moment `VoiceCom.set_screen()` is called, `self.user.screen` may still point to the old screen if the user session updates its own reference later. Using `self.screen` guarantees that the screen actually passed as the argument is the one being indexed.
 
 ```python
 # When the user navigates:
@@ -861,11 +883,17 @@ The buffer is cleared:
 - after any command executes,
 - on `reset()`.
 
-### Command cache (`cached_commands`)
+### Command list (`_mode_commands`)
 
-The command list for each mode is built once and cached in `self.cached_commands`. This prevents mutation of the module-level `modes` dict on every `set_mode()` call.
+The command list for each mode is built once, at **module import time**, into
+the module-level `_mode_commands` dict (keyed by mode name, with a
+`_root_mode_commands` fallback for `root` and any unmapped mode). `set_mode()`
+just looks it up (`_mode_commands.get(mode, _root_mode_commands)`) — it is
+shared read-only across every `VoiceCom` instance, not rebuilt or cached per
+session, and no session mutates the module-level `modes` dict it was built
+from.
 
-### Data source in `calc_interactive_units`
+### Data source in `_index_interactive_units`
 
 The method reads exclusively from `self.screen`, not `self.user.screen`:
 
@@ -879,7 +907,7 @@ for block in flatten(self.screen.blocks): ...
 # for block in flatten(self.user.screen.blocks): ...
 ```
 
-This guards against a race condition: `set_screen(new_screen)` first writes `self.screen = screen` and only then calls `calc_interactive_units()`. If the method read from `user.screen`, there would be a window — depending on when the calling code in `users.py` updates its own reference — in which the old screen would be indexed.
+This guards against a race condition: `set_screen(new_screen)` first writes `self.screen = screen` and only then calls `_index_interactive_units()`. If the method read from `user.screen`, there would be a window — depending on when the calling code in `users.py` updates its own reference — in which the old screen would be indexed.
 
 **Post-condition invariant** — after `set_screen()` returns:
 ```
@@ -889,15 +917,27 @@ self.name2unit   == {pretty4 name: Unit} for screen
 self.screen_name == screen.name
 ```
 
-### `screen.blocks` type
+### `screen.blocks` mutation
 
-`screen.blocks` is stored as a tuple by the UNISI Unit proxy (screen attributes are defined as plain Python assignments in screen module files). The `start()` and `stop()` methods convert the tuple to a list, mutate it, and write it back:
+`start()` and `stop()` copy `screen.blocks` into a plain list before
+mutating it, rather than appending/removing in place, then write the whole
+list back:
 
 ```python
 blocks = list(self.screen.blocks)
 blocks.append(self.block)
 self.screen.blocks = blocks
 ```
+
+This is defensive rather than optional: a screen module can define `blocks`
+as a single bare `Block`, a list, or a tuple (`blocks = block1, block2` — no
+brackets — is a tuple in Python), and going through `self.screen.blocks`
+reads it through the reactivity wrapper (`ChangedProxy`) besides. Copying
+into a known-plain list first, appending/removing, and writing the whole
+thing back is what works unconditionally across all of that, and the
+reassignment (`self.screen.blocks = blocks`, not an in-place `.append()`)
+is also what makes the change register as a tracked change on `screen`.
+
 
 ### Two-step graph operations
 

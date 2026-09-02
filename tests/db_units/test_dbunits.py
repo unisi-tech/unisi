@@ -109,6 +109,18 @@ class TestBasicAccess:
         with pytest.raises(IndexError):
             table.list[-5]
 
+    def test_get_delta_chunk_rejects_non_int_index(self, db, table):
+        """A `get` value that isn't a real int (None over the wire, a bool,
+        a str, ...) must resolve to the same "nothing here" sentinel the
+        function already uses for a genuinely out-of-range index, not
+        raise. Before this guard, `None < 0` inside get_delta_chunk raised
+        TypeError, and since tables.get_chunk() is the WebSocket handler
+        for the `get` event, that crash propagated out of the whole
+        request and closed the client's connection with no response."""
+        table.list.append(["Alice", 30])
+        for bad in (None, "0", 1.5, [0], object()):
+            assert table.list.get_delta_chunk(bad) == (-1, None)
+
     def test_getitem_slice_positive(self, db, table):
         for i in range(5):
             table.list.append([f"n{i}", i])

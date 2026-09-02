@@ -684,7 +684,7 @@ genres (standalone), and a many-to-many between books and genres.
 
 ```python
 # screens/library.py
-from unisi import Table, Screen
+from unisi import Table, Block
 
 # ── Table 1: Authors (standalone) ────────────────────────────────────
 authors = Table('Authors',
@@ -712,7 +712,8 @@ book_genres = Table('Book Genres',
     link   = [genres, {}],   # junction: book_genres2genres
 )
 
-screen = Screen(authors, books, genres, book_genres)
+name = 'Library'
+blocks = [Block('Library', authors, books, genres, book_genres)]
 ```
 
 ### Programmatic walkthrough

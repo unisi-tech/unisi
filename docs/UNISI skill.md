@@ -17,6 +17,7 @@ Read the others when you need exhaustive detail on one subsystem:
 | `docs/unisi-programming-spec.md` | The full formal spec — every constructor, every option, numbered §-sections |
 | `docs/persistent_tables.md` | DB-backed `Table(id=...)`, links, schema evolution, geo-spatial fields, full `Dbtable` API |
 | `docs/voicecom.md` | Voice-command subsystem (modes, vocabulary, extending it) |
+| `docs/protocol.md` | The WebSocket wire protocol — verified against a live server, needed for `config.web_client` |
 | **this file** | Verified internals, gotchas, and everything the other docs under-cover |
 
 If your installed version differs from 0.7.7, anything version-sensitive below is
@@ -609,7 +610,8 @@ web_client = 'custom_client/dist'   # relative (to cwd) or absolute
 
 Points `GET /` at a separate, already-built front end instead of the
 bundled Quasar client — as long as that front end speaks the UNISI protocol
-(opens a WebSocket to `/ws`, exchanges the same JSON messages), swapping
+(opens a WebSocket to `/ws`, exchanges the same JSON messages — full wire
+format in `docs/protocol.md`), swapping
 `web_client` never touches the protocol itself, only which static files
 answer `/`.
 
