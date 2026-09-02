@@ -55,7 +55,7 @@ def switch_graph(*_):
     bottom_block.value[1] = toposcreen if bottom_block.value[1] == graph else graph
 
 bottom_block = Block('Screen topology: Press Shift for multi (de)select nodes and links', 
-     Button('Switch graph', switch_graph), toposcreen, closable = True)
+     Button('Switch graph', switch_graph), toposcreen)
 
 blocks= [block,bottom_block],config_area
 
