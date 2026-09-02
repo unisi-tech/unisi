@@ -609,6 +609,38 @@ class TestWebsocketHandler:
             assert msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING)
 
     @pytest.mark.asyncio
+    async def test_close_path_json_message_also_closes_the_connection(self, app_client):
+        """{"path": ["close"]} is the documented (protocol.md), JSON way to
+        ask for a clean close -- the bare 'close' string above is kept only
+        for whatever already sends it. Both must work identically."""
+        async with app_client.ws_connect("/ws") as ws:
+            await ws.receive_json()
+            await ws.send_json({"path": ["close"]})
+            msg = await ws.receive()
+            from aiohttp import WSMsgType
+            assert msg.type in (WSMsgType.CLOSE, WSMsgType.CLOSED, WSMsgType.CLOSING)
+
+    @pytest.mark.asyncio
+    async def test_close_path_json_message_never_reaches_result4message(self, app_client, monkeypatch):
+        """The close check has to happen before result4message() -- path
+        ["close"] doesn't address a real screen element, so if it were
+        dispatched normally it would just come back as the usual "Element
+        close does not exist!" error instead of closing anything."""
+        import unisi.users as users_mod
+        calls = []
+        original = users_mod.User.result4message
+        async def spy(self, message):
+            calls.append(message)
+            return await original(self, message)
+        monkeypatch.setattr(users_mod.User, "result4message", spy)
+
+        async with app_client.ws_connect("/ws") as ws:
+            await ws.receive_json()
+            await ws.send_json({"path": ["close"]})
+            await ws.receive()
+        assert calls == []
+
+    @pytest.mark.asyncio
     async def test_malformed_non_object_message_ends_that_connection_but_not_the_server(
         self, app_client
     ):

@@ -286,6 +286,12 @@ async def websocket_handler(request):
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
                     if msg.data == 'close':
+                        # Legacy, non-JSON escape hatch -- kept so an
+                        # existing client that still sends this bare
+                        # string keeps working. {"path": ["close"]} below
+                        # is the real, documented (protocol.md) way to
+                        # ask for a clean close; every other client<->
+                        # server message is JSON, this should be too.
                         await ws.close()
                     else:
                         raw_message = json.loads(msg.data)
@@ -316,7 +322,10 @@ async def websocket_handler(request):
                             else:                                
                                 result = Warning('Empty command batch!')
                         else:                    
-                            message = ReceivedMessage(raw_message)            
+                            message = ReceivedMessage(raw_message)
+                            if message.close_type:
+                                await ws.close()
+                                continue
                             result = await user.result4message(message)                    
                         prepared = await send(result)
                         if message:

@@ -29,14 +29,10 @@ GET ws://<host>:<port>/ws[?screen=<name>][&id=<session-id>]
 
 ## 2. Message Envelope
 
-Every message in both directions is JSON. A single `send()` may also be a
-JSON **array** of message objects, processed in order as a batch — the
-client can coalesce several changes (e.g. multiple fields losing focus at
-once) into one WebSocket frame.
-
-The one non-JSON exception: sending the raw string `"close"` (not JSON,
-just those 7 characters) closes the socket from the server side with a
-normal 1000 close code. There is no equivalent server→client raw string.
+Every message in both directions is JSON — no exceptions. A single
+`send()` may also be a JSON **array** of message objects, processed in
+order as a batch — the client can coalesce several changes (e.g. multiple
+fields losing focus at once) into one WebSocket frame.
 
 ## 3. Server → Client Messages
 
@@ -196,11 +192,23 @@ one frame; each is processed in order, same as if sent as separate frames.
 |---|---|
 | `["root"]` | Switch screens. `value` is the target screen's name. Answered with a full `screen` message, `reload: true` (3.5). |
 | `["voice"]` | Talk to the voice ("Mate") subsystem instead of a screen element — see §5. |
+| `["close"]` | Close the connection. No reply. See 4.4. |
 
 ### 4.4 Closing the connection
 
-The raw string `"close"` (see §2) closes the socket. There is no graceful
-"goodbye" message expected back — the server just closes with code 1000.
+```json
+{"path": ["close"]}
+```
+
+Closes the socket from the server side, code 1000, no reply sent first —
+there's no graceful "goodbye" message to wait for. This is the third
+reserved single-element path, alongside `["root"]` and `["voice"]` (4.3).
+
+> A bare, non-JSON `"close"` string (just those 7 characters, no quotes,
+> no braces) is also still accepted, purely for compatibility with
+> whatever already sends it — it predates the rest of this protocol
+> settling on JSON for everything. A new client should send the JSON form
+> above; there's no reason to reach for the raw string.
 
 ## 5. Voice / Mate Sub-Protocol
 
@@ -241,7 +249,7 @@ beyond those.
 | same with a non-int `value` (`null` included) | `get` envelope whose `value` is itself an `error` message — not a top-level `error` |
 | `{"path":["voice"],"event":"listen","value":true}` | full `screen` (Mate block added) |
 | `{"path":["voice"],"event":"word","value":"..."}` | `update` (Mate units refreshed) |
-| raw string `"close"` | socket closes, code 1000 |
+| `{"path":["close"]}` | socket closes, code 1000 (bare `"close"` string also still works, compatibility-only) |
 | any handler returns `True` or `Redesign` | full `screen`, `reload: true` |
 
 ## 7. Building a Custom Client

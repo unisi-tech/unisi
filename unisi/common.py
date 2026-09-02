@@ -120,6 +120,9 @@ class ReceivedMessage(ArgObject):
     @property
     def voice_type(self):
         return self.path == ['voice']
+    @property
+    def close_type(self):
+        return self.path == ['close']
 
 def toJson(obj):
     # keys=False is pinned deliberately, not left as an implicit default:
