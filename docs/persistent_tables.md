@@ -263,14 +263,14 @@ Client JSON examples:
 
 ```json
 // Add a row
-{ "block": "TBlock", "element": "Users", "event": "append" }
+{ "path": ["Users", "TBlock"], "event": "append" }
 
 // Edit a cell (row 2, column 1, new value)
-{ "block": "TBlock", "element": "Users", "event": "modify",
+{ "path": ["Users", "TBlock"], "event": "modify",
   "value": { "delta": 2, "cell": 1, "value": "new@example.com" } }
 
 // Delete selected row (or an array of indices)
-{ "block": "TBlock", "element": "Users", "event": "delete", "value": 2 }
+{ "path": ["Users", "TBlock"], "event": "delete", "value": 2 }
 ```
 
 ### 3.7 Search
@@ -281,7 +281,7 @@ geo-spatial "find rows near here" queries, use `search_within_radius`/
 `search_nearest` instead (see [§11](#11-geo-spatial-fields)).
 
 ```json
-{ "block": "TBlock", "element": "Users", "event": "search", "value": "alice" }
+{ "path": ["Users", "TBlock"], "event": "search", "value": "alice" }
 ```
 
 The server updates `table.rows` in-place — only matching rows are shown.
@@ -621,7 +621,7 @@ orders.filter = False
 link_table_selection_changed(...)   # redraw
 
 # Client sends:
-# { "block": "TBlock", "element": "Orders", "event": "filter", "value": false }
+# { "path": ["Orders", "TBlock"], "event": "filter", "value": false }
 ```
 
 ---
