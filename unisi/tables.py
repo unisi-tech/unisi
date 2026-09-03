@@ -107,7 +107,18 @@ class Table(Unit):
                 if not hasattr(link_table, 'id'):
                     raise AttributeError('Linked table has to be persistent!')
 
-                many_to_one = not prop_types  # link = utable → many-to-one
+                # link = utable          → many-to-one (FK `link_id` column)
+                # link = [utable, {...}] → many-to-many (junction table) —
+                #   even when the payload dict is empty: `link = [utable, {}]`
+                #   is still an explicit *list*, i.e. "many-to-many with no
+                #   extra fields", and must not collapse into many-to-one
+                #   just because `not {}` happens to be True. Route on the
+                #   *shape* of self.link itself (was a list/tuple given at
+                #   all?), not on whether prop_types happens to be empty —
+                #   otherwise link=[utable, {}] is indistinguishable from
+                #   link=utable and silently gets an FK column instead of a
+                #   junction table.
+                many_to_one = not isinstance(self.link, (list, tuple))
 
                 if many_to_one:
                     # ── Many-to-one: FK column link_id in this table ──────

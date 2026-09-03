@@ -265,6 +265,17 @@ many-to-many, schema evolution, geo-spatial `point` fields, the full
 persistence (§9 below). See `persistent_tables.md` in full; don't try to
 reconstruct it from `unisi/db.py` (1800+ lines) on the fly.
 
+The two `link=` shapes are easy to conflate — the *shape* of `self.link`
+decides many-to-one vs many-to-many, not whether the payload dict is empty:
+- `link=parent_table` (bare, no list/tuple) → many-to-one, FK column
+  `link_id` added to this table, no junction table.
+- `link=[parent_table, {...}]` (list or tuple, 2 or 3 elements) →
+  many-to-many, junction table — **even when the dict is `{}`**. The
+  plausible-but-wrong assumption: "`{}` means no extra fields, so this must
+  be the many-to-one case." It isn't — the list/tuple wrapper is what
+  selects many-to-many, independent of what (if anything) the dict holds.
+  `unisi/tables.py`, `Table.__init__`.
+
 ---
 
 ## 7. Async Handlers, Progress, and Offloading Heavy Work

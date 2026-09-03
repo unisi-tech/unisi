@@ -322,9 +322,24 @@ Persistent DB mode (requires `config.db_path` or `UNISI_DB_PATH` env var):
   see `docs/persistent_tables.md` §3.4/§10 for the full reference; reads
   always go straight to SQLite, never through `dbt.list`'s page cache
 
-Linked tables:
+Linked tables — `link=` takes one of two shapes, and the *shape* alone
+decides many-to-one vs many-to-many (an empty relation-fields dict does
+**not** make it many-to-one — see `docs/persistent_tables.md` §4–§5):
 
 ```python
+# many-to-one: link = <parent table>, bare, no list/tuple around it
+# -> FK column `link_id` added to this table, no junction table
+otable = Table(
+    "Orders",
+    id="Orders",
+    fields={"name": str, "sum": float},
+    link=utable,
+)
+
+# many-to-many: link = [<parent table>, <relation fields dict>] (list or
+# tuple; an optional 3rd element names the junction table explicitly —
+# omitted, it defaults to "<this id>2<parent id>")
+# -> junction table, even when the dict is {}
 otable = Table(
     "Orders",
     id="Orders",
@@ -333,6 +348,10 @@ otable = Table(
     link=(utable, {"type": "string", "weight": "double"}),
 )
 ```
+
+See `docs/persistent_tables.md` §4 (many-to-one) and §5 (many-to-many) for
+the full read/write API each shape gets: `set_fk`/`clear_fk`/`calc_linked_rows_fk`
+vs `add_link`/`delete_link`/`calc_linked_rows`.
 
 > Table's persistent DB mode manages application data rows and is a separate system from Unit/Screen state persistence (`persist=...`, §13).
 

@@ -42,6 +42,13 @@ Regression tests for the bugs fixed alongside this suite are labelled
     selecting a child row to link it to the current master crashed with a
     FOREIGN KEY constraint failure, and deselecting one silently deleted
     nothing.
+  * Table.__init__ decided many_to_one as `not prop_types`, i.e. "is the
+    payload dict empty". link=[users, {}] -- many-to-many with no extra
+    junction columns, documented in docs/persistent_tables.md §5.3 -- also
+    has an empty prop_types dict, so it silently took the many-to-one
+    branch too: Orders got a link_id FK column instead of an
+    orders2users junction table. Fixed by deciding many_to_one from the
+    *shape* of self.link (was a list/tuple given at all?) instead.
 """
 import pandas as pd
 import pytest
@@ -534,6 +541,19 @@ class TestTableLinkedManyToOne:
         orders = Table('Orders', id='Orders', fields={'item': str}, link=users)
         assert orders.link == {}
 
+    def test_regression_bare_table_link_still_routes_to_fk_not_junction(self, memdb):
+        """Companion to TestTableLinkedManyToMany's empty-payload-dict
+        regression test below: confirms the fix (deciding many_to_one from
+        isinstance(self.link, (list, tuple)) instead of `not prop_types`)
+        didn't flip the plain link=users shorthand the other way -- it
+        must still produce the link_id FK column, not a junction table."""
+        users = make_users(memdb, ['Alice'])
+        orders = Table('Orders', id='Orders', fields={'item': str}, link=users)
+
+        _link_table, _rel_field_names, rel_name = orders.rows.link
+        assert rel_name is None  # None marks many-to-one, a string would mark a junction
+        assert 'link_id' in orders.rows.dbtable.table_fields
+
     def test_filter_defaults_true_and_headers_include_link_id_and_excluded_id(self, memdb):
         from unisi.tables import exclude_mark
         users = make_users(memdb, ['Alice'])
@@ -749,6 +769,30 @@ class TestTableLinkedManyToMany:
         users = make_users(memdb, ['Alice'])
         orders = Table('Orders', id='Orders', fields={'item': str}, link=[users, {'qty': int}])
         assert 'qty' in orders.link
+
+    def test_regression_empty_payload_dict_still_creates_a_junction_not_an_fk(self, memdb):
+        """Regression: many_to_one used to be computed as `not prop_types`,
+        so link=[users, {}] -- many-to-many with no payload columns beyond
+        src_id/tgt_id, documented in docs/persistent_tables.md §5.3 -- had
+        an empty prop_types dict and silently collapsed into the
+        many-to-one branch: Orders got a link_id FK column instead of an
+        orders2users junction table. many_to_one must be decided by
+        whether self.link is a list/tuple at all, not by whether the
+        payload dict inside it happens to be empty."""
+        users = make_users(memdb, ['Alice'])
+        orders = Table('Orders', id='Orders', fields={'item': str}, link=[users, {}])
+
+        _link_table, _rel_field_names, rel_name = orders.rows.link
+        assert rel_name is not None  # a real junction table name, not the m2o marker
+        assert 'link_id' not in orders.rows.dbtable.table_fields
+
+        existing_tables = {
+            row[0] for row in
+            Unishare.db._conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            ).fetchall()
+        }
+        assert rel_name in existing_tables
 
     def test_headers_include_relation_field(self, memdb):
         users = make_users(memdb, ['Alice'])

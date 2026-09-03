@@ -545,9 +545,9 @@ The system tracks current tasks and their execution time. If a task takes longer
 Programming database interactions usually requests knowledge of concrete DBMS, specific of its language, programming and administrative details, and a lot of time for setting and programming. UNISI automates all DBMS operations and a regular programmer or user event does not need to know how exactly the system gets and updates the program data. UNISI hides complexity of DBMS programming under inherited-from-list objects that project operations on its data into DBMS. 
 UNISI database operates with named tables based on SQLite (zero-dependency, high performance, WAL mode). The only difference between temporal data and persistent data is that the latter has an ID property, which serves as its system name. UNISI supports smart schema migrations that automatically detect field changes and offer interactive data migration options.
 A link to another persistent table can be established using the 'link' option. This can be set as:
-- A table variable.
-- A list containing a table variable and link properties (name to type dictionary).
-- A list containing a table variable, link properties, and the index name in the database.
+- A table variable — many-to-one (a `link_id` foreign-key column is added to this table, no junction table).
+- A list containing a table variable and link properties (name to type dictionary) — many-to-many (a junction table is created), even when the properties dictionary is empty.
+- A list containing a table variable, link properties, and the index name in the database — many-to-many with an explicit junction-table name.
 
 UNISI synchronizes all database changes between users, allowing them to see real-time updates made by others on persistent units.
 
