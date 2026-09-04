@@ -32,3 +32,23 @@ TypeError: Hello_user.__init__() got an unexpected keyword argument 'screen'
   User is connected, session: al4pfehpyG-0, share: al4pfehpyG-0
 2026-08-28 22:59:53,405 - INFO - session: al4pfehpyG-0, screen: Panda params, message: Edit string@Embedded block@Shared block->changed(123)
   User is disconnected, session: al4pfehpyG-0
+2026-09-04 15:28:34,900 - INFO - session: 0go6J2Dzdz-0, screen: Blocks, message: None
+  User is connected, session: 0go6J2Dzdz-0, share: None
+2026-09-04 16:01:08,993 - INFO - session: ItIFHRfKtV-0, screen: Blocks, message: None
+  User is connected, session: ItIFHRfKtV-0, share: None
+2026-09-04 20:24:09,910 - INFO - session: ItIFHRfKtV-0, screen: Blocks, message: root->changed(Blocks)
+  User is disconnected, session: ItIFHRfKtV-0
+2026-09-04 20:24:33,659 - INFO - session: MzNjH1HRzR-1, screen: Blocks, message: None
+  User is connected, session: MzNjH1HRzR-1, share: None
+2026-09-04 20:28:09,009 - INFO - session: MzNjH1HRzR-1, screen: Blocks, message: root->changed(Blocks)
+  User is disconnected, session: MzNjH1HRzR-1
+2026-09-04 20:28:09,325 - INFO - session: ILWZWZSc2P-2, screen: Blocks, message: None
+  User is connected, session: ILWZWZSc2P-2, share: None
+2026-09-04 20:54:24,961 - INFO - session: ILWZWZSc2P-2, screen: Blocks, message: root->changed(Blocks)
+  User is disconnected, session: ILWZWZSc2P-2
+2026-09-04 20:54:25,231 - INFO - session: pInO4bFZ8f-3, screen: Blocks, message: None
+  User is connected, session: pInO4bFZ8f-3, share: None
+2026-09-04 21:54:33,843 - INFO - session: pInO4bFZ8f-3, screen: Blocks, message: root->changed(Blocks)
+  User is disconnected, session: pInO4bFZ8f-3
+2026-09-04 21:54:34,144 - INFO - session: Sd19aLniMh-4, screen: Blocks, message: None
+  User is connected, session: Sd19aLniMh-4, share: None

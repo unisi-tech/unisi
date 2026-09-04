@@ -32,6 +32,7 @@ This README is a tour of the framework. For depth on one topic, see `docs/`:
 - [`unisi-programming-spec.md`](docs/unisi-programming-spec.md) — full constructor/option reference
 - [`protocol.md`](docs/protocol.md) — the WebSocket wire protocol, for building a custom client
 - [`persistent_tables.md`](docs/persistent_tables.md) — DB-backed tables, links, schema evolution, geo-spatial fields
+- [`charts.md`](docs/charts.md) — table-projection charts and native ECharts `Chart`, side by side
 - [`voicecom.md`](docs/voicecom.md) — the voice-command subsystem in depth
 - [`UNISI skill.md`](docs/UNISI%20skill.md) — internals and gotchas for AI coding agents working on a UNISI app
 
@@ -364,8 +365,27 @@ value = [0] means 0 row is selected in multiselect mode (in array). multimode is
 
 
 ### Chart
-Chart is a table with additional Table constructor parameter 'view' which explaines UNISI how to draw a chart. The format is '{x index}-{y index1},{y index2}[,..]'. '0-1,2,3' means that x axis values will be taken from 0 column, and y values from 1,2,3 columns of row data.
-'i-3,5' means that x axis values will be equal the row indexes in rows, and y values from 3,5 columns of rows data. If a table constructor got view = '..' parameter then UNISI displays a chart icon at the table header, pushing it switches table mode to the chart mode. If a table constructor got type = 'chart' in addition to view parameter the table will be displayed as a chart on start. In the chart mode pushing the icon button on the top right switches back to table view mode.
+
+UNISI can draw a chart two ways: projecting a `Table`, or building one directly from a native ECharts option.
+
+**Projecting a `Table`.** Add a `view` parameter to any `Table` constructor and UNISI computes a line chart from the table's own row/column data — no charting code needed. The format is '{x index}-{y index1},{y index2}[,..]'. '0-1,2,3' means that x axis values will be taken from 0 column, and y values from 1,2,3 columns of row data.
+'i-3,5' means that x axis values will be equal the row indexes in rows, and y values from 3,5 columns of rows data. If a table constructor got view = '..' parameter then UNISI displays a chart icon at the table header, pushing it switches table mode to the chart mode. If a table constructor got type = 'chart' in addition to view parameter the table will be displayed as a chart on start. In the chart mode pushing the icon button on the top right switches back to table view mode. Selection works exactly like a table: `value` is the selected row index (or indices, under `multimode`), and this mode is always a line chart.
+
+**A native ECharts `Chart`.** For anything besides a line chart — bar, pie, scatter, gauge, or full control over styling — use `Chart` instead. It is a plain `Unit`, not a `Table` subclass, and takes a native [Apache ECharts](https://echarts.apache.org/en/option.html) `option` object directly, so every chart type ECharts supports is available:
+
+```
+Chart(name, option, changed_handler?)
+```
+```python
+Chart('Monthly Sales', {
+    'xAxis': {'type': 'category', 'data': ['Jan', 'Feb', 'Mar', 'Apr', 'May']},
+    'yAxis': {'type': 'value'},
+    'series': [{'type': 'bar', 'data': [120, 200, 150, 80, 70]}],
+})
+```
+`option` is passed to ECharts' `setOption()` largely as-is — UNISI doesn't interpret it, so [ECharts' own option reference](https://echarts.apache.org/en/option.html) is what defines what can go in there. `value` is *not* the chart data; it starts `None` and holds whatever the user last clicked (ECharts' click-event `params.value`), and `changed_handler` fires with that value the same way it would for any other unit. Updating `.option` later from a handler pushes a fresh chart to the browser — each push fully replaces what's on screen rather than merging into it, so resend the complete option rather than a partial diff.
+
+See [`docs/charts.md`](docs/charts.md) for a fuller walkthrough — more chart types, live server-driven updates, autotest requirements, and guidance on choosing between the two mechanisms.
 
 ### Graph
 Graph supports an interactive graph.

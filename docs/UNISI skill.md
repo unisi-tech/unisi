@@ -235,7 +235,7 @@ def reject_based(unit, value):
   chain returns `True` or `Redesign`, the chain stops immediately** and later
   handlers in it do not run.
 - Use it for screen-specific overrides of a shared block's default behavior —
-  see `unisi-programming-spec.md` §9 and §16 for the full contract.
+  see `unisi-programming-spec.md` §9 and §17 for the full contract.
 
 ---
 
@@ -438,7 +438,7 @@ table = Table("Persons", llm={"Date of birth": "Name", "Occupation": True}, ...)
 ```
 
 Recomputed automatically whenever a dependency's value changes and this
-field's own value is empty — see `unisi-programming-spec.md` §14.1, and
+field's own value is empty — see `unisi-programming-spec.md` §15.1, and
 `test_apps/llm/screens/main.py` for a complete working example (also the
 canonical example for explicit `Q()`/`Qx()` calls, `asyncio.gather` fan-out,
 and image/geo-style queries).
@@ -447,7 +447,7 @@ and image/geo-style queries).
 
 ## 9. State Persistence — Four Mechanisms
 
-Full reference: `unisi-programming-spec.md` §13 (13.1–13.7). This section is
+Full reference: `unisi-programming-spec.md` §14 (14.1–14.7). This section is
 a decision guide plus the facts most likely to be assumed wrong.
 
 | Mechanism | You write | Saves | Use it for |
@@ -486,7 +486,7 @@ Notes:
   (`user.testing`) — don't design a recorded fixture that depends on it.
 - A widget inside a `blocks/` module keeps its persisted state under a
   namespace anchored to the block's own module (`'@blocks.header'`, not a
-  screen name) — see §13.6 for why, and `user.persist_location(unit)` if you
+  screen name) — see §14.6 for why, and `user.persist_location(unit)` if you
   need to look a specific unit's row up directly.
 
 ---
@@ -511,11 +511,11 @@ Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm
 | `Image(path_or_url, value=False, handler?, label='', width=300, url?)` | click toggles a selection checkmark |
 | `Video(name, value?, changed?, fragments=[])` | `value = {"position": float, "play": bool, "sound": bool}` |
 | `Sound(name, value?, handler?)` | `value = {"url", "play", "position", "volume"}` |
-| `Chart(name, option, changed?)` | raw ECharts `option` dict passed as the constructor's value, stored on `.option` (`.value` becomes the current selection) |
+| `Chart(name, option, changed?)` | raw ECharts `option` dict passed as the constructor's value, stored on `.option` (`.value` becomes the current selection, not the chart data) — see §18 below; full contract in the spec §13 |
 | `HTML(name, html_string, changed?, scale?, **kwargs)` | a raw HTML/JS content container (`type='html'`); the Python side does no special handling of any kwarg beyond the base `Unit` constructor — `scale` (e.g. `1`) is a frontend-only convention that renders a slider zooming the content from 0.5× to 3.0× |
 | `Graph(name, value?, changed?, nodes=[Node(...)], edges=[Edge(...)])` | `value = {'nodes': [...], 'edges': [...]}` selection |
 | `Net(name, value?, topology=None, **kwargs)` | a `Graph` auto-built from a topology of *Units* (screen/block/unit map) instead of manual nodes/edges |
-| `Table(name, value?, changed?, **kwargs)` | see §6; DB-backed mode → `persistent_tables.md` |
+| `Table(name, value?, changed?, **kwargs)` | see §6; `view=` chart projection → §18; DB-backed mode → `persistent_tables.md` |
 | `Table(name, panda=df, **kwargs)` | pandas-backed (`PandaTable`) — same append/delete/modify hooks, operating on the DataFrame |
 | `Block(name, *children, **options)` | `closable=True` gives it a `.close` that removes it from `user.screen.blocks`; `scaler=True` auto-adds a `ContentScaler` (above); any other option becomes a plain attribute for the frontend to read |
 | `ParamBlock(name, *units, changed=None, row=3, strict='recurse', persist=False, **params)` | value-type → widget mapping and reassignable `.params` — full contract in the spec §7 |
@@ -542,7 +542,7 @@ toolbar = [Button("Export", on_export, icon="download"), execution_mode]
 - `toolbar` is a module-level list, read automatically per screen.
 - `User.toolbar` (a *class*-level list) is appended onto every screen's
   toolbar automatically at compile time (`compile_screen`, `unisi/modules.py`)
-  — this is how the "Add test" recorder button (§15) shows up on every
+  — this is how the "Add test" recorder button (§16) shows up on every
   screen once `config.autotest` is enabled, without any screen author doing
   anything.
 
@@ -715,18 +715,73 @@ async def smoke_check():
 
 ---
 
-## 18. Where to Go Next
+## 18. Chart — `option` and `value` Semantics
+
+`Chart` is not a `Table` with extra options — it's a separate `Unit`
+subclass (`unisi/units.py`, `class Chart(Unit)`) that has never seen a row
+or a header. Passing `rows=`/`headers=`/`view=` to it does nothing useful;
+those are `Table` constructor kwargs.
+
+```python
+def on_point_clicked(chart, value):
+    print("clicked:", value)   # ECharts' click params.value, not the option
+
+sales = Chart(
+    "Sales",
+    {"xAxis": {"type": "category", "data": [...]}, "yAxis": {"type": "value"},
+     "series": [{"type": "bar", "data": [...]}]},
+    on_point_clicked,
+)
+```
+
+- The constructor's second positional argument becomes `.option`, not
+  `.value` — `Chart.__init__` reads whatever was passed as `value`, stores
+  it on `self.option`, then resets `self.value = None`. The
+  plausible-but-wrong assumption: `Chart`'s two positional slots mirror
+  `Table`'s (`value` then `changed`). They don't — the first slot *becomes*
+  `.option`, and `.value` is reserved for the click selection instead, so
+  reading `chart.value` right after construction returns `None`, not the
+  option dict you just passed in.
+- `type='chart'` is set unconditionally after `super().__init__()` runs,
+  so a `type=` kwarg passed to `Chart(...)` is silently overwritten —
+  there's no way to make a `Chart` instance report any other type.
+- `unisi/autotest.py`'s block-structure check requires `view` or `option`
+  on every `type='chart'` unit; a `Chart()` built with no value arg at all
+  still passes that check, because `Chart.__init__` falls back to
+  `self.option = {}` rather than leaving `option` unset — an *empty*
+  chart, not a missing one.
+- Updating `.option` later (from a handler, a background task, anything
+  that mutates a live `Chart` instance) triggers a full-replace update on
+  the client, not a merge — a series or field present in the old `option`
+  and dropped from the new one disappears rather than lingering. (`Table`'s
+  `view=`-projected chart mode reaches the same no-stale-data outcome a
+  different way: it explicitly rebuilds its own `series`/`legend` arrays
+  from scratch on every update, rather than relying on a full-replace
+  call — see §6 above.)
+- Only a click reaches the server. There's no built-in equivalent of
+  `Table`'s row-selection markers, zoom-position persistence across
+  reloads, or the table/chart toggle icon — `Chart` is a thin pass-through
+  to ECharts, so anything beyond "which point got clicked" (remembering
+  zoom, drawing a "selected" marker, multi-select) is on you to build into
+  the `option` you send and read back out of `changed` yourself.
+
+---
+
+## 19. Where to Go Next
 
 - Building your first screen? → `unisi-quickstart.md`, then this file's §1–§4.
 - Need every constructor option, exhaustively? → `unisi-programming-spec.md`
   (numbered §-sections referenced throughout this file).
 - Doing anything with a DB-backed `Table`? → `persistent_tables.md` — links,
   schema evolution, geo-spatial fields, the full `Dbtable` API.
+- Building a chart, either flavor? → `charts.md` — worked examples for
+  both `view=` projection and raw ECharts `option`.
 - Adding or debugging voice control? → `voicecom.md`.
 - Working examples in this repo, by topic (all under `test_apps/`):
   - `test_apps/blocks/screens/main.py` — blocks, `Net`/`Graph`, toolbar, `@handle`
   - `test_apps/blocks/screens/zoo.py` — `ParamBlock`, `HTML`, pandas table
-  - `test_apps/blocks/blocks/tblock.py` — dialogs, table hooks, autocomplete, tree
+  - `test_apps/blocks/blocks/tblock.py` — dialogs, table hooks, autocomplete,
+    tree, `view=` chart projection
   - `test_apps/db/screens/single.py`, `linked.py` — persistent tables
   - `test_apps/llm/screens/main.py` — `Q()`/`Qx()`, per-unit `llm=`, `asyncio.gather`
   - `test_apps/persistence/screens/animals.py`, `notes.py` — positional + keyed persist

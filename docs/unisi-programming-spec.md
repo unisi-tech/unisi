@@ -54,7 +54,7 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `db_path` | str/None | `None` | DB file path for persistent tables (or set `UNISI_DB_PATH` env var) |
 | `lang` | str | `"en-US"` | UI language |
 | `public_dirs` | list[str] | `[]` | Extra static roots |
-| `web_client` | str/None | `None` | Root dir of a custom UNISI-protocol web client to serve at `/` instead of the bundled one (still reachable at `/default`) — see §17 |
+| `web_client` | str/None | `None` | Root dir of a custom UNISI-protocol web client to serve at `/` instead of the bundled one (still reachable at `/default`) — see §18 |
 | `image` | str | `"icons/favicon-32x32.png"` | App icon |
 | `session` | str/None | None | optional session/user id for debugging |
 | `persist` | bool | `False` | Persist every unit on every screen, globally |
@@ -143,7 +143,7 @@ ParamBlock(name, *units, changed=None, row=3, strict='recurse', persist=False, *
 - `changed`: shared handler used as the `changed` callback for every field generated from `params` (same effect as passing it to each field individually).
 - `row`: number of fields per visual row.
 - `strict`: `'recurse'` (default) turns a nested `dict` value into an embedded `ParamBlock`; any other truthy value raises on an unsupported value type; falsy silently skips unsupported values instead of raising.
-- `persist`: same contract as on any `Unit`/`Block` — `True` for positional persist, or a key-function for keyed persist (§13.2). Because `ParamBlock`'s fields are generated from `params`, keyed persist saves/restores the **whole `params` dict**, not individual fields.
+- `persist`: same contract as on any `Unit`/`Block` — `True` for positional persist, or a key-function for keyed persist (§14.2). Because `ParamBlock`'s fields are generated from `params`, keyed persist saves/restores the **whole `params` dict**, not individual fields.
 
 Parameter mapping (value type -> generated widget):
 - `bool` -> `Switch`
@@ -180,7 +180,7 @@ block = ParamBlock(
 )
 ```
 
-Example with keyed persist (remember manual overrides per selected record — see §13.2):
+Example with keyed persist (remember manual overrides per selected record — see §14.2):
 
 ```python
 selected = Select("Record", options=["A", "B", "C"])
@@ -261,7 +261,7 @@ async def on_dialog(dialog, command):
 
 From `unisi/units.py`:
 
-Every unit below also accepts a common `persist` kwarg (positional `True` or a key-function) to opt into state persistence — see §13.
+Every unit below also accepts a common `persist` kwarg (positional `True` or a key-function) to opt into state persistence — see §14.
 
 - `Button(name, handler=None, **kwargs)`
 - `Edit(name, value?, changed?, **kwargs)`
@@ -271,7 +271,6 @@ Every unit below also accepts a common `persist` kwarg (positional `True` or a k
 - `Switch(name, value=False, changed?)`
 - `Select(name, value?, options=[])`
 - `Tree(name, value?, options=dict|list)`
-- `Chart(name, option, changed?)`
 - `HTML(name, html_string, changed?, scale?, edit?)`
 - `Image(name_or_url, value=False, handler=None, label="", width=300, ...)`
 - `Video(name, value = { "position": float, "play": bool, "volume": Number},
@@ -279,6 +278,10 @@ Every unit below also accepts a common `persist` kwarg (positional `True` or a k
 - `Sound(name, value = {'url': str, "position": float, "play": bool, "volume": Number},
 - `Graph(name, value?, changed?, nodes=[], edges=[])`
 - `Net(name, ...)` (graph of screen/block/unit topology)
+
+`Table` and `Chart` are not in the list above — each takes enough
+constructor options to warrant its own section: §12 (Table) and §13
+(Chart).
 
 Name convention:
 - prefix `_` in unit name hides visible label in UI.
@@ -353,19 +356,91 @@ See `docs/persistent_tables.md` §4 (many-to-one) and §5 (many-to-many) for
 the full read/write API each shape gets: `set_fk`/`clear_fk`/`calc_linked_rows_fk`
 vs `add_link`/`delete_link`/`calc_linked_rows`.
 
-> Table's persistent DB mode manages application data rows and is a separate system from Unit/Screen state persistence (`persist=...`, §13).
+> Table's persistent DB mode manages application data rows and is a separate system from Unit/Screen state persistence (`persist=...`, §14).
 
-## 13. State Persistence Specification
+## 13. Chart Specification
+
+UNISI renders a chart two different ways, chosen by which constructor is used:
+
+- **`Table(..., view=...)`** — projects existing row/column data into a
+  line chart. Covered in §12; the `view` format is detailed in §13.1.
+- **`Chart(name, option, changed?)`** — a plain `Unit` (not a `Table`
+  subclass) that takes a native
+  [Apache ECharts](https://echarts.apache.org/en/option.html) `option`
+  object as its value. Any ECharts chart type works, at the cost of
+  writing the option yourself.
+
+Both produce a unit with `type == "chart"` on the wire. A `type="chart"`
+unit with neither `view` nor `option` set fails block autotest validation
+(see `docs/UNISI skill.md` §16).
+
+### 13.1 `view` format
+
+`"{x column index}-{y column index}[,{y column index}...]"`. `"0-1,2,3"`
+takes x-axis values from column 0 and plots columns 1, 2, and 3 as
+separate line series; `"i-1,2"` uses each row's own index as the x value
+(`i` in the x slot) instead of a column. `type="chart"` renders as a chart
+immediately; leaving the default `type="table"` (with `view` still set)
+instead adds a toggle icon to the table header that switches to chart mode
+and back. `view` is parsed entirely client-side — UNISI only checks that
+it is present, not that it is well-formed. Clicking a point selects it the
+same way selecting a table row does (`value` = row index/indices,
+`changed` fires the same as any `Table` — see `docs/UNISI skill.md` §6
+for the exact contract).
+
+### 13.2 `Chart(name, option, changed?)`
+
+```python
+Chart(
+    "Sales",
+    {
+        "xAxis": {"type": "category", "data": ["Mon", "Tue", "Wed", "Thu", "Fri"]},
+        "yAxis": {"type": "value"},
+        "series": [{"type": "bar", "data": [120, 200, 150, 80, 70]}],
+    },
+    changed=lambda chart, value: print("clicked:", value),
+)
+```
+
+- `option` — any valid ECharts `option` dict, passed to ECharts'
+  `setOption()` unmodified. UNISI does not validate or interpret its
+  contents; ECharts' own
+  [option reference](https://echarts.apache.org/en/option.html) is
+  authoritative, not this document.
+- `value` — **not** the chart definition. Starts `None`; holds whatever
+  the user last clicked, specifically ECharts' click-event `params.value`
+  (shape follows your own `series[].data` — a number for a simple line/bar
+  point, a `{name, value}` pair for a pie slice, and so on).
+- `changed` — fires with that clicked value; `None`/absent falls back to
+  the standard accept-into-`value` behavior of any handler (§8). Only
+  clicks are reported to the server — zoom, pan, hover, and legend toggles
+  stay entirely client-side.
+- Each `option` push — the initial one or a later `chart.option = {...}`
+  from a handler — fully replaces what the chart displays; a series or
+  field dropped from one push to the next disappears rather than
+  lingering from before.
+- `persist=True` (or a key-function, §14) persists the last-clicked
+  `value`, not `option` — resupply `option` on every load, the same way
+  you resupply `rows`/`headers` for a `Table`.
+
+### 13.3 Choosing between them
+
+`Table(..., view=...)` is the fast path when data is already
+row/column-shaped and a line chart is enough. Reach for `Chart` as soon as
+a different chart type, custom styling, or non-tabular data is needed.
+`docs/charts.md` has a worked, multi-type walkthrough.
+
+## 14. State Persistence Specification
 
 Any `Screen`, `Block`, or `Unit` can opt into having its state survive across requests — and, for screens, be restored when the screen is next loaded — by setting `persist`. There are two distinct modes depending on what you pass.
 
-### 13.1 Positional persist (`persist=True`)
+### 14.1 Positional persist (`persist=True`)
 
 The default mode. Set `persist=True` on:
 - a screen module (module-level `persist = True`, or `screen.persist` in `prepare()`) — persists every unit on that screen;
 - an individual `Block` or `Unit` — persists just that subtree.
 
-Storage is **keyed by the unit's position** in the screen tree, scoped to the current user session. The position is a name chain read leaf first — the unit's own name, then each containing block going outward, ending with the screen — `'@'`-joined the same way `user.find_path(unit)` returns it (see `persist_location`, §13.4). Whenever a persisted unit changes, its current state is saved — precisely once, at the true end of the request that changed it, never at an intermediate `await user.progress(...)` tick or a dialog's own close notice along the way (those are out-of-band pushes to the client mid-request, not save points, however many of them a single handler triggers); when the screen is next loaded, the saved state is restored onto the unit at the same tree position. This is the default, screen-relative case; a block imported from `blocks/` and reused across screens anchors position and identity differently — see §13.6.
+Storage is **keyed by the unit's position** in the screen tree, scoped to the current user session. The position is a name chain read leaf first — the unit's own name, then each containing block going outward, ending with the screen — `'@'`-joined the same way `user.find_path(unit)` returns it (see `persist_location`, §14.4). Whenever a persisted unit changes, its current state is saved — precisely once, at the true end of the request that changed it, never at an intermediate `await user.progress(...)` tick or a dialog's own close notice along the way (those are out-of-band pushes to the client mid-request, not save points, however many of them a single handler triggers); when the screen is next loaded, the saved state is restored onto the unit at the same tree position. This is the default, screen-relative case; a block imported from `blocks/` and reused across screens anchors position and identity differently — see §14.6.
 
 This is the right tool for "remember what this widget was last set to for this user" — a settings toggle, a filter's last value, a panel's last-expanded state.
 
@@ -375,7 +450,7 @@ It does **not** distinguish between different records shown through the same wid
 volume = Range("Volume", 50, persist=True)   # remembered for this user on this screen
 ```
 
-### 13.2 Keyed persist (`persist=<function>`)
+### 14.2 Keyed persist (`persist=<function>`)
 
 Pass a zero-argument function instead of `True`. It must return a tuple (or list) of plain, JSON-serializable values — typically read from other units on the same screen — that together identify which record/context the unit currently reflects:
 
@@ -384,7 +459,7 @@ selected_row = Select("Product", options=["Widget", "Gadget", "Gizmo"])
 price = Edit("Price", 0.0, persist=lambda: (selected_row.value,))
 ```
 
-The tuple becomes a `context_key` string — plain and readable, not JSON: one value is used as its own `str()`, several are joined with `,` — e.g. `("Widget",)` → `'Widget'`, `('London', 123)` → `'London,123'`. This is exactly what `get_objects`/`get_contexts`/`persist_location` show you and what a template (§13.4) is written against, so `'London,..'` finds every record for London without knowing any encoding scheme. A literal `,` or `\` *inside* one value is backslash-escaped so two different tuples can never collide onto the same string (`('a,b', 'c')` and `('a', 'b,c')` would otherwise both read `'a,b,c'`) — invisible in the common case where key values don't themselves contain a comma.
+The tuple becomes a `context_key` string — plain and readable, not JSON: one value is used as its own `str()`, several are joined with `,` — e.g. `("Widget",)` → `'Widget'`, `('London', 123)` → `'London,123'`. This is exactly what `get_objects`/`get_contexts`/`persist_location` show you and what a template (§14.4) is written against, so `'London,..'` finds every record for London without knowing any encoding scheme. A literal `,` or `\` *inside* one value is backslash-escaped so two different tuples can never collide onto the same string (`('a,b', 'c')` and `('a', 'b,c')` would otherwise both read `'a,b,c'`) — invisible in the common case where key values don't themselves contain a comma.
 
 On every request, UNISI recomputes the key for each such unit:
 - If the key **changed** since last checked, it looks up a saved value for the new key:
@@ -396,7 +471,7 @@ On every request, UNISI recomputes the key for each such unit:
 
 Keyed persist is per-unit and independent of screen position, so it correctly handles a widget reused across many different records — exactly the case positional persist can't.
 
-### 13.3 Simple key-value storage
+### 14.3 Simple key-value storage
 
 For state not tied to any particular unit or screen, `User` exposes a flat get/set pair backed by the same storage:
 
@@ -426,9 +501,9 @@ old = user.remove_key("theme_dark")        # deletes it, returns True (the old v
 gone = user.remove_keys("export_..")       # deletes every match, returns {"export_2024": "pdf", "export_2025": "csv"}
 ```
 
-### 13.4 General object search (`get_objects`)
+### 14.4 General object search (`get_objects`)
 
-`get_key`/`get_keys` only reach the simple store (`namespace=''`, `path=''`). `get_objects(namespace, path, context_template)` is the same kind of search generalized to any `(namespace, path)` — in particular the keyed-persist rows from §13.2, letting you list saved records for a unit's key function instead of looking up one key at a time:
+`get_key`/`get_keys` only reach the simple store (`namespace=''`, `path=''`). `get_objects(namespace, path, context_template)` is the same kind of search generalized to any `(namespace, path)` — in particular the keyed-persist rows from §14.2, letting you list saved records for a unit's key function instead of looking up one key at a time:
 
 ```python
 # unit "price" nested in block "form" on screen "orders" -- path is '@'-joined,
@@ -437,7 +512,7 @@ user.get_objects("orders", "price@form", "..")
 # -> {'Widget': {...saved fields...}, 'Gadget': {...saved fields...}}
 ```
 
-`context_template` behaves like `get_keys`'s template when it contains `..` (prefix/suffix match). Unlike `get_keys`, a template with no `..` is not an error — it's an exact `context_key` match instead, so `get_objects` also covers a single positional-persist lookup (`context_key=""`, §13.1):
+`context_template` behaves like `get_keys`'s template when it contains `..` (prefix/suffix match). Unlike `get_keys`, a template with no `..` is not an error — it's an exact `context_key` match instead, so `get_objects` also covers a single positional-persist lookup (`context_key=""`, §14.1):
 
 ```python
 user.get_objects("orders", "price@form", 'Widget')      # exact match -> that one record, or {}
@@ -452,15 +527,15 @@ Returns `{context_key: fields_dict}`, empty if nothing matches or the session ha
 user.get_contexts("orders", "price@form", "..")   # -> ['Widget', 'Gadget']
 ```
 
-### 13.5 Storage and Scope
+### 14.5 Storage and Scope
 
 All of the above share the same storage: a local SQLite file per user session (`users/<session-id>.db`), created on first write. State is never shared between users or sessions. Persistence is automatically disabled during autotest runs.
 
-### 13.6 Persistence and shared blocks
+### 14.6 Persistence and shared blocks
 
-A unit living inside a block imported from `blocks/` (the same object embedded, by reference, in every screen that imports it — see §16) is not scoped to whichever screen currently displays it. Its storage identity is anchored to the block's own Python module instead: namespace is `'@' + <module's dotted path>` (e.g. `'@blocks.header'`) rather than a screen name, and its tree path is measured from the block's own root, not the screen. Its persisted state — single fields, whole-block state, keyed records — is therefore the same no matter which screen the user is currently on, and survives a restart even if the user's first screen this session isn't the one that originally saved it.
+A unit living inside a block imported from `blocks/` (the same object embedded, by reference, in every screen that imports it — see §17) is not scoped to whichever screen currently displays it. Its storage identity is anchored to the block's own Python module instead: namespace is `'@' + <module's dotted path>` (e.g. `'@blocks.header'`) rather than a screen name, and its tree path is measured from the block's own root, not the screen. Its persisted state — single fields, whole-block state, keyed records — is therefore the same no matter which screen the user is currently on, and survives a restart even if the user's first screen this session isn't the one that originally saved it.
 
-This applies automatically wherever `persist=True` / `persist=<function>` is set directly on the shared block or its fields. It does NOT automatically apply to a unit that is merely cascaded into persistence by an unrelated screen's module-level `persist = True` (§13.1): that cascade only takes effect once that screen has actually been loaded at least once in the current session. For a widget meant to be shared and persisted, prefer setting `persist=True` (or a key-function) directly on it or its containing block in `blocks/`, rather than relying on a hosting screen's blanket `persist = True`.
+This applies automatically wherever `persist=True` / `persist=<function>` is set directly on the shared block or its fields. It does NOT automatically apply to a unit that is merely cascaded into persistence by an unrelated screen's module-level `persist = True` (§14.1): that cascade only takes effect once that screen has actually been loaded at least once in the current session. For a widget meant to be shared and persisted, prefer setting `persist=True` (or a key-function) directly on it or its containing block in `blocks/`, rather than relying on a hosting screen's blanket `persist = True`.
 
 ```python
 # blocks/header.py
@@ -470,18 +545,18 @@ header_block = Block("Header", theme)
 
 `theme` persists under `('@blocks.header', 'Theme')` regardless of which screen imports `header_block`, including a screen that has never declared its own `persist = True` and is the very first one loaded this session. (A field that is *not* separately named at module level — created inline as one of `header_block`'s children instead — gets a path measured leaf first, from it up to `header_block`, e.g. `'Theme@Header'`; either way the anchor is the block's module, never the hosting screen.)
 
-To look a specific unit's saved record up directly (e.g. via `get_objects`/`get_contexts`, §13.4) without hardcoding which namespacing scheme applies, use `user.persist_location(unit)`, which returns the `(namespace, path)` currently in effect for it.
+To look a specific unit's saved record up directly (e.g. via `get_objects`/`get_contexts`, §14.4) without hardcoding which namespacing scheme applies, use `user.persist_location(unit)`, which returns the `(namespace, path)` currently in effect for it.
 
-### 13.7 On-demand save/restore (`persist_units` / `restore_units`)
+### 14.7 On-demand save/restore (`persist_units` / `restore_units`)
 
-For a unit you only want to snapshot or revert at one specific moment — e.g. a "Save"/"Revert" button — rather than on every change (positional, §13.1) or per selected record (keyed, §13.2), `User` exposes an explicit imperative pair:
+For a unit you only want to snapshot or revert at one specific moment — e.g. a "Save"/"Revert" button — rather than on every change (positional, §14.1) or per selected record (keyed, §14.2), `User` exposes an explicit imperative pair:
 
 ```python
 user.persist_units(*units, context_key=None)    # save each unit's current state right now
 user.restore_units(*units, context_key=None)    # load each unit's last saved state and apply it
 ```
 
-Both work on **any** `Unit`, or `Block`/`ParamBlock` (whole subtree at once), whether or not it carries `persist=...` at all — that is the point: a way to persist something that is otherwise not automatically persistent. With `context_key` left at its default `None` (treated exactly like `""`), they read/write the same `(namespace, path, context_key="")` row a positional `persist=True` on that unit would use (see `persist_location`, §13.4), so this is an eager, explicit trigger for that slot rather than a separate mechanism — a unit force-saved this way is exactly what a later screen load would restore automatically if `persist=True` were added to it, and calling `persist_units` on a unit that already has `persist=True` is simply an extra, redundant-but-harmless save of the same slot the automatic mechanism already maintains. A `Block`/`ParamBlock` passed in saves/restores its **whole subtree at once**, however deep — `persist_units` walks every nested `Unit` inside it into one JSON blob under the block's own path, and `restore_units` resolves every nested reference in that blob back onto its live counterpart by tree path — a grandchild three levels down is included exactly like a direct child.
+Both work on **any** `Unit`, or `Block`/`ParamBlock` (whole subtree at once), whether or not it carries `persist=...` at all — that is the point: a way to persist something that is otherwise not automatically persistent. With `context_key` left at its default `None` (treated exactly like `""`), they read/write the same `(namespace, path, context_key="")` row a positional `persist=True` on that unit would use (see `persist_location`, §14.4), so this is an eager, explicit trigger for that slot rather than a separate mechanism — a unit force-saved this way is exactly what a later screen load would restore automatically if `persist=True` were added to it, and calling `persist_units` on a unit that already has `persist=True` is simply an extra, redundant-but-harmless save of the same slot the automatic mechanism already maintains. A `Block`/`ParamBlock` passed in saves/restores its **whole subtree at once**, however deep — `persist_units` walks every nested `Unit` inside it into one JSON blob under the block's own path, and `restore_units` resolves every nested reference in that blob back onto its live counterpart by tree path — a grandchild three levels down is included exactly like a direct child.
 
 ```python
 draft = TextArea("Draft", "")
@@ -491,7 +566,7 @@ toolbar = [
 ]
 ```
 
-Passing a non-`None` `context_key` targets a different, explicitly-named row instead — `(namespace, path, context_key)` — so the same unit (leaf or whole `Block` subtree) can hold any number of independent on-demand snapshots side by side, without disturbing the default `""` slot or each other. It's a plain caller-chosen string, not template-matched the way a keyed-persist context_key can be (§13.2); pass the same string back to `restore_units` to load that particular snapshot, or use `get_objects`/`get_contexts` (§13.4) to enumerate what's been saved for a unit across all of its context_keys:
+Passing a non-`None` `context_key` targets a different, explicitly-named row instead — `(namespace, path, context_key)` — so the same unit (leaf or whole `Block` subtree) can hold any number of independent on-demand snapshots side by side, without disturbing the default `""` slot or each other. It's a plain caller-chosen string, not template-matched the way a keyed-persist context_key can be (§14.2); pass the same string back to `restore_units` to load that particular snapshot, or use `get_objects`/`get_contexts` (§14.4) to enumerate what's been saved for a unit across all of its context_keys:
 
 ```python
 # stash the current form as a named checkpoint before a risky bulk edit,
@@ -505,16 +580,16 @@ Behavior notes:
 - `persist_units` skips (silently) a unit whose current state already matches what's stored under that same `context_key` — no redundant write — and returns only the units it actually wrote, in call order.
 - `restore_units` skips (silently) a unit with nothing saved under that `context_key` yet, and returns only the units it actually found and applied, in call order.
 - Either one skips a unit that isn't reachable from the current screen — the same condition under which `persist_location` returns `None` — and logs a warning for it, since (unlike the automatic mechanisms, which routinely skip units every request as a matter of course) an explicit call naming a specific unit is more likely a mistake worth surfacing.
-- A unit already governed by keyed persist (`persist=<function>`, §13.2) has its own current-record slot maintained automatically every request by the keyed-persist mechanism; `persist_units`/`restore_units` target the unrelated positional slot on such a unit (default or explicitly-keyed via `context_key`), not that keyed slot — the two don't substitute for one another.
-- Restoring a `Block` re-renders it wholesale on the client, same as any other direct mutation of a container (§13.2's rationale for why keyed persist avoids container targets applies here too) — prefer restoring individual leaf units if part of the block may be mid-edit on the client.
+- A unit already governed by keyed persist (`persist=<function>`, §14.2) has its own current-record slot maintained automatically every request by the keyed-persist mechanism; `persist_units`/`restore_units` target the unrelated positional slot on such a unit (default or explicitly-keyed via `context_key`), not that keyed slot — the two don't substitute for one another.
+- Restoring a `Block` re-renders it wholesale on the client, same as any other direct mutation of a container (§14.2's rationale for why keyed persist avoids container targets applies here too) — prefer restoring individual leaf units if part of the block may be mid-edit on the client.
 
-## 14. LLM Integration Specification
+## 15. LLM Integration Specification
 
 Two levels:
 1. Unit/Table `llm` dependency auto-fill
 2. Explicit async queries via `Q` and `Qx`
 
-### 14.1 Unit and Table `llm`
+### 15.1 Unit and Table `llm`
 
 Examples:
 
@@ -524,7 +599,7 @@ occupation = Edit("Occupation", llm=ename)            # infer from one dependenc
 table = Table("Persons", llm={"Date of birth": "Name", "Occupation": True}, ...)
 ```
 
-### 14.2 Explicit queries
+### 15.2 Explicit queries
 
 `Q(prompt, type_value=..., images=None, **format_vars)` returns an awaitable with typed JSON validation.
 
@@ -553,7 +628,7 @@ Not to be confused with the `Image` unit (§11), which displays a picture in the
 
 LLM provider is configured through `config.llm`.
 
-## 15. HTTP Route Integration
+## 16. HTTP Route Integration
 
 You can add custom aiohttp routes while keeping UNISI runtime:
 
@@ -567,7 +642,7 @@ async def handle_get(request):
 unisi.start(http_handlers=[web.get("/get", handle_get)])
 ```
 
-## 16. Shared Blocks and Reuse Pattern
+## 17. Shared Blocks and Reuse Pattern
 
 Place reusable block modules in `blocks/` and import into screens:
 
@@ -578,9 +653,9 @@ blocks = [config_area]
 
 Use interception (`@handle`) in screen module when you need screen-specific behavior overrides for shared units.
 
-For how `persist` behaves on a unit living in a shared block — storage anchored to the block's own module rather than to whichever screen displays it — see §13.6.
+For how `persist` behaves on a unit living in a shared block — storage anchored to the block's own module rather than to whichever screen displays it — see §14.6.
 
-## 17. Custom Web Client (`config.web_client`)
+## 18. Custom Web Client (`config.web_client`)
 
 UNISI's HTTP layer (`static_serve` in `server.py`) can serve a separate front end in place of its own bundled Quasar-based client, as long as that front end speaks the UNISI protocol (opens a WebSocket to `/ws` and exchanges the same JSON messages `handle`/`websocket_handler` produce and consume — `config.web_client` only changes which static files answer `GET /`, never the protocol itself).
 
@@ -607,7 +682,7 @@ Steps 1–3 all apply the same traversal protection as the original webpath look
 
 Relevant names, all in `unisi/server.py` next to `static_serve()`: `DEFAULT_CLIENT_ROUTE`, `active_webpath()`, `resolve_in_root()`, `warn_if_web_client_misconfigured()`. Tests: `tests/core/test_web_client.py`.
 
-## 18. End-to-End Example (Runnable Pattern)
+## 19. End-to-End Example (Runnable Pattern)
 
 ```python
 # run.py
@@ -638,7 +713,7 @@ controls = Block("Controls", [Button("Run", run_task)], ratio, log, icon="api")
 blocks = [controls]
 ```
 
-## 19. Behavior Notes and Constraints
+## 20. Behavior Notes and Constraints
 
 - Screen and block names should be unique in their active context.
 - For DB-backed `Table`, `config.db_path` (or `UNISI_DB_PATH`) must be set; otherwise creation fails.
@@ -646,10 +721,10 @@ blocks = [controls]
 - Dialog remains active if callback returns message/update that keeps it open.
 - `prepare()` runs when screen is displayed and is appropriate for sync/rebuild logic.
 -  A standout feature of HTML component is its interactive zoom capability: by including a scale property (e.g., "scale": 1) in your data configuration, a slider control will automatically render above the content. This allows end-users to dynamically scale the entire HTML block—including text, images, and layout—from 0.5x to 3.0x. 
-- A keyed-persist key function (§13.2) should return plain, JSON-serializable values and read *other* units, not the persisted unit's own value — a key derived from the unit's own state is self-referential and won't behave usefully.
+- A keyed-persist key function (§14.2) should return plain, JSON-serializable values and read *other* units, not the persisted unit's own value — a key derived from the unit's own state is self-referential and won't behave usefully.
 - If a keyed-persist key function raises, the error is logged and that unit's persistence is skipped for the request; it does not fail the request.
 
-## 20. Example Sources in This Repository
+## 21. Example Sources in This Repository
 
 - `test_apps/blocks/screens/main.py` (blocks, graph/net, toolbar, interception)
 - `test_apps/blocks/screens/zoo.py` (ParamBlock, HTML, pandas table)
@@ -659,4 +734,4 @@ blocks = [controls]
 - `test_apps/llm/screens/main.py` (LLM unit/table workflows, `Q` usage)
 - `test_apps/persistence/screens/animals.py`, `notes.py` (positional and keyed `persist`)
 - `test_apps/proxy/run_blocks.py`, `run_vision.py` (Remote API / `Proxy`)
-- `tests/core/test_web_client.py` (`config.web_client` switching, `/default`, and the bundled-client fallback — see §17)
+- `tests/core/test_web_client.py` (`config.web_client` switching, `/default`, and the bundled-client fallback — see §18)
