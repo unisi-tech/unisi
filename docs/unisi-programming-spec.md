@@ -300,7 +300,24 @@ Common table options:
 - `type="table"` or `type="chart"`
 - `view="i-1,2"` for chart projection
 - `multimode=True` for multi-row select
+- `max_column_length=40` (default `40`) — display-only cap on a cell's text
 - `append`, `modify`, `delete`, `complete`, `update` handlers
+
+`max_column_length` is a plain attribute like `dense`/`editing` — the
+server never truncates anything itself, it just ships the number over the
+wire like any other kwarg (`unisi/units.py`, `Unit.add`/`__getstate__`).
+Interpreting it is the **client's** job: the bundled Quasar client
+(`uniqua`) cuts a cell's text to this many characters plus `"..."` once it
+runs longer, and shows the untruncated value in a hover pop-up. An
+array-valued cell that would render longer than this collapses to
+`"array[N]..."` (`N` = its element count) the same way, again with the
+full value on hover. A custom `config.web_client` (§15 of `UNISI
+skill.md`) is free to ignore `max_column_length` entirely or interpret it
+differently — nothing about the wire protocol depends on it.
+
+```python
+Table("Logs", headers=["Time", "Message"], rows=[...], max_column_length=80)
+```
 
 Row representation — list or dataclass (non-persistent tables only):
 

@@ -89,6 +89,22 @@ class TestTableNonPersistentDefaults:
         assert t.rows == []
         assert t.editing is False
         assert t.dense is True
+        assert t.max_column_length == 40
+
+    def test_max_column_length_override_is_respected(self):
+        """unisi-programming-spec.md §12: max_column_length is a plain
+        kwarg like any other -- an explicit value wins over the default,
+        exactly like set_defaults treats headers/dense/editing/etc."""
+        t = Table('t', max_column_length=80)
+        assert t.max_column_length == 80
+
+    def test_max_column_length_is_sent_to_the_client(self):
+        """The server does no truncation itself -- it just has to put the
+        number on the wire like any other attribute (unisi/units.py,
+        Unit.__getstate__) so a client (uniqua's utable.vue) can apply it."""
+        t = Table('t', max_column_length=25)
+        encoded = json.loads(toJson(t))
+        assert encoded['max_column_length'] == 25
 
     def test_explicit_headers_and_rows_are_respected(self):
         t = Table('t', headers=['Name', 'Age'], rows=[['Alice', 30]])

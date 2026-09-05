@@ -360,6 +360,7 @@ value = [0] means 0 row is selected in multiselect mode (in array). multimode is
 | modify | default = accept_rowvalue(table, value). called when the cell value is changed by the user |
 | edit   | default True. if true user can edit table, using standart or overloaded table methods |
 | tools  | default True, then  Table has toolbar with search field and icon action buttons. |
+| max_column_length | default 40. Client-side cap on a cell's displayed text (or an array cell's compact-JSON length) before it's shown truncated with `"..."` and a hover pop-up reveals the full value; an overflowing array shows as `array[N]...` instead. Display-only — see `docs/unisi-programming-spec.md` §12 |
 | show   | default False, the table scrolls to (the first) selected row, if True and it is not visible |
 | multimode | default True, allows to select single or multi selection mode |
 | search | for a persistent (`id=`) table, the live text in its search field; default `''` |

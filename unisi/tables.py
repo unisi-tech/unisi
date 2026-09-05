@@ -181,7 +181,8 @@ class Table(Unit):
             self.mutate(PandaTable(*args, panda=panda, **kwargs))
         else:
             super().__init__(*args, **kwargs)    
-            set_defaults(self, dict(headers = [], type = 'table', value = None, rows = [], editing = False, dense = True))
+            set_defaults(self, dict(headers = [], type = 'table', value = None, rows = [], 
+                            editing = False, dense = True, max_column_length = 40))
             self.__headers__ = self.headers[:]
         if hasattr(self,'id'):             
             if Unishare.db:
@@ -436,7 +437,7 @@ class PandaTable(Table):
     """ panda = opened panda table"""
     def __init__(self, name, *args, panda = None, fix_headers = True, **kwargs):
         Unit.__init__(self, name, *args, **kwargs)                  
-        set_defaults(self, dict(type = 'table', value = None, editing = False, dense = True))        
+        set_defaults(self, dict(type = 'table', value = None, editing = False, dense = True, max_column_length = 40))        
         if panda is None:
             raise Exception('PandaTable has to get panda = pandaTable as an argument.')
         self.headers = panda.columns.tolist()
