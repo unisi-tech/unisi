@@ -348,6 +348,8 @@ table = Table('Videos', [0], row_changed, headers = ['Video', 'Duration', 'Owner
 UNISI counts rows id as an index in a rows array. If table does not contain append, delete arguments, then it will be drawn without add and remove icons.  
 value = [0] means 0 row is selected in multiselect mode (in array). multimode is False so switch icon for single select mode will be not drawn and switching to single select mode is not allowed.
 
+`rows` can also be a list of `@dataclass` instances instead of lists of cell values (field order must match `headers` order) — for a non-persistent table only. `table.rows[i]` always gives back the exact object you put there, never silently converted, so editing a **frozen** dataclass row raises `FrozenInstanceError` as it normally would. Note the bundled web client expects list rows; a dataclass row is sent as a JSON object instead of an array. See `docs/unisi-programming-spec.md` §12 for the full contract.
+
 | Table option parameter |	Description |
 | :--- | :--- |
 | changed  | table handler accept the selected row number |

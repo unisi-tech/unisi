@@ -183,6 +183,13 @@ rows = dbtable.append_rows([
 > **Note:** `append_rows` uses `RETURNING *` inside a single transaction,
 > so there is no race condition between `INSERT` and `SELECT`.
 
+> **Note:** unlike a non-persistent `Table`'s `rows`
+> (`docs/unisi-programming-spec.md` §12), a persistent table does not
+> accept dataclass instances as rows here — `append_row`/`append_rows`
+> only recognize `list` or `dict` and raise `TypeError` for anything else
+> (`"row must be list or dict, got ..."` / `"Unsupported row type: ..."`
+> respectively). Use the dict or list variant shown above.
+
 ### 3.4 Editing rows
 
 **Update a cell via Dblist**

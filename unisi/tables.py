@@ -1,14 +1,107 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
-from .units import Unit
+from .units import Unit, ChangedProxy
 from .common import *
 from .dbunits import Dblist, dbupdates
 from .llmrag import get_property
-import asyncio
+import asyncio, dataclasses
 from collections import OrderedDict
 
 relation_mark = 'Ⓡ'
 exclude_mark = '✘'
 max_len_rows4llm = 30
+
+def _dataclass_instance(row):
+    """If `row` is a dataclass instance -- optionally wrapped in a
+    ChangedProxy (units.py: a table's rows get wrapped once the table is
+    claimed by a user, see Unit.set_reactivity) -- return the real,
+    unwrapped instance, so callers can run dataclasses.fields() on it.
+    Otherwise None.
+
+    Unwrapping matters because dataclasses.is_dataclass() looks at
+    type(obj), and type(a_changed_proxy) is ChangedProxy itself, not
+    whatever it wraps -- checking the proxy directly would silently never
+    match.
+    """
+    obj = row._obj if isinstance(row, ChangedProxy) else row
+    return obj if dataclasses.is_dataclass(obj) and not isinstance(obj, type) else None
+
+def row_values(row):
+    """`row`'s cell values, positionally aligned with `headers`: `row`
+    itself when it's already a plain sequence (the documented case --
+    README, docs/unisi-programming-spec.md §12: a row is a list of cell
+    values), or its dataclass fields' values, in dataclasses.fields()
+    declaration order, when a row is a dataclass instance instead. That
+    order is on the caller to keep in sync with `headers`, exactly like a
+    list row's cell order already has to be.
+
+    Reads through `row` itself -- getattr(row, ...), not
+    getattr(the_unwrapped_instance, ...) -- so a ChangedProxy-wrapped row
+    keeps wrapping non-atomic field values the same way it already wraps a
+    plain list's items (see ChangedProxy.__iter__ in units.py).
+    """
+    dc = _dataclass_instance(row)
+    return [getattr(row, f.name) for f in dataclasses.fields(dc)] if dc is not None else row
+
+def set_cell(row, index, value):
+    """Write `value` into `row`'s cell at position `index` (0-based,
+    aligned with `headers`): `row[index] = value` when `row` is a plain
+    mutable sequence, or setattr onto the matching dataclass field when
+    `row` is a dataclass instance.
+
+    A cell edit (accept_cell_value below, and emit()'s LLM autofill)
+    addresses a cell by *position* -- the wire protocol's edit event
+    carries a column index, since the client has no way to know a Python
+    dataclass' attribute names -- so a dataclass row's index-th field name
+    is looked up via dataclasses.fields() before the value can be written
+    with setattr. A plain dataclass instance supports neither __getitem__
+    nor __setitem__, so `row[index] = value` would otherwise raise
+    TypeError: '<Row>' object does not support item assignment.
+
+    Calling setattr on `row` itself (rather than on an unwrapped copy)
+    keeps this transparent to ChangedProxy: its __setattr__ already
+    forwards the write to the wrapped dataclass instance and marks the
+    table changed, exactly like its __setitem__ does today for a list row
+    -- so a dataclass row is just as reactive as a list row, no separate
+    handling needed here for that.
+    """
+    dc = _dataclass_instance(row)
+    if dc is not None:
+        setattr(row, dataclasses.fields(dc)[index].name, value)
+    else:
+        row[index] = value
+
+def _blank_dataclass_row(cls):
+    """A new `cls` instance with every field set to None -- the same
+    "blank, to be filled in one cell at a time" placeholder a plain-list
+    table already gets from append_table_row's `[None] * len(headers)`.
+
+    Built by bypassing __init__ (object.__new__ + object.__setattr__ per
+    field) rather than calling `cls()`, so this works regardless of
+    whether `cls` has required fields with no default, validates its
+    arguments in __post_init__, or is frozen -- a frozen dataclass
+    overrides __setattr__ to raise FrozenInstanceError for any ordinary
+    attribute assignment, even from outside __init__; object.__setattr__
+    is the same escape hatch dataclasses' own generated __init__ uses
+    internally to set attributes on a frozen instance.
+    """
+    instance = object.__new__(cls)
+    for f in dataclasses.fields(cls):
+        object.__setattr__(instance, f.name, None)
+    return instance
+
+def _blank_row_like(rows, header_count):
+    """The default new row for append_table_row's non-persistent branch:
+    every cell None, shaped to match whatever the table's *existing* rows
+    already are -- a fresh instance of the same dataclass when `rows`
+    holds dataclass rows (so the appended row stays gettable/settable
+    exactly like the rest of the table, instead of silently mixing an
+    unrelated plain-list row into an otherwise all-dataclass `rows`), or
+    the classic `[None, ...]` list otherwise (including when `rows` is
+    still empty and there's nothing to match).
+    """
+    if rows and (dc := _dataclass_instance(rows[0])) is not None:
+        return _blank_dataclass_row(type(dc))
+    return [None] * header_count
 
 def get_chunk(obj, start_index):
     if not isinstance(start_index, int) or isinstance(start_index, bool):
@@ -28,7 +121,7 @@ def accept_cell_value(table, dval: dict):
         if update := table.rows.update_cell(**dval):
             update['exclude'] = True       
     else:        
-        table.rows[dval['delta']][dval['cell']] = value    
+        set_cell(table.rows[dval['delta']], dval['cell'], value)
             
 def delete_table_row(table, value):    
     if value is not None and value != []:
@@ -58,8 +151,8 @@ def delete_table_row(table, value):
 
 def append_table_row(table, search_str = ''):
     ''' append has to return new row, value is the search string value in the table'''    
-    new_row = [None] * len(table.headers)           
     if getattr(table,'id', None):          
+        new_row = [None] * len(table.headers)           
         new_row = table.rows.append(new_row)        
         if hasattr(table, 'link') and table.filter:
             link_table, _, rel_name = table.rows.link
@@ -77,6 +170,7 @@ def append_table_row(table, search_str = ''):
                         new_row.extend(relation)
                 break      
     else:           
+        new_row = _blank_row_like(table.rows, len(table.headers))
         table.rows.append(new_row)
     return new_row
 
@@ -234,7 +328,7 @@ class Table(Unit):
         selected = self.selected_list        
         if not selected and len(self.rows) < max_len_rows4llm:
             selected = range(len(self.rows))        
-        str_rows = ';'.join(','.join(f'{field}: {value}' for field, value in zip(self.headers, self.rows[index])) for index in selected)
+        str_rows = ';'.join(','.join(f'{field}: {value}' for field, value in zip(self.headers, row_values(self.rows[index]))) for index in selected)
         return f'{self.name} : {str_rows}' 
     
     @property
@@ -270,7 +364,7 @@ class Table(Unit):
         if Unishare.llm_model and getattr(self, 'llm', None) is not None:              
             tasks = []
             for index in self.selected_list:
-                values = {field: value for field, value in zip(self.headers, self.rows[index]) if value}
+                values = {field: value for field, value in zip(self.headers, row_values(self.rows[index])) if value}
                 for fld, deps in self._llm_dependencies.items():                    
                     if fld not in values:                        
                         if deps is True:
@@ -291,7 +385,7 @@ class Table(Unit):
                                     context[dep if isinstance(dep, str) else dep.name] = value
                         if context:                                                    
                             async def assign(index, fld, context):
-                                self.rows[index][self.headers.index(fld)] = await get_property(fld, context)                            
+                                set_cell(self.rows[index], self.headers.index(fld), await get_property(fld, context))
                             context =  ','.join(f'{fld}: {val}' for fld, val in context.items())
                             tasks.append(asyncio.create_task(assign(index, fld, context)))
             if tasks:

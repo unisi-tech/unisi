@@ -50,14 +50,22 @@ Regression tests for the bugs fixed alongside this suite are labelled
     orders2users junction table. Fixed by deciding many_to_one from the
     *shape* of self.link (was a list/tuple given at all?) instead.
 """
+import json
+from dataclasses import dataclass, FrozenInstanceError
+
 import pandas as pd
 import pytest
 
-from unisi.common import Unishare
-from unisi.units import Unit
+from unisi.common import Unishare, toJson
+from unisi.units import Unit, ChangedProxy
 from unisi.tables import (
     Table, PandaTable, get_chunk, accept_cell_value, delete_table_row,
     append_table_row, delete_panda_row, accept_panda_cell, append_panda_row,
+    row_values, _dataclass_instance, _blank_dataclass_row, _blank_row_like,
+    set_cell as set_row_cell,  # tables.py's per-row cell setter -- aliased
+    # because this file already has its own `set_cell(table, delta, cell,
+    # value)` test helper (below, "Table -- persistent") for writing
+    # through the real modify path; the two are unrelated.
 )
 
 
@@ -248,6 +256,235 @@ class TestAppendTableRowNonPersistent:
         new_row = t.append(t, '')
         new_row[0] = 'written directly'
         assert plain(t.rows) == [['written directly']]
+
+
+# ──────────────────────────────────────────────────────────────────────── #
+#  dataclass rows -- a row may be a dataclass instance instead of a list   #
+#                                                                          #
+#  A plain dataclass instance has no __getitem__/__setitem__ (`row[i]`     #
+#  and `row[i] = v` both raise TypeError) and isn't iterable               #
+#  (`zip(headers, row)` raises TypeError too), which broke cell editing    #
+#  (accept_cell_value), compact_view, and emit() wherever they addressed   #
+#  a row positionally.                                                    #
+#                                                                          #
+#  The fix does NOT convert a dataclass row into a list. `table.rows[i]`   #
+#  must keep returning the exact object the caller put there --           #
+#  reassigning `table.rows = [...]` after construction (the most common   #
+#  way rows actually get set, e.g. from inside a `changed` handler) is     #
+#  just as valid an entry point as the `rows=` constructor kwarg, and      #
+#  code elsewhere may rely on attribute access on what it put in, e.g.    #
+#  `table.rows[i].name`. Silently swapping that for a list -- whether      #
+#  only at construction time, or by intercepting every `rows =`           #
+#  reassignment -- would break exactly that expectation.                  #
+#                                                                          #
+#  Instead, row_values()/set_cell() dispatch on a row's real type at the   #
+#  point a *position* (a cell index) needs translating to/from a          #
+#  dataclass field, via dataclasses.fields() declaration order -- the     #
+#  same order the caller is expected to keep in sync with `headers`,      #
+#  exactly as a list row's cell order already must be.                    #
+#                                                                          #
+#  One known, accepted trade-off: the wire protocol (docs/protocol.md      #
+#  §3.3) documents rows as "plain arrays ... not objects", but a           #
+#  dataclass row is exactly that -- an object -- once jsonpickle gets to   #
+#  it, same as before this fix. Converting rows only for the outgoing     #
+#  JSON snapshot (leaving table.rows itself untouched) is possible via a   #
+#  Table.__getstate__ override, but isn't done here -- see the writeup    #
+#  accompanying this patch.                                               #
+# ──────────────────────────────────────────────────────────────────────── #
+
+@dataclass
+class VideoRow:
+    video: str
+    duration: str
+    owner: str
+
+
+@dataclass(frozen=True)
+class FrozenRow:
+    name: str
+    age: int = 0
+
+
+class TestRowValues:
+    """row_values() in isolation."""
+
+    def test_list_row_passes_through_as_the_exact_same_object(self):
+        row = ['Alice', 30]
+        assert row_values(row) is row
+
+    def test_dataclass_row_returns_field_values_in_declaration_order(self):
+        row = VideoRow('a.mp4', '30 seconds', 'Admin')
+        assert row_values(row) == ['a.mp4', '30 seconds', 'Admin']
+
+    def test_changed_proxy_wrapped_dataclass_row_still_works(self):
+        """The shape a *live* (reactive) table's row actually comes back as
+        once the table's been claimed by a user -- see
+        Unit.set_reactivity / TestTableDataclassRowsReactive below.
+        dataclasses.is_dataclass() looks at type(obj), and type(a proxy)
+        is ChangedProxy itself, not whatever it wraps, so row_values() has
+        to unwrap first or it would never recognize this row at all."""
+        row = ChangedProxy(VideoRow('a.mp4', '30 seconds', 'Admin'), None)
+        assert row_values(row) == ['a.mp4', '30 seconds', 'Admin']
+
+
+class TestSetCell:
+    """set_cell() (aliased set_row_cell here, see the import comment) in
+    isolation."""
+
+    def test_list_row_sets_by_index_in_place(self):
+        row = ['Alice', 30]
+        set_row_cell(row, 1, 31)
+        assert row == ['Alice', 31]
+
+    def test_dataclass_row_sets_the_matching_field_by_position(self):
+        row = VideoRow('a.mp4', '30 seconds', 'Admin')
+        set_row_cell(row, 1, '99 seconds')
+        assert row == VideoRow('a.mp4', '99 seconds', 'Admin')
+
+    def test_frozen_dataclass_row_raises_like_python_normally_would(self):
+        """Choosing a frozen dataclass as a row type is choosing
+        immutability. set_cell doesn't quietly force the write through --
+        unlike building a brand new blank row (_blank_dataclass_row
+        below), this would be mutating a value the caller already handed
+        the table -- so Python's own FrozenInstanceError is left to
+        surface rather than swallowed or worked around."""
+        row = FrozenRow('Alice', 30)
+        with pytest.raises(FrozenInstanceError):
+            set_row_cell(row, 1, 31)
+
+
+class TestBlankRowHelpers:
+    """_blank_dataclass_row() / _blank_row_like(), used by
+    append_table_row's non-persistent branch."""
+
+    def test_blank_dataclass_row_has_every_field_none(self):
+        assert _blank_dataclass_row(VideoRow) == VideoRow(None, None, None)
+
+    def test_blank_dataclass_row_works_even_for_a_frozen_class(self):
+        """Bypasses __init__ (object.__new__ + object.__setattr__ per
+        field) rather than calling `cls(...)`, so a frozen class -- or one
+        with required, unvalidated-against-None fields -- still gets a
+        blank placeholder instead of an error."""
+        assert _blank_dataclass_row(FrozenRow) == FrozenRow(None, None)
+
+    def test_matches_an_existing_dataclass_row(self):
+        rows = [VideoRow('a.mp4', '30 seconds', 'Admin')]
+        assert _blank_row_like(rows, 3) == VideoRow(None, None, None)
+
+    def test_falls_back_to_a_list_for_list_rows(self):
+        rows = [['a.mp4', '30 seconds', 'Admin']]
+        assert _blank_row_like(rows, 3) == [None, None, None]
+
+    def test_falls_back_to_a_list_when_rows_is_empty(self):
+        """No existing row to infer a type from -- the classic
+        [None, ...] default a plain table always got."""
+        assert _blank_row_like([], 3) == [None, None, None]
+
+
+class TestTableWithDataclassRows:
+    """End to end, through the real Table object and the
+    accept_cell_value/append_table_row/delete_table_row handlers -- the
+    same call path a live UI edit goes through (see
+    TestTableDataclassRowsReactive for the fully reactive version)."""
+
+    def make_table(self, rows=None):
+        return Table('t', headers=['Video', 'Duration', 'Owner'], rows=rows if rows is not None else [
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+            VideoRow('b.mp4', '37 seconds', 'Admin'),
+        ])
+
+    def test_rows_given_via_the_constructor_keep_being_that_dataclass(self):
+        t = self.make_table()
+        assert t.rows[0] == VideoRow('a.mp4', '30 seconds', 'Admin')
+        assert t.rows[1] == VideoRow('b.mp4', '37 seconds', 'Admin')
+
+    def test_reassigning_rows_after_construction_also_keeps_the_dataclass(self):
+        """table.rows = [...] -- reassigning after the fact rather than
+        passing rows= to the constructor -- is the most common way rows
+        actually get set in practice (e.g. from inside a `changed`
+        handler); it must behave the same way the constructor kwarg does."""
+        t = self.make_table(rows=[])
+        original = VideoRow('a.mp4', '30 seconds', 'Admin')
+        t.rows = [original]
+        assert t.rows[0] is original
+
+    def test_cell_edit_mutates_the_dataclass_in_place_rather_than_replacing_it(self):
+        t = self.make_table()
+        original = t.rows[0]
+        t.modify(t, {'delta': 0, 'cell': 1, 'value': '99 seconds'})
+        assert t.rows[0] is original
+        assert t.rows[0] == VideoRow('a.mp4', '99 seconds', 'Admin')
+        assert t.rows[1] == VideoRow('b.mp4', '37 seconds', 'Admin')  # untouched
+
+    def test_append_creates_a_blank_row_of_the_same_dataclass(self):
+        t = self.make_table()
+        new_row = t.append(t, '')
+        assert new_row == VideoRow(None, None, None)
+        assert t.rows[-1] is new_row
+
+    def test_append_on_an_empty_dataclass_table_falls_back_to_a_list(self):
+        t = self.make_table(rows=[])
+        new_row = t.append(t, '')
+        assert new_row == [None, None, None]
+
+    def test_delete_still_works_on_dataclass_rows(self):
+        t = self.make_table()
+        second = t.rows[1]
+        t.delete(t, 0)
+        assert len(t.rows) == 1
+        assert t.rows[0] is second
+
+    def test_compact_view_reads_dataclass_rows_correctly(self):
+        t = self.make_table()
+        assert t.compact_view == (
+            't : Video: a.mp4,Duration: 30 seconds,Owner: Admin;'
+            'Video: b.mp4,Duration: 37 seconds,Owner: Admin'
+        )
+
+    def test_mixed_list_and_dataclass_rows_both_edit_correctly(self):
+        """Not a recommended pattern, but shouldn't crash: row_values/
+        set_cell dispatch per-row, independent of what any other row is."""
+        t = self.make_table(rows=[
+            ['plain.mp4', '10 seconds', 'Guest'],
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+        ])
+        t.modify(t, {'delta': 0, 'cell': 1, 'value': '11 seconds'})
+        t.modify(t, {'delta': 1, 'cell': 1, 'value': '31 seconds'})
+        assert t.rows[0] == ['plain.mp4', '11 seconds', 'Guest']
+        assert t.rows[1] == VideoRow('a.mp4', '31 seconds', 'Admin')
+
+    def test_json_still_encodes_a_dataclass_row_as_an_object_not_an_array(self):
+        """Pinning down the known trade-off explicitly (see the section
+        docstring above) rather than leaving it an unstated side effect:
+        if a table's rows are dataclass instances, the default web
+        client -- which expects rows "as plain arrays ... not objects"
+        (docs/protocol.md §3.3) -- won't render them correctly. Prefer
+        list rows, or convert to one right before handing rows to a
+        Table, when that client matters."""
+        t = self.make_table(rows=[VideoRow('a.mp4', '30 seconds', 'Admin')])
+        encoded = json.loads(toJson(t))
+        assert encoded['rows'] == [{'video': 'a.mp4', 'duration': '30 seconds', 'owner': 'Admin'}]
+
+
+class TestTableDataclassRowsReactive:
+    """The path an actual live UI edit takes: once a table is claimed by a
+    user (Unit.set_reactivity), table.rows and its items come back
+    ChangedProxy-wrapped -- dataclass rows need to work through that
+    wrapper too, not just when accessed directly, and edits still need to
+    reach User.register_changed_unit so the client gets updated."""
+
+    def test_cell_edit_through_a_reactive_table_marks_changed(self, fake_user):
+        t = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+        ])
+        t.set_reactivity(fake_user)
+        assert isinstance(t.rows, ChangedProxy)
+        assert isinstance(t.rows[0], ChangedProxy)
+
+        t.modify(t, {'delta': 0, 'cell': 1, 'value': '99 seconds'})
+
+        assert t.rows[0]._obj == VideoRow('a.mp4', '99 seconds', 'Admin')
+        assert fake_user.calls  # a change notification fired
 
 
 # ──────────────────────────────────────────────────────────────────────── #

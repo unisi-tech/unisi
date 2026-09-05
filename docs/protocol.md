@@ -71,6 +71,16 @@ or a handler returning `True`/`Redesign`).
   its rows here if there are more than the page size — `rows` is instead
   `{"length": <total>, "limit": <page size>, "data": [...first page...]}`.
   Fetching further pages is the client's job — see 3.3.
+- A non-DB-backed `Table`'s `rows` inlines directly as whatever
+  `jsonpickle` makes of the Python value. The conventional `list[list]`
+  row becomes a JSON array of arrays, matching 3.3's "plain arrays ...
+  not objects" shape. A `list[<dataclass instance>]` row
+  (`docs/unisi-programming-spec.md` §12) does not: each row becomes a
+  JSON *object* (`{"field": value, ...}`) instead, since that's
+  `jsonpickle`'s default handling of an arbitrary object — this server
+  doesn't special-case it either way. (Checked at the Python/`toJson()`
+  level for this note, not independently re-verified with a live
+  WebSocket client.)
 - Connecting with `?screen=<unknown name>` does not error; the server sends
   a placeholder: `{"name": "", "blocks": [], "header": "No screens", "menu":
   [["You need to put at least 1 file in the 'screens' folder.",

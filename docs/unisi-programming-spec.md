@@ -302,6 +302,57 @@ Common table options:
 - `multimode=True` for multi-row select
 - `append`, `modify`, `delete`, `complete`, `update` handlers
 
+Row representation — list or dataclass (non-persistent tables only):
+
+`rows` for a non-persistent table (no `id=`) may be the classic
+`list[list]` — one list of cell values per row — or a
+`list[<dataclass instance>]`:
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class VideoRow:
+    video: str
+    duration: str
+    owner: str
+
+table = Table("Videos", headers=["Video", "Duration", "Owner"], rows=[
+    VideoRow("clip.mp4", "30 seconds", "Admin"),
+])
+```
+
+- A dataclass row's field order (`dataclasses.fields()` declaration order)
+  must line up with `headers`, exactly like a list row's cell order
+  already has to.
+- Nothing is silently converted: `table.rows[i]` always returns the exact
+  object you put there, whether it was set via the `rows=` kwarg or by
+  reassigning `table.rows = [...]` afterward — a dataclass row stays a
+  dataclass row.
+- Editing a cell (the default `modify` handler, `accept_cell_value`) reads
+  the edited column's position and writes it with `setattr` onto the
+  matching field. A **frozen** dataclass row therefore raises
+  `dataclasses.FrozenInstanceError` on edit, same as it would anywhere
+  else in Python — pick a frozen row type only for a table you don't mean
+  to be user-editable.
+- The default `append` handler (`append_table_row`) creates a new row
+  matching the *existing* rows' shape: a fresh instance of the same
+  dataclass (every field `None`, built by bypassing `__init__` so this
+  works even for a frozen class or one with required fields) when `rows`
+  already holds dataclass rows, or the classic `[None, ...]` list
+  otherwise.
+- **Not supported for a persistent (`id=`) table.** Seeding `rows=[...]`
+  there goes through `Dbtable.append_rows` (`docs/persistent_tables.md`
+  §3.3), which only accepts `list` or `dict` rows and raises
+  `TypeError: Unsupported row type` for anything else — an unrelated,
+  pre-existing contract that this feature doesn't extend.
+- Wire format: a dataclass row serializes (via `jsonpickle`) as a JSON
+  *object* (`{"field": value, ...}`), not the array shape
+  `docs/protocol.md` describes for row data — the bundled default web
+  client expects arrays and will not render a dataclass row correctly.
+  Prefer list rows, or convert to one before assigning to `rows`, when the
+  bundled client needs to display the table.
+
 Pandas mode:
 
 ```python
@@ -723,6 +774,7 @@ blocks = [controls]
 -  A standout feature of HTML component is its interactive zoom capability: by including a scale property (e.g., "scale": 1) in your data configuration, a slider control will automatically render above the content. This allows end-users to dynamically scale the entire HTML block—including text, images, and layout—from 0.5x to 3.0x. 
 - A keyed-persist key function (§14.2) should return plain, JSON-serializable values and read *other* units, not the persisted unit's own value — a key derived from the unit's own state is self-referential and won't behave usefully.
 - If a keyed-persist key function raises, the error is logged and that unit's persistence is skipped for the request; it does not fail the request.
+- A non-persistent `Table`'s `rows` may be dataclass instances instead of lists (§12); not supported for a persistent (`id=`) table, and the bundled web client expects list rows.
 
 ## 21. Example Sources in This Repository
 
