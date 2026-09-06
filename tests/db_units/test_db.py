@@ -41,6 +41,7 @@ Regression tests for bugs found while writing this suite are marked
 """
 import math
 import uuid
+from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -383,6 +384,17 @@ class TestCreateTable:
         assert len(t.list) == 2
         assert [r[0] for r in t.list] == ["Alice", "Bob"]
 
+    def test_with_dataclass_rows_populates_table(self, db):
+        """rows= accepts dataclass instances too, matched by field name
+        against the columns -- same as append_row/append_rows below."""
+        @dataclass
+        class Person:
+            name: str
+
+        t = db.create_table("T", {"name": "TEXT"}, rows=[Person("Alice"), Person("Bob")])
+        assert len(t.list) == 2
+        assert [r[0] for r in t.list] == ["Alice", "Bob"]
+
     def test_if_not_exists_is_safe_to_call_twice(self, db):
         db.create_table("T", {"name": "TEXT"}, rows=[["Alice"]])
         db.create_table("T", {"name": "TEXT"})  # must not raise / drop data
@@ -696,6 +708,36 @@ class TestRowCRUD:
     def test_append_row_dict_form(self, db, table):
         assert table.append_row({"name": "Alice", "age": 30}) == ["Alice", 30, 1]
 
+    def test_append_row_dataclass_form(self, db, table):
+        """Matched by field name against the table's columns, same as the
+        dict form above -- not by position like tables.py's (unrelated)
+        rows= convention for a non-persistent Table."""
+        @dataclass
+        class Person:
+            name: str
+            age: int
+        assert table.append_row(Person("Alice", 30)) == ["Alice", 30, 1]
+
+    def test_append_row_dataclass_form_filters_none(self, db, table):
+        """Same as the list/dict forms: a field left None means 'leave
+        this column at its SQL default', not an explicit overwrite."""
+        @dataclass
+        class Person:
+            name: str
+            age: int
+        assert table.append_row(Person("Alice", None)) == ["Alice", None, 1]
+
+    def test_append_row_dataclass_form_works_for_a_frozen_class(self, db, table):
+        """Only ever reads (getattr), never mutates -- unlike tables.py's
+        row_type reconstruction (which builds a *new* instance and so has
+        to bypass __init__ for a frozen class), there's nothing here that
+        a frozen dataclass would even notice."""
+        @dataclass(frozen=True)
+        class Person:
+            name: str
+            age: int
+        assert table.append_row(Person("Alice", 30)) == ["Alice", 30, 1]
+
     def test_append_row_list_form_filters_none(self, db):
         """A None in a list-row means 'leave this column at its SQL
         default (NULL)', matching the dict-row behaviour below -- not an
@@ -762,6 +804,29 @@ class TestRowCRUD:
     def test_append_rows_empty_input_returns_empty_list(self, db, table):
         assert table.append_rows([]) == []
         assert table.length == 0
+
+    def test_append_rows_dataclass_form(self, db, table):
+        @dataclass
+        class Person:
+            name: str
+            age: int
+        inserted = table.append_rows([Person("Alice", 30), Person("Bob", 40)])
+        assert inserted == [["Alice", 30, 1], ["Bob", 40, 2]]
+
+    def test_append_rows_mixed_list_dict_and_dataclass_in_one_batch(self, db, table):
+        """The three row shapes can even be mixed within a single batch --
+        each is turned into the same {column: value} dict before the
+        columns union / INSERT (see append_rows' docstring)."""
+        @dataclass
+        class Person:
+            name: str
+            age: int
+        inserted = table.append_rows([
+            ["Alice", 30],
+            {"name": "Bob", "age": 40},
+            Person("Carol", 50),
+        ])
+        assert inserted == [["Alice", 30, 1], ["Bob", 40, 2], ["Carol", 50, 3]]
 
     def test_append_rows_rejects_unsupported_row_type(self, db, table):
         with pytest.raises(TypeError):

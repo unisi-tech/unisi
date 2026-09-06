@@ -5,6 +5,7 @@ specific units regardless of whether they carry persist=... at all.
 import pytest
 
 from unisi import Edit
+from unisi.persist import _smart_apply_dict
 
 
 @pytest.mark.asyncio
@@ -372,3 +373,44 @@ def test_persist_units_and_restore_units_multiple_named_block_snapshots_round_tr
     assert restored_beta == [mod.outer_nested_block]
     assert mod.leaf_a.value == "A-beta"
     assert mod.leaf_b.value == "B-beta"
+
+
+# --- _smart_apply_dict's generic post-restore hook -------------------------
+# Any restored object can define _after_persist_restore() to fix itself up
+# right after its saved fields are applied -- _smart_apply_dict itself has
+# no idea what the method does or which unit types define it (tables.py's
+# Table uses it to turn a dataclass row that degraded to a plain dict back
+# into a real instance, see tests/units/test_tables.py's
+# TestAfterPersistRestore/TestFullPersistRoundTrip -- nothing Table- or
+# dataclass-specific belongs here, only proof the hook itself fires).
+
+class _RestoreHookProbe:
+    """Not a real Unit at all -- just enough of one (a plain attribute,
+    settable via object.__setattr__) to prove _smart_apply_dict calls this
+    method when present, independent of anything Table/dataclass-specific."""
+    def __init__(self):
+        self.value = None
+        self.after_restore_calls = 0
+
+    def _after_persist_restore(self):
+        self.after_restore_calls += 1
+
+
+def test_smart_apply_dict_calls_the_after_persist_restore_hook_if_present():
+    probe = _RestoreHookProbe()
+
+    _smart_apply_dict(probe, {"value": "restored"}, unit_map={})
+
+    assert probe.value == "restored"
+    assert probe.after_restore_calls == 1
+
+
+def test_smart_apply_dict_works_fine_on_an_object_with_no_such_hook():
+    class NoHook:
+        value = None
+
+    plain = NoHook()
+
+    _smart_apply_dict(plain, {"value": "restored"}, unit_map={})  # must not raise
+
+    assert plain.value == "restored"

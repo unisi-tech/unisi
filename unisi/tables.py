@@ -12,63 +12,104 @@ max_len_rows4llm = 30
 
 def _dataclass_instance(row):
     """If `row` is a dataclass instance -- optionally wrapped in a
-    ChangedProxy (units.py: a table's rows get wrapped once the table is
-    claimed by a user, see Unit.set_reactivity) -- return the real,
-    unwrapped instance, so callers can run dataclasses.fields() on it.
-    Otherwise None.
-
-    Unwrapping matters because dataclasses.is_dataclass() looks at
-    type(obj), and type(a_changed_proxy) is ChangedProxy itself, not
-    whatever it wraps -- checking the proxy directly would silently never
-    match.
+    ChangedProxy, see _row_field_names -- return the real, unwrapped
+    instance, so callers needing more than positional access (its actual
+    type, for _blank_dataclass_row/_infer_row_type) can get at it.
+    Otherwise None -- including for a plain dict, unlike the broader
+    _row_field_names (a dict has no *type* to speak of here, only field
+    names).
     """
     obj = row._obj if isinstance(row, ChangedProxy) else row
     return obj if dataclasses.is_dataclass(obj) and not isinstance(obj, type) else None
+
+def _row_field_names(row):
+    """Positional field names for a *named* row -- a dataclass instance,
+    or a plain dict -- optionally wrapped in a ChangedProxy (units.py: a
+    table's rows get wrapped once the table is claimed by a user, see
+    Unit.set_reactivity). None for an ordinary list/tuple row, which needs
+    no name translation at all.
+
+    A dict counts as "named" for exactly one reason: a dataclass row
+    degrades to a plain per-field dict through a persist.py save/restore
+    round trip (persist.py only ever reconstructs *Unit* instances,
+    matched by id -- an arbitrary dataclass instance isn't a Unit, has no
+    id, and comes back however its __getstate__/__dict__ happened to
+    look). Table._after_persist_restore below turns such a dict back into
+    a real `row_type` instance when it can, but a table with no row_type
+    to reconstruct against is left holding these dicts indefinitely, and
+    they must stay *safely* editable -- by field name, not by silently
+    writing to a bogus integer key a plain dict would otherwise accept.
+
+    A dict's own key order stands in for a dataclass's dataclasses.fields()
+    declaration order -- both preserve insertion order in practice (a
+    dataclass's __dict__/__getstate__ does, same as any dict; Python dicts
+    always do) -- so a row is addressed positionally the same way either
+    way, without this function's caller ever needing to know it used to be
+    a dataclass.
+    """
+    obj = row._obj if isinstance(row, ChangedProxy) else row
+    if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+        return [f.name for f in dataclasses.fields(obj)]
+    if isinstance(obj, dict):
+        return list(obj.keys())
+    return None
 
 def row_values(row):
     """`row`'s cell values, positionally aligned with `headers`: `row`
     itself when it's already a plain sequence (the documented case --
     README, docs/unisi-programming-spec.md §12: a row is a list of cell
-    values), or its dataclass fields' values, in dataclasses.fields()
-    declaration order, when a row is a dataclass instance instead. That
-    order is on the caller to keep in sync with `headers`, exactly like a
-    list row's cell order already has to be.
+    values), or its values in _row_field_names() order when `row` is a
+    "named" row (a dataclass instance, or a dict -- see
+    _row_field_names). That order is on the caller to keep in sync with
+    `headers`, exactly like a list row's cell order already has to be.
 
-    Reads through `row` itself -- getattr(row, ...), not
-    getattr(the_unwrapped_instance, ...) -- so a ChangedProxy-wrapped row
-    keeps wrapping non-atomic field values the same way it already wraps a
-    plain list's items (see ChangedProxy.__iter__ in units.py).
+    Reads through `row` itself -- row[name] / getattr(row, name), not
+    through an unwrapped copy -- so a ChangedProxy-wrapped row keeps
+    wrapping non-atomic field values the same way it already wraps a plain
+    list's items (see ChangedProxy.__iter__ in units.py).
     """
-    dc = _dataclass_instance(row)
-    return [getattr(row, f.name) for f in dataclasses.fields(dc)] if dc is not None else row
+    names = _row_field_names(row)
+    if names is None:
+        return row
+    obj = row._obj if isinstance(row, ChangedProxy) else row
+    if isinstance(obj, dict):
+        return [row[name] for name in names]
+    return [getattr(row, name) for name in names]
 
 def set_cell(row, index, value):
     """Write `value` into `row`'s cell at position `index` (0-based,
     aligned with `headers`): `row[index] = value` when `row` is a plain
-    mutable sequence, or setattr onto the matching dataclass field when
-    `row` is a dataclass instance.
+    mutable sequence, `row[name] = value` when `row` is a dict, or setattr
+    onto the matching field when `row` is a dataclass instance -- see
+    _row_field_names.
 
     A cell edit (accept_cell_value below, and emit()'s LLM autofill)
     addresses a cell by *position* -- the wire protocol's edit event
     carries a column index, since the client has no way to know a Python
-    dataclass' attribute names -- so a dataclass row's index-th field name
-    is looked up via dataclasses.fields() before the value can be written
-    with setattr. A plain dataclass instance supports neither __getitem__
-    nor __setitem__, so `row[index] = value` would otherwise raise
-    TypeError: '<Row>' object does not support item assignment.
+    dataclass' attribute names (or, for a dict row, which key means what)
+    -- so `index` is translated to the matching name before the value is
+    written. A plain dataclass instance supports neither __getitem__ nor
+    __setitem__, so `row[index] = value` would otherwise raise TypeError;
+    a plain dict *does* accept `row[index] = value` without complaint, but
+    silently as a bogus new integer key instead of updating the field it
+    was meant to -- the exact silent-corruption failure mode this
+    function exists to prevent.
 
-    Calling setattr on `row` itself (rather than on an unwrapped copy)
-    keeps this transparent to ChangedProxy: its __setattr__ already
-    forwards the write to the wrapped dataclass instance and marks the
-    table changed, exactly like its __setitem__ does today for a list row
-    -- so a dataclass row is just as reactive as a list row, no separate
-    handling needed here for that.
+    Writing through `row` itself (rather than through an unwrapped copy)
+    keeps this transparent to ChangedProxy: its __setattr__/__setitem__
+    already forward the write to the wrapped object and mark the table
+    changed, exactly like they do today for a list row.
     """
-    dc = _dataclass_instance(row)
-    if dc is not None:
-        setattr(row, dataclasses.fields(dc)[index].name, value)
-    else:
+    names = _row_field_names(row)
+    if names is None:
         row[index] = value
+        return
+    obj = row._obj if isinstance(row, ChangedProxy) else row
+    name = names[index]
+    if isinstance(obj, dict):
+        row[name] = value
+    else:
+        setattr(row, name, value)
 
 def _blank_dataclass_row(cls):
     """A new `cls` instance with every field set to None -- the same
@@ -89,18 +130,57 @@ def _blank_dataclass_row(cls):
         object.__setattr__(instance, f.name, None)
     return instance
 
+def _dataclass_from_dict(cls, saved):
+    """Reconstruct a `cls` instance from a plain dict of its field values
+    -- the shape a dataclass row degrades to through a persist.py
+    save/restore round trip (see Table._after_persist_restore). Same
+    __init__-bypassing construction as _blank_dataclass_row, so a frozen
+    `cls` works and old saved data isn't re-validated through
+    __post_init__.
+
+    Tolerant of schema drift between when a row was saved and now: a field
+    `cls` has that the saved dict doesn't (a field added since) reads back
+    as None, same as a freshly-appended blank row; a key the saved dict
+    has that `cls` no longer declares (a field removed since) is simply
+    never looked at, rather than raising.
+    """
+    instance = object.__new__(cls)
+    for f in dataclasses.fields(cls):
+        object.__setattr__(instance, f.name, saved.get(f.name))
+    return instance
+
+def _infer_row_type(rows):
+    """The dataclass type of `rows`'s first dataclass-instance row, if
+    any -- Table's automatic `row_type` when the caller didn't pass one
+    explicitly (see Table.__init__). None for an empty/list-only `rows`,
+    or when `rows` itself hasn't been given at all yet.
+    """
+    if not rows:
+        return None
+    dc = _dataclass_instance(rows[0])
+    return type(dc) if dc is not None else None
+
 def _blank_row_like(rows, header_count):
     """The default new row for append_table_row's non-persistent branch:
     every cell None, shaped to match whatever the table's *existing* rows
-    already are -- a fresh instance of the same dataclass when `rows`
-    holds dataclass rows (so the appended row stays gettable/settable
-    exactly like the rest of the table, instead of silently mixing an
-    unrelated plain-list row into an otherwise all-dataclass `rows`), or
-    the classic `[None, ...]` list otherwise (including when `rows` is
-    still empty and there's nothing to match).
+    already are --
+      - a fresh instance of the same dataclass when `rows` holds dataclass
+        rows, so the appended row stays gettable/settable exactly like the
+        rest of the table;
+      - a dict with the same keys (values None) when `rows` holds dict
+        rows (see _row_field_names -- most likely a table whose dataclass
+        rows degraded through a persist.py restore with no row_type to
+        reconstruct against, see Table._after_persist_restore);
+      - the classic `[None, ...]` list otherwise, including when `rows` is
+        still empty and there's nothing to match.
     """
-    if rows and (dc := _dataclass_instance(rows[0])) is not None:
-        return _blank_dataclass_row(type(dc))
+    if rows:
+        first = rows[0]
+        if (dc := _dataclass_instance(first)) is not None:
+            return _blank_dataclass_row(type(dc))
+        obj = first._obj if isinstance(first, ChangedProxy) else first
+        if isinstance(obj, dict):
+            return {key: None for key in obj.keys()}
     return [None] * header_count
 
 def get_chunk(obj, start_index):
@@ -175,7 +255,7 @@ def append_table_row(table, search_str = ''):
     return new_row
 
 class Table(Unit):
-    def __init__(self, *args, panda = None, **kwargs):
+    def __init__(self, *args, panda = None, row_type = None, **kwargs):
         if panda is not None:
             self._mark_changed = None
             self.mutate(PandaTable(*args, panda=panda, **kwargs))
@@ -184,6 +264,13 @@ class Table(Unit):
             set_defaults(self, dict(headers = [], type = 'table', value = None, rows = [], 
                             editing = False, dense = True, max_column_length = 40))
             self.__headers__ = self.headers[:]
+            # Not client-facing (leading underscore -> Unit.__getstate__
+            # skips it when building the JSON state, and Unit.__setattr__
+            # skips the ChangedProxy-wrapping/_mark_changed dance for it
+            # too -- appropriately, since it's a static schema declaration
+            # the developer's own code provides, not reactive UI state).
+            # See _after_persist_restore for what it's actually for.
+            object.__setattr__(self, '_row_type', row_type or _infer_row_type(self.rows))
         if hasattr(self,'id'):             
             if Unishare.db:
                 Unishare.db.set_db_list(self)
@@ -322,6 +409,48 @@ class Table(Unit):
 
         if getattr(self,'edit', True): 
             set_defaults(self,{'delete': delete_table_row, 'append': append_table_row, 'modify': accept_cell_value})   
+
+    def _after_persist_restore(self):
+        """Called once, generically, right after persist.py finishes
+        applying a saved dict onto this table (see persist.py's
+        _smart_apply_dict, which looks for this exact method name on any
+        restored unit -- it has no idea what a Table or a dataclass row
+        is; this is purely tables.py's own follow-up).
+
+        A dataclass row degrades to a plain per-field dict through the
+        save/restore round trip (see _row_field_names' docstring):
+        persist.py's _rebuild_value only ever reconstructs *Unit*
+        instances, matched by id -- an arbitrary dataclass instance isn't
+        a Unit and has no id, so it comes back however its
+        __getstate__/__dict__ happened to look, which is indistinguishable
+        from an ordinary dict once restored. If this table knows what
+        dataclass its rows should be (self._row_type -- explicit via
+        Table(..., row_type=...), or inferred from an example row at
+        construction, see __init__), each restored dict is turned back
+        into a real instance of it here, so the table looks exactly like
+        it did before the restart: table.rows[i].some_field, not
+        table.rows[i]['some_field'].
+
+        No row_type to reconstruct against (never given, and rows started
+        out empty so there was nothing to infer from either)? Left as
+        plain dicts -- safely editable by field name either way, see
+        _row_field_names/set_cell -- rather than guessing at a class.
+
+        Uses object.__setattr__, like persist.py's own _smart_apply_dict,
+        rather than a normal `self.rows = ...`: nothing about the row
+        *values* actually changed from the client's point of view (a
+        dataclass instance and the dict it degraded from serialize to the
+        exact same JSON shape either way, see docs/protocol.md), so this
+        shouldn't mark the table changed or queue a redundant client
+        update on top of whatever the restore itself already triggers.
+        """
+        row_type = self._row_type
+        if row_type is None or not self.rows:
+            return
+        object.__setattr__(self, 'rows', [
+            _dataclass_from_dict(row_type, row) if isinstance(row, dict) else row
+            for row in self.rows
+        ])
 
     @property
     def compact_view(self) -> str:

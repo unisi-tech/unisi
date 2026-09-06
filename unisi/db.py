@@ -51,6 +51,7 @@ calc_linked_rows / delete_links accept arbitrary iterables of IDs; callers
 with very large sets (> ~1000 on older SQLite) should batch externally.
 """
 
+import dataclasses
 import difflib
 import json
 import math
@@ -1254,7 +1255,17 @@ class Dbtable:
         return self.db.update_row(self.id, row_id, props)
 
     def append_row(self, row) -> list | None:
-        """Insert a single row (list or dict); return the stored row with ID."""
+        """Insert a single row (list, dict, or dataclass instance); return
+        the stored row with ID.
+
+        A dataclass instance is matched by *field name* against the
+        table's columns -- same as the dict form (dataclasses.fields(row)
+        turned into {name: value}) -- not by position like tables.py's
+        (unrelated) rows= convention for a non-persistent Table: a DB
+        table's columns are already named (`fields={...}`), so name-based
+        matching is the natural, unambiguous fit here, with no `headers`
+        to line positions up against in the first place.
+        """
         if isinstance(row, list):
             props = {
                 name: row[i]
@@ -1263,8 +1274,14 @@ class Dbtable:
             }
         elif isinstance(row, dict):
             props = {k: v for k, v in row.items() if v is not None}
+        elif dataclasses.is_dataclass(row) and not isinstance(row, type):
+            props = {
+                f.name: getattr(row, f.name)
+                for f in dataclasses.fields(row)
+                if getattr(row, f.name) is not None
+            }
         else:
-            raise TypeError(f"row must be list or dict, got {type(row).__name__}")
+            raise TypeError(f"row must be list, dict, or dataclass instance, got {type(row).__name__}")
 
         props = _expand_point_props(props, self.point_fields)
 
@@ -1321,6 +1338,11 @@ class Dbtable:
                 })
             elif isinstance(row, dict):
                 dicts.append(row)
+            elif dataclasses.is_dataclass(row) and not isinstance(row, type):
+                # Matched by field name, same as the dict form above (and
+                # for the same reason append_row's docstring gives) -- not
+                # by position.
+                dicts.append({f.name: getattr(row, f.name) for f in dataclasses.fields(row)})
             else:
                 raise TypeError(f"Unsupported row type: {type(row)}")
 

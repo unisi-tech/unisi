@@ -358,11 +358,36 @@ table = Table("Videos", headers=["Video", "Duration", "Owner"], rows=[
   works even for a frozen class or one with required fields) when `rows`
   already holds dataclass rows, or the classic `[None, ...]` list
   otherwise.
-- **Not supported for a persistent (`id=`) table.** Seeding `rows=[...]`
-  there goes through `Dbtable.append_rows` (`docs/persistent_tables.md`
-  §3.3), which only accepts `list` or `dict` rows and raises
-  `TypeError: Unsupported row type` for anything else — an unrelated,
-  pre-existing contract that this feature doesn't extend.
+- Also accepted for a **persistent** (`id=`) table, both to seed
+  `rows=[...]` at creation and via `Dbtable.append_row`/`append_rows`
+  directly (`docs/persistent_tables.md` §3.3) — but matched by field
+  *name* against the table's columns there, not by position: a DB table's
+  columns are already named (`fields={...}`), so there's no `headers`
+  list to line positions up against in the first place, unlike this
+  section's non-persistent case. `append_row`/`append_rows` only ever
+  read the dataclass instance's attributes, never construct one, so a
+  frozen class needs no special handling there either.
+- Surviving `persist=True`/keyed persist (§14) is a *different* mechanism
+  from the `id=` DB-backed case above — it restores this table's own
+  attributes (including `rows`) as plain JSON (`docs/persistent_tables.md`
+  §3.3's note explains why: security, human-readable storage, resilience
+  to schema drift across deploys), and that JSON round trip alone degrades
+  a dataclass row to a plain per-field dict — persist.py's restore only
+  ever reconstructs *Unit* instances, matched by a saved id, never an
+  arbitrary dataclass. `Table` closes that gap itself via an optional
+  `row_type`: pass it explicitly (`Table(..., row_type=VideoRow)`), or let
+  it infer automatically from an example row already present at
+  construction, as in the snippet above (inference needs a row to infer
+  from — a table that starts empty and is filled in purely by
+  restored/appended data over time needs the explicit form). With a
+  `row_type` known, every restored row comes back as a real `VideoRow`
+  instance — `table.rows[i].video`, not `table.rows[i]['video']` — exactly
+  as if the process had never restarted. With none available (never given,
+  and no example row to infer one from), rows stay plain dicts — still
+  safely editable by field name (row_values()/set_cell() treat a dict the
+  same "named row" way as a dataclass instance, never the silent
+  wrong-key corruption a bare dict would otherwise accept from a
+  positional edit), just permanently dicts instead of the original class.
 - Wire format: a dataclass row serializes (via `jsonpickle`) as a JSON
   *object* (`{"field": value, ...}`), not the array shape
   `docs/protocol.md` describes for row data — the bundled default web
@@ -599,6 +624,8 @@ user.get_contexts("orders", "price@form", "..")   # -> ['Widget', 'Gadget']
 
 All of the above share the same storage: a local SQLite file per user session (`users/<session-id>.db`), created on first write. State is never shared between users or sessions. Persistence is automatically disabled during autotest runs.
 
+Save and restore both stay plain JSON in and out — deliberately, not an implementation detail: it can't execute code on load the way a binary format like `pickle` could from a file that's ultimately per-user, it stays inspectable as text for debugging, and stale data from a since-changed class tolerates being loaded as a plain dict instead of hard-failing the whole restore. Restore only ever reconstructs *Unit* instances this way, matched against the live tree by a saved id — never an arbitrary Python object, which is what keeps the "never executes code from storage" guarantee simple. A unit that needs to fix up something more than that after restore (e.g. `Table` turning a dataclass row that degraded to a plain dict back into a real instance — see §12's `row_type`) can define a zero-argument `_after_persist_restore()` method; the restore path calls it, generically, on any unit that has one, right after that unit's saved fields are applied.
+
 ### 14.6 Persistence and shared blocks
 
 A unit living inside a block imported from `blocks/` (the same object embedded, by reference, in every screen that imports it — see §17) is not scoped to whichever screen currently displays it. Its storage identity is anchored to the block's own Python module instead: namespace is `'@' + <module's dotted path>` (e.g. `'@blocks.header'`) rather than a screen name, and its tree path is measured from the block's own root, not the screen. Its persisted state — single fields, whole-block state, keyed records — is therefore the same no matter which screen the user is currently on, and survives a restart even if the user's first screen this session isn't the one that originally saved it.
@@ -791,7 +818,7 @@ blocks = [controls]
 -  A standout feature of HTML component is its interactive zoom capability: by including a scale property (e.g., "scale": 1) in your data configuration, a slider control will automatically render above the content. This allows end-users to dynamically scale the entire HTML block—including text, images, and layout—from 0.5x to 3.0x. 
 - A keyed-persist key function (§14.2) should return plain, JSON-serializable values and read *other* units, not the persisted unit's own value — a key derived from the unit's own state is self-referential and won't behave usefully.
 - If a keyed-persist key function raises, the error is logged and that unit's persistence is skipped for the request; it does not fail the request.
-- A non-persistent `Table`'s `rows` may be dataclass instances instead of lists (§12); not supported for a persistent (`id=`) table, and the bundled web client expects list rows.
+- A `Table`'s `rows` may be dataclass instances instead of lists (§12) — matched positionally against `headers` for a non-persistent table, or by field name for a persistent (`id=`) table's `append_row`/`append_rows`/seeding. The bundled web client still expects list rows for display. Surviving a `persist=True` restore needs `row_type` (explicit or inferred) — see §12.
 
 ## 21. Example Sources in This Repository
 

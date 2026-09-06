@@ -167,6 +167,17 @@ row = dbtable.append_row({'name': 'Alice', 'email': 'alice@example.com', 'age': 
 # list variant (column order must match fields)
 row = dbtable.append_row(['Alice', 'alice@example.com', 30, True])
 # row = ['Alice', 'alice@example.com', 30, True, 1]  ← ID appended
+
+# dataclass variant (matched by field *name* against the columns, same as
+# the dict form — not by position)
+@dataclass
+class NewUser:
+    name: str
+    email: str
+    age: int
+    active: bool
+
+row = dbtable.append_row(NewUser('Alice', 'alice@example.com', 30, True))
 ```
 
 **Bulk insert**
@@ -175,6 +186,7 @@ row = dbtable.append_row(['Alice', 'alice@example.com', 30, True])
 rows = dbtable.append_rows([
     {'name': 'Anna',  'email': 'anna@example.com',  'age': 25, 'active': True},
     {'name': 'Boris', 'email': 'boris@example.com', 'age': 40, 'active': False},
+    NewUser('Carla', 'carla@example.com', 35, True),  # list/dict/dataclass rows can be mixed in one batch
 ])
 # Returns the stored rows with IDs. The entire batch is atomic —
 # either all rows are inserted or none.
@@ -183,12 +195,26 @@ rows = dbtable.append_rows([
 > **Note:** `append_rows` uses `RETURNING *` inside a single transaction,
 > so there is no race condition between `INSERT` and `SELECT`.
 
-> **Note:** unlike a non-persistent `Table`'s `rows`
-> (`docs/unisi-programming-spec.md` §12), a persistent table does not
-> accept dataclass instances as rows here — `append_row`/`append_rows`
-> only recognize `list` or `dict` and raise `TypeError` for anything else
-> (`"row must be list or dict, got ..."` / `"Unsupported row type: ..."`
-> respectively). Use the dict or list variant shown above.
+> **Note:** a dataclass row here is matched by *field name* against the
+> table's columns — a dataclass instance is turned into
+> `{f.name: getattr(row, f.name) for f in dataclasses.fields(row)}` and
+> handled exactly like the dict form from there, including its "a field
+> left `None` leaves that column at its SQL default" behaviour. This is
+> name-based matching, unlike a non-persistent `Table`'s dataclass `rows`
+> (`docs/unisi-programming-spec.md` §12), which matches by *position*
+> against `headers` — a DB table's columns are already named
+> (`fields={...}`), so there's no `headers` list to line positions up
+> against here in the first place, and name-based matching is the
+> unambiguous, natural fit. `append_row`/`append_rows` only ever *read*
+> the dataclass instance's attributes (`getattr`), never construct or
+> mutate one, so a frozen dataclass works here with no special handling
+> needed.
+>
+> This is a separate concern from a non-persistent table's dataclass rows
+> surviving a `persist=True`/keyed-persist restore (§12's `row_type`) —
+> that's about a table's own *unit state* being saved/restored across a
+> reconnect, an entirely different mechanism from this section's
+> DB-backed application data.
 
 ### 3.4 Editing rows
 

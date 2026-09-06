@@ -267,6 +267,16 @@ def _smart_apply_dict(unit, saved_dict, unit_map):
         rebuilt = _rebuild_value(value, unit_map)
         if rebuilt is not _UNRESOLVED:
             object.__setattr__(unit, key, rebuilt)
+    # Generic, unit-type-agnostic extension point: persist.py itself has no
+    # notion of what a Table or a dataclass row is (nor should it -- see
+    # module docstring/§13 on why persistence stays plain JSON in/out).
+    # A unit that needs to fix itself up right after restore -- e.g. a
+    # Table whose dataclass rows degraded to plain dicts through the JSON
+    # round trip, see Table._after_persist_restore -- can opt in simply by
+    # defining a method with this exact name; everything else is
+    # unaffected (getattr(..., None) + callable(...) is a cheap no-op).
+    if callable(after_restore := getattr(unit, '_after_persist_restore', None)):
+        after_restore()
 
 
 class Persist:

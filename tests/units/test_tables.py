@@ -58,10 +58,12 @@ import pytest
 
 from unisi.common import Unishare, toJson
 from unisi.units import Unit, ChangedProxy
+from unisi.persist import _json_ready, _smart_apply_dict
 from unisi.tables import (
     Table, PandaTable, get_chunk, accept_cell_value, delete_table_row,
     append_table_row, delete_panda_row, accept_panda_cell, append_panda_row,
     row_values, _dataclass_instance, _blank_dataclass_row, _blank_row_like,
+    _infer_row_type, _dataclass_from_dict,
     set_cell as set_row_cell,  # tables.py's per-row cell setter -- aliased
     # because this file already has its own `set_cell(table, delta, cell,
     # value)` test helper (below, "Table -- persistent") for writing
@@ -501,6 +503,204 @@ class TestTableDataclassRowsReactive:
 
         assert t.rows[0]._obj == VideoRow('a.mp4', '99 seconds', 'Admin')
         assert fake_user.calls  # a change notification fired
+
+# ──────────────────────────────────────────────────────────────────────── #
+#  dataclass rows surviving persist=True save/restore                      #
+#                                                                          #
+#  persist.py saves/restores plain JSON (see docs/... on why: security,   #
+#  human-readable storage, resilience to schema drift across deploys --   #
+#  not something this feature reopens). Its _rebuild_value only ever      #
+#  reconstructs *Unit* instances, matched by saved id -- an arbitrary     #
+#  dataclass row isn't a Unit and has no id, so on its own it comes back  #
+#  as whatever plain dict its fields happened to look like, indistin-      #
+#  guishable from an ordinary dict. Table carries an optional _row_type    #
+#  (explicit `row_type=`, or inferred from an example row) and a          #
+#  _after_persist_restore() hook that persist.py's _smart_apply_dict      #
+#  calls, generically, on any restored unit that defines it -- Table      #
+#  uses it to turn each restored dict back into a real row_type           #
+#  instance. No row_type available? Rows stay plain dicts, but            #
+#  row_values()/set_cell() (see above) already handle those safely, so    #
+#  editing one is never the silent, wrong-field-updated corruption it     #
+#  was before this section's fix -- just permanently a dict instead of    #
+#  the original dataclass.                                                #
+# ──────────────────────────────────────────────────────────────────────── #
+
+class TestInferRowType:
+    """_infer_row_type() in isolation."""
+
+    def test_infers_from_the_first_dataclass_row(self):
+        assert _infer_row_type([VideoRow('a.mp4', '30 seconds', 'Admin')]) is VideoRow
+
+    def test_none_for_list_rows(self):
+        assert _infer_row_type([['a.mp4', '30 seconds', 'Admin']]) is None
+
+    def test_none_for_empty_rows(self):
+        assert _infer_row_type([]) is None
+
+
+class TestDataclassFromDict:
+    """_dataclass_from_dict() in isolation -- the reconstruction
+    _after_persist_restore applies to each restored row dict."""
+
+    def test_rebuilds_a_matching_instance(self):
+        saved = {'video': 'a.mp4', 'duration': '30 seconds', 'owner': 'Admin'}
+        assert _dataclass_from_dict(VideoRow, saved) == VideoRow('a.mp4', '30 seconds', 'Admin')
+
+    def test_works_for_a_frozen_class(self):
+        """Bypasses __init__, same as _blank_dataclass_row -- old saved
+        data isn't re-validated through __post_init__, and a frozen
+        class's __setattr__ override doesn't get in the way."""
+        assert _dataclass_from_dict(FrozenRow, {'name': 'Alice', 'age': 30}) == FrozenRow('Alice', 30)
+
+    def test_a_field_added_to_the_class_since_saving_reads_back_none(self):
+        @dataclass
+        class RowV2:
+            name: str
+            age: int
+            email: str  # added after some rows were already saved
+
+        assert _dataclass_from_dict(RowV2, {'name': 'Carol', 'age': 50}) == RowV2('Carol', 50, None)
+
+    def test_a_field_removed_from_the_class_since_saving_is_ignored(self):
+        @dataclass
+        class RowV1:
+            name: str
+            age: int
+
+        saved = {'name': 'Bob', 'age': 40, 'legacy_field': 'no longer a field'}
+        assert _dataclass_from_dict(RowV1, saved) == RowV1('Bob', 40)
+
+
+class TestTableRowType:
+    """Table's optional row_type -- explicit, or inferred at construction
+    -- stored as the private _row_type (never sent to the client)."""
+
+    def test_explicit_row_type_is_kept(self):
+        t = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[], row_type=VideoRow)
+        assert t._row_type is VideoRow
+
+    def test_row_type_is_inferred_from_an_example_row_when_not_given(self):
+        t = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+        ])
+        assert t._row_type is VideoRow
+
+    def test_row_type_is_none_for_an_empty_table_with_no_hint(self):
+        t = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[])
+        assert t._row_type is None
+
+    def test_row_type_is_none_for_plain_list_rows(self):
+        t = Table('t', headers=['A'], rows=[['x']])
+        assert t._row_type is None
+
+    def test_row_type_is_not_sent_to_the_client(self):
+        """Leading underscore -> Unit.__getstate__ (n[0] != '_') skips it;
+        a Python class reference is meaningless to the JS client anyway."""
+        t = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+        ])
+        assert '_row_type' not in t.__getstate__()
+        assert 'row_type' not in t.__getstate__()
+
+
+class TestAfterPersistRestore:
+    """Table._after_persist_restore() -- called directly here; see
+    TestFullPersistRoundTrip below for the same thing exercised through
+    persist.py's real _json_ready/_smart_apply_dict."""
+
+    def test_wraps_restored_dicts_back_into_row_type(self):
+        t = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[], row_type=VideoRow)
+        object.__setattr__(t, 'rows', [{'video': 'a.mp4', 'duration': '30 seconds', 'owner': 'Admin'}])
+        t._after_persist_restore()
+        assert t.rows == [VideoRow('a.mp4', '30 seconds', 'Admin')]
+
+    def test_a_dataclass_row_is_left_alone(self):
+        """Nothing to do if restore never touched rows (or a mixed table
+        already has real instances sitting next to dicts) -- only actual
+        dicts get converted."""
+        t = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+        ], row_type=VideoRow)
+        t._after_persist_restore()
+        assert t.rows == [VideoRow('a.mp4', '30 seconds', 'Admin')]
+
+    def test_no_row_type_leaves_dicts_as_dicts(self):
+        t = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[])
+        object.__setattr__(t, 'rows', [{'video': 'a.mp4', 'duration': '30 seconds', 'owner': 'Admin'}])
+        t._after_persist_restore()
+        assert t.rows == [{'video': 'a.mp4', 'duration': '30 seconds', 'owner': 'Admin'}]
+
+    def test_empty_rows_is_a_cheap_no_op(self):
+        t = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[], row_type=VideoRow)
+        t._after_persist_restore()  # must not raise
+        assert t.rows == []
+
+
+class TestFullPersistRoundTrip:
+    """End to end, through persist.py's real _json_ready/_smart_apply_dict
+    (exactly what save_changed/restore_screen call) -- not just
+    _after_persist_restore in isolation."""
+
+    def test_dataclass_row_survives_a_save_restore_cycle_with_row_type(self):
+        # "Before restart": the table has grown to two rows during the session.
+        t = Table('t', persist=True, headers=['Video', 'Duration', 'Owner'], rows=[
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+            VideoRow('b.mp4', '37 seconds', 'Admin'),
+        ])
+        dumped = json.dumps(_json_ready(t.__getstate__(), parents={}, shared_roots=set(), screen_name='test'))
+
+        # "After restart": the screen module re-runs the same Table(...)
+        # call it always does, seeded with just the one example row -- 
+        # row_type infers the same way it did the first time, from that
+        # seed row, before persisted data (both saved rows) is overlaid.
+        restored = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+        ])
+        _smart_apply_dict(restored, json.loads(dumped), unit_map={})
+
+        assert restored.rows == [
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+            VideoRow('b.mp4', '37 seconds', 'Admin'),
+        ]
+
+    def test_editing_a_restored_row_updates_the_right_field(self):
+        t = Table('t', persist=True, headers=['Video', 'Duration', 'Owner'], rows=[
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+        ])
+        dumped = json.dumps(_json_ready(t.__getstate__(), parents={}, shared_roots=set(), screen_name='test'))
+        restored = Table('t', headers=['Video', 'Duration', 'Owner'], rows=[
+            VideoRow('a.mp4', '30 seconds', 'Admin'),
+        ])
+        _smart_apply_dict(restored, json.loads(dumped), unit_map={})
+
+        restored.modify(restored, {'delta': 0, 'cell': 1, 'value': '99 seconds'})
+
+        assert restored.rows[0] == VideoRow('a.mp4', '99 seconds', 'Admin')
+
+    def test_without_row_type_editing_a_restored_row_stays_safe(self):
+        """The floor this fix guarantees even when full type restoration
+        isn't possible: no row_type declared, no example row to infer one
+        from -- but still no silent corruption on edit (the bug this
+        whole section exists to fix)."""
+        t = Table('t', persist=True, headers=['Video', 'Duration', 'Owner'], rows=[])
+        saved_state = {'rows': [{'video': 'a.mp4', 'duration': '30 seconds', 'owner': 'Admin'}]}
+        _smart_apply_dict(t, saved_state, unit_map={})
+
+        t.modify(t, {'delta': 0, 'cell': 1, 'value': '99 seconds'})
+
+        assert t.rows[0] == {'video': 'a.mp4', 'duration': '99 seconds', 'owner': 'Admin'}
+
+    def test_explicit_row_type_reconstructs_a_table_that_started_empty(self):
+        """The common real-world shape for a persisted, accumulating table:
+        the screen defines it empty and lets `append`/persist populate it
+        over time, so there's never a live example row to infer from --
+        row_type has to be explicit here."""
+        saved_state = {'rows': [{'video': 'a.mp4', 'duration': '30 seconds', 'owner': 'Admin'}]}
+        t = Table('t', persist=True, headers=['Video', 'Duration', 'Owner'], rows=[], row_type=VideoRow)
+
+        _smart_apply_dict(t, saved_state, unit_map={})
+
+        assert t.rows == [VideoRow('a.mp4', '30 seconds', 'Admin')]
 
 
 # ──────────────────────────────────────────────────────────────────────── #
