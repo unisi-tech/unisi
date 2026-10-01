@@ -731,7 +731,41 @@ def _images_cache_key(images: ImagesInput) -> str:
     return '|'.join(fingerprint(image) for image in items if image is not None)
 
 
-async def _call_llm(prompt: str, type_value: Any = str, images: ImagesInput = None) -> str:
+_REASONING_UNSET = object()
+
+
+def _resolve_llm(model: str | None = None, reasoning: Any = _REASONING_UNSET) -> tuple[str, Any, dict | None]:
+    """
+    Effective (model, reasoning, extra_body) for one call.
+
+    model:     None -> Unishare.llm_model (config.llm). Any other string is
+               sent as-is to the SAME configured endpoint/client — it must be
+               a model that endpoint serves (e.g. another OpenRouter model id).
+    reasoning: not passed / None -> Unishare.llm_reasoning (config.reasoning).
+               A string ('low', 'medium', 'high', 'none', ...) -> sent as the
+               reasoning effort. False or '' -> the reasoning parameter is not
+               sent at all (provider default), even if config sets one.
+    """
+    eff_model = model or Unishare.llm_model or ''
+    if reasoning is _REASONING_UNSET or reasoning is None:
+        eff_reasoning = getattr(Unishare, 'llm_reasoning', None)
+    else:
+        eff_reasoning = reasoning or None          # False / '' -> do not send
+    extra = dict(getattr(Unishare, 'llm_extra_body', None) or {})
+    extra.pop('reasoning', None)
+    if eff_reasoning:
+        extra['reasoning'] = {'effort': eff_reasoning, 'enabled': True}
+    return eff_model, eff_reasoning, (extra or None)
+
+
+async def _call_llm(
+    prompt: str,
+    type_value: Any = str,
+    images: ImagesInput = None,
+    *,
+    model: str | None = None,
+    extra_body: Any = _REASONING_UNSET,
+) -> str:
     """
     Invokes the LLM via AsyncOpenAI (OpenAI-compatible endpoint).
 
@@ -756,6 +790,10 @@ async def _call_llm(prompt: str, type_value: Any = str, images: ImagesInput = No
     reject both. Any other error — auth, rate limits, a genuinely malformed
     request — is never caught here and propagates normally.
 
+    model / extra_body: per-call overrides, normally resolved by Q() via
+    _resolve_llm. Omitted -> the config-level Unishare.llm_model /
+    Unishare.llm_extra_body (behaviour before per-call overrides existed).
+
     images: optional, see Q()'s `images` parameter for the accepted forms.
     Turned into extra `image_url` content parts on the same user message
     via _build_message_content — the message stays plain text (unchanged
@@ -768,7 +806,7 @@ async def _call_llm(prompt: str, type_value: Any = str, images: ImagesInput = No
     if _acompletion is None:
         raise RuntimeError('LLM not initialised — call setup_llmrag() first')
 
-    model = Unishare.llm_model or ''
+    model = model or Unishare.llm_model or ''
     blocked = _incompatible_params.get(model, set())
 
     schema = python_type_to_json_schema_dict(type_value)
@@ -796,7 +834,10 @@ async def _call_llm(prompt: str, type_value: Any = str, images: ImagesInput = No
                 'strict': want_strict,
             },
         }
-    if extra := getattr(Unishare, 'llm_extra_body', None):
+    # extra_body not passed -> config-level Unishare.llm_extra_body (behaviour
+    # before per-call overrides existed); Q() always passes the resolved one.
+    extra = getattr(Unishare, 'llm_extra_body', None) if extra_body is _REASONING_UNSET else extra_body
+    if extra:
         kwargs['extra_body'] = extra
 
     attempts_left = 2  # at most two recoveries: temperature, then strict
@@ -874,6 +915,9 @@ async def Q(
     extend: bool = True,
     format: bool = True,  # noqa: A002  (kept for compatibility)
     images: ImagesInput = None,
+    *,
+    model: str | None = None,
+    reasoning: Any = None,
     **format_vars,
 ) -> Any:
     """
@@ -907,6 +951,16 @@ async def Q(
                      the configured model supporting image input — Q() does
                      not check that in advance, the provider's own error
                      surfaces normally if it doesn't.
+        model:       optional per-call model override (keyword-only). None
+                     (default) -> the model from config.llm. Sent to the SAME
+                     configured endpoint, so it must be a model that endpoint
+                     serves (e.g. another OpenRouter id).
+        reasoning:   optional per-call reasoning-effort override (keyword-only).
+                     None (default) -> config.reasoning. A string ('low',
+                     'medium', 'high', 'none', ...) is sent as the effort;
+                     False or '' -> no reasoning parameter is sent at all.
+                     Note: `model` and `reasoning` are therefore NOT available
+                     as {model}/{reasoning} placeholders in str_prompt.
         **format_vars:
                      named variables for substitution into str_prompt.
                      Unlike the original, ONLY explicitly passed values;
@@ -923,6 +977,10 @@ async def Q(
         # Structured response
         info = await Q("Details about {name}", dict(age=int, city=str), name=name)
 
+        # Per-call overrides: cheaper reasoning, or another model on the same endpoint
+        tags = await Q(prompt, reasoning='low')
+        draft = await Q(prompt, model='openai/gpt-6-luna-mini', reasoning='high')
+
         # With an image — local file, URL, and raw bytes all work the same way
         caption = await Q("Describe this photo.", str, images="photo.jpg")
         diff = await Q("What changed between these?", list[str], images=[url_before, url_after])
@@ -934,9 +992,12 @@ async def Q(
         (invalid JSON, or valid JSON of the wrong shape) is never cached, so
         the next call — including a retry from the caller's own retry loop —
         reaches the LLM again instead of replaying the same bad answer.
-        The cache key only folds `images` in when images are actually
-        passed (see below), so every cache entry from before this parameter
-        existed keeps hitting normally.
+        The cache key always includes the EFFECTIVE model and reasoning
+        effort (overrides or config), so a different model/effort is never
+        served another one's cached answer. Entries written before this was
+        added (key without model/reasoning) are therefore not hit any more —
+        a one-time re-query, deliberately: they cannot be attributed to a
+        model. `images` are folded in only when actually passed.
     """
     identity = format_vars.pop('identity', _DEFAULT_IDENTITY)
 
@@ -950,8 +1011,10 @@ async def Q(
         format_vars=effective_format_vars,
     )
 
+    eff_model, eff_reasoning, eff_extra = _resolve_llm(model, reasoning)
+
     cache: QueryCache | None = Unishare.llm_cache
-    cache_key = f'{_type_key(type_value)}:{final_prompt}'
+    cache_key = f'{_type_key(type_value)}:{final_prompt}:llm:{eff_model}:{eff_reasoning or "-"}'
     if images:
         # Appended rather than always-present, so a call with no images
         # keeps the exact cache key it always had — see the Note above.
@@ -975,7 +1038,8 @@ async def Q(
                 # Treat this as a cache miss and go to the LLM fresh.
                 pass
 
-    content = await _call_llm(final_prompt, type_value, images=images)
+    content = await _call_llm(final_prompt, type_value, images=images,
+                              model=eff_model, extra_body=eff_extra)
     result = _parse_response(content, type_value)  # raises on malformed — never reaches cache.set below
 
     if cache is not None:
@@ -984,7 +1048,14 @@ async def Q(
     return result
 
 
-async def Qx(str_prompt: str, type_value: Any = str, images: ImagesInput = None) -> Any:
+async def Qx(
+    str_prompt: str,
+    type_value: Any = str,
+    images: ImagesInput = None,
+    *,
+    model: str | None = None,
+    reasoning: Any = None,
+) -> Any:
     """
     Calls the LLM without any formatting or system prompt.
     Useful for raw queries where the prompt is already fully formed.
@@ -992,8 +1063,10 @@ async def Qx(str_prompt: str, type_value: Any = str, images: ImagesInput = None)
     images: same optional image(s) Q() accepts — see its docstring for the
         full list of accepted forms (URL, data URI, local file path, raw
         bytes, or a manual dict). None (default) sends no image.
+    model / reasoning: optional per-call overrides, same as Q().
     """
-    return await Q(str_prompt, type_value, format=False, extend=False, images=images)
+    return await Q(str_prompt, type_value, format=False, extend=False, images=images,
+                   model=model, reasoning=reasoning)
 
 
 # ---------------------------------------------------------------------------
@@ -1043,9 +1116,14 @@ def setup_llmrag() -> None:
     a provider that doesn't actually support it (or a model that rejects a
     non-default temperature) is detected and recovered from automatically.
 
-    After initialisation, Unishare.llm_model holds the model string used in
-    every request (e.g. 'groq/llama3-8b-8192') and all calls go through the
-    AsyncOpenAI client's chat.completions.create.
+    Optional config.reasoning sets the DEFAULT reasoning effort, stored in
+    Unishare.llm_reasoning and sent as extra_body.reasoning; a single call can
+    override it (or the model) with Q(..., reasoning=..., model=...).
+
+    After initialisation, Unishare.llm_model holds the default model string
+    (e.g. 'groq/llama3-8b-8192') used by every request that doesn't pass
+    model=, and all calls go through the AsyncOpenAI client's
+    chat.completions.create.
     """
     import config  # module is loaded before config analysis
 
@@ -1112,6 +1190,7 @@ def setup_llmrag() -> None:
     Unishare.llm_model = model_id  # plain model name, e.g. 'gemini-2.5-pro-preview'
     Unishare.llm_temperature = temperature
     Unishare.llm_extra_body = extra_body or None
+    Unishare.llm_reasoning = reasoning or None   # default for Q(reasoning=None)
     # Whether structured Q() calls ask for strict JSON Schema enforcement by
     # default. True unless the caller opts out via config.strict_schema — a
     # provider that actually rejects strict=True is detected and remembered

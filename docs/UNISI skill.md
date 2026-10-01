@@ -136,7 +136,7 @@ several of these.
 | `llm_cache_ttl` | `None` | Cache entry lifetime in seconds; `None` = never expires |
 | `temperature` | `0.0` | LLM sampling temperature |
 | `strict_schema` | `True` | Whether structured `Q()` calls request strict JSON-Schema enforcement (auto-falls back per-model if a provider rejects it) |
-| `reasoning` | unset | Effort level (e.g. `'medium'`) forwarded as `extra_body.reasoning` for reasoning models |
+| `reasoning` | unset | Default effort level (e.g. `'medium'`) forwarded as `extra_body.reasoning` for reasoning models; per-call override `Q(..., reasoning=...)` (§8) |
 | `persist` | `False` | Global "persist every unit on every screen" switch — same effect as `persist = True` on every individual screen module |
 
 > **`froze_time`, not `freeze_time`.** That's the real spelling
@@ -369,8 +369,9 @@ text   = await Qx("Free-form prompt, sent exactly as written")
 
 ```python
 Q(str_prompt, type_value=str, blank=True, extend=True, format=True,
-  images=None, **format_vars) -> Any
-Qx(str_prompt, type_value=str, images=None) -> Any     # == Q(..., extend=False, format=False)
+  images=None, *, model=None, reasoning=None, **format_vars) -> Any
+Qx(str_prompt, type_value=str, images=None, *,
+   model=None, reasoning=None) -> Any                  # == Q(..., extend=False, format=False)
 ```
 
 - `type_value` — expected type (`str`, `int`, `list[str]`, `dict(...)`,
@@ -389,15 +390,34 @@ Qx(str_prompt, type_value=str, images=None) -> Any     # == Q(..., extend=False,
   `bytearray` (base64-encoded, MIME sniffed), or a dict for manual control
   (`{'url':...}`, `{'path':...}`, `{'data': b'...', 'mime': '...'}`, optional
   `'detail'`). `None` (default) sends nothing and leaves the cache key
-  identical to a pre-`images` call. Whether the provider actually accepts
+  identical to a call without images. Whether the provider actually accepts
   image input isn't checked in advance — its own error surfaces normally.
+- `model` (keyword-only, both `Q` and `Qx`) — per-call model override.
+  `None` (default) → model from `config.llm`. Sent to the **same**
+  endpoint/client as `config.llm`, so it must be a model that endpoint serves.
+- `reasoning` (keyword-only, both `Q` and `Qx`) — per-call reasoning effort.
+  `None` (default) → `config.reasoning`; a string (`'low'`, `'medium'`,
+  `'high'`, `'none'`, ...) → sent as `extra_body.reasoning`; `False`/`''` →
+  the parameter isn't sent at all, even if `config.reasoning` is set.
+- `model` / `reasoning` are parameters, so `{model}` / `{reasoning}` can't be
+  used as prompt placeholders — rename such placeholders.
+
+```python
+tags  = await Qx(prompt, reasoning='low')                 # bulk step, cheaper
+facts = await Q(prompt, dict(name=str), reasoning='high') # critical step
+draft = await Q(prompt, model='openai/gpt-6-luna-mini')    # other model, same endpoint
+```
 
 ### Caching
 
 Set `config.llm_cache = '<directory>'` (+ optional `config.llm_cache_ttl`) to
 persist successful `Q()`/`Qx()` results across restarts via `diskcache`. A
 malformed/invalid response is never written to the cache, so a bad answer
-can't get "stuck" there forever.
+can't get "stuck" there forever. The key includes the expected type, the final
+prompt, the effective **model** and **reasoning effort** (and the images, if
+any): switching the model or `reasoning` — per call or in `config.py` — is a
+cache miss, never a replay of another configuration's answer. Entries from
+unisi < 0.7.13 (key without model/reasoning) are no longer hit.
 
 ### Provider configuration (`config.llm`)
 
@@ -709,6 +729,8 @@ async def smoke_check():
 | A blocking/CPU-heavy loop directly inside a handler | blocks the event loop for *every* connected user — use `await user.run_process(fn, *args)` (§7) |
 | Assume `@handle(unit, 'changed')` replaces the existing handler | it composes with it — both run, in order, unless one returns `True`/`Redesign` (§5) |
 | Assign `config.llm = 'openai'` (a bare string) | must be a `[provider, model]` list/tuple, or `['host', ...]` (§8) |
+| Change `config.reasoning` at runtime to use another effort for one step | pass `Q(..., reasoning='low')` for that call — `config.reasoning` is read once by `setup_llmrag()` (§8) |
+| Use `{model}` / `{reasoning}` as prompt placeholders | they are `Q()`/`Qx()` parameters (per-call overrides), not format variables — rename the placeholder (§8) |
 | Assume the persist DB schema has a `user_id` column | it doesn't — one SQLite file per session already provides that isolation (§9) |
 | Assume a custom `web_client` must ship every bundled asset (favicon, fonts...) | it doesn't — anything it's missing transparently falls back to the bundled client (§15) |
 | Try to serve custom content at `/default` | reserved — always resolves against the bundled client regardless of `config.web_client` (§15) |

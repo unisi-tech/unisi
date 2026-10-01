@@ -608,7 +608,7 @@ export OPENAI_API_KEY=’my_open_key’
 export MISTRAL_API_KEY=’my_mistral_key’
 export XAI_API_KEY=’my_xai_key’
 ```
-Optional config.py settings: `temperature` (default `0`), `strict_schema` (default `True`, set `False` if a provider rejects strict JSON-Schema mode), `reasoning` (effort level for reasoning models), and `llm_cache` (a directory path, to persist `Q()`/`Qx()` results across restarts, optionally with `llm_cache_ttl` in seconds).
+Optional config.py settings: `temperature` (default `0`), `strict_schema` (default `True`, set `False` if a provider rejects strict JSON-Schema mode), `reasoning` (default effort level for reasoning models; can be overridden per call, see below), and `llm_cache` (a directory path, to persist `Q()`/`Qx()` results across restarts, optionally with `llm_cache_ttl` in seconds; cache entries are keyed by prompt, expected type, model and reasoning effort, so changing the model or `reasoning` never replays answers cached under another configuration).
 ```
 temperature = 0.2
 ```
@@ -629,6 +629,15 @@ country_info = await Q("Provide information about Thailand.",
 raw_text = await Qx("Free-form prompt, sent exactly as written")
 ```
 The second argument is the expected type — `str`, `int`, a `dict(field=type, ...)` schema for structured JSON, etc. Any `{name}` placeholder in the prompt is filled from a matching keyword argument; braces that don't correspond to a passed keyword (JSON examples, code, etc.) are left untouched, so there is no need to escape them. Both `Q()` and `Qx()` accept an optional `images=` argument (a URL, local file path, raw bytes, or a list of these) for vision-capable models.
+
+Both also accept optional keyword-only `model=` and `reasoning=` overrides for a single call — e.g. a cheaper effort for a bulk step and a stronger one for a critical step, without touching `config.py`:
+```
+tags  = await Qx(prompt, reasoning='low')                       # effort for this call only
+facts = await Q(prompt, dict(name=str), reasoning='high')
+draft = await Q(prompt, model='openai/gpt-6-luna-mini')          # another model on the same endpoint
+plain = await Q(prompt, reasoning=False)                         # don't send the reasoning parameter at all
+```
+`None` (the default) means "use `config.llm` / `config.reasoning`"; a string is sent as the reasoning effort; `False` omits the parameter. `model=` goes to the same endpoint and client configured in `config.llm`, so it must be a model that endpoint serves (e.g. another OpenRouter model id). Because these two names are parameters, `{model}` and `{reasoning}` can't be used as prompt placeholders.
 
 ### Voice interaction
 This functionality allows users to interact with a user interface using voice commands instead of fingers or a mouse. It facilitates voice interaction with a graphical user interface composed of various Units. It recognizes spoken words, interprets them as commands or element selections, and performs corresponding actions. The system supports various modes of interaction, including text input, number input, element selection, screen navigation, and command execution. The user speaks commands or element names. The module recognizes words and updates the Mate block, which exposes the state of the module and what it expects to listen.

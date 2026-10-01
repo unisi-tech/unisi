@@ -1078,13 +1078,12 @@ class TestQ:
         assert len(fake_llm.calls) == 3  # a different image -> cache miss again
 
     @run_async
-    async def test_no_images_cache_key_is_unaffected_by_images_feature(self, fake_llm, tmp_path):
+    async def test_pre_model_aware_cache_entry_is_not_served(self, fake_llm, tmp_path):
         """
-        Backward compatibility: a pre-upgrade cache entry, written under the
-        OLD key format (no image awareness at all), must still be found by
-        a plain no-images Q() call after upgrading — so shipping `images`
-        support does not silently invalidate everyone's existing on-disk
-        cache for the common (no-image) case.
+        An entry written under the OLD key format (type + prompt only, no
+        model/reasoning) cannot be attributed to a model or reasoning effort,
+        so it must NOT be served — otherwise switching config.reasoning or
+        the model would silently replay the previous configuration's answers.
         """
         Unishare.llm_cache = llmrag.QueryCache(str(tmp_path / 'cache'))
         prompt = 'Pre-existing cached prompt.'
@@ -1092,12 +1091,13 @@ class TestQ:
             prompt, str, extend=True, identity=llmrag._DEFAULT_IDENTITY, format_vars={}
         )
         old_style_key = f'{llmrag._type_key(str)}:{final_prompt}'
-        Unishare.llm_cache.set(old_style_key, 'PRESET-FROM-BEFORE-IMAGES-EXISTED')
+        Unishare.llm_cache.set(old_style_key, 'PRESET-FROM-OLD-KEY-FORMAT')
+        fake_llm.responses = ['fresh']
 
         result = await llmrag.Q(prompt, str)
 
-        assert result == 'PRESET-FROM-BEFORE-IMAGES-EXISTED'
-        assert len(fake_llm.calls) == 0  # served from the old-format cache entry
+        assert result == 'fresh'
+        assert len(fake_llm.calls) == 1
 
     @run_async
     async def test_malformed_cached_entry_is_treated_as_a_miss(self, fake_llm, tmp_path):
@@ -1105,7 +1105,7 @@ class TestQ:
         final_prompt = llmrag._build_prompt(
             'Q', dict(a=int), extend=True, identity=llmrag._DEFAULT_IDENTITY, format_vars={}
         )
-        key = f'{llmrag._type_key(dict(a=int))}:{final_prompt}'
+        key = f'{llmrag._type_key(dict(a=int))}:{final_prompt}:llm:test-model:-'
         Unishare.llm_cache.set(key, 'this is not valid json')
         fake_llm.responses = ['{"a": 1}']
 
@@ -1364,3 +1364,116 @@ class TestGetProperty:
 
         assert result is None
         assert '[error]' in capsys.readouterr().out
+
+
+
+# ---------------------------------------------------------------------------
+# Per-call model / reasoning overrides
+# ---------------------------------------------------------------------------
+
+class TestPerCallOverrides:
+
+    @run_async
+    async def test_defaults_come_from_config(self, fake_llm):
+        Unishare.llm_reasoning = 'medium'
+        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium', 'enabled': True}}
+        await llmrag.Q('hi')
+        call = fake_llm.calls[0]
+        assert call['model'] == 'test-model'
+        assert call['extra_body'] == {'reasoning': {'effort': 'medium', 'enabled': True}}
+
+    @run_async
+    async def test_reasoning_override(self, fake_llm):
+        Unishare.llm_reasoning = 'medium'
+        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium', 'enabled': True}}
+        await llmrag.Q('hi', reasoning='low')
+        assert fake_llm.calls[0]['extra_body'] == {'reasoning': {'effort': 'low', 'enabled': True}}
+        assert fake_llm.calls[0]['model'] == 'test-model'
+
+    @run_async
+    async def test_reasoning_override_without_config_reasoning(self, fake_llm):
+        await llmrag.Q('hi', reasoning='high')
+        assert fake_llm.calls[0]['extra_body'] == {'reasoning': {'effort': 'high', 'enabled': True}}
+
+    @run_async
+    async def test_reasoning_false_drops_param_but_keeps_other_extra_body(self, fake_llm):
+        Unishare.llm_reasoning = 'medium'
+        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium', 'enabled': True}, 'other': 1}
+        await llmrag.Q('hi', reasoning=False)
+        assert fake_llm.calls[0]['extra_body'] == {'other': 1}
+
+    @run_async
+    async def test_reasoning_false_with_nothing_else_sends_no_extra_body(self, fake_llm):
+        Unishare.llm_reasoning = 'medium'
+        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium', 'enabled': True}}
+        await llmrag.Q('hi', reasoning=False)
+        assert 'extra_body' not in fake_llm.calls[0]
+
+    @run_async
+    async def test_model_override(self, fake_llm):
+        await llmrag.Q('hi', model='other/model')
+        assert fake_llm.calls[0]['model'] == 'other/model'
+
+    @run_async
+    async def test_qx_passes_overrides(self, fake_llm):
+        await llmrag.Qx('raw', model='other/model', reasoning='low')
+        call = fake_llm.calls[0]
+        assert call['model'] == 'other/model'
+        assert call['extra_body'] == {'reasoning': {'effort': 'low', 'enabled': True}}
+        assert call['messages'][0]['content'] == 'raw'
+
+    @run_async
+    async def test_model_and_reasoning_are_not_format_vars(self, fake_llm):
+        await llmrag.Q('Use {model} here', model='m2', other='x')
+        assert fake_llm.calls[0]['model'] == 'm2'
+        assert '{model}' in str(fake_llm.calls[0]['messages'][0]['content'])
+
+    @run_async
+    async def test_incompatible_param_learning_is_per_overridden_model(self, fake_llm):
+        fake_llm.errors = {0: make_bad_request_error(param='temperature')}
+        fake_llm.responses = ['ok']
+        await llmrag.Q('hi', model='picky/model')
+        assert 'temperature' in llmrag._incompatible_params.get('picky/model', set())
+        assert 'temperature' not in llmrag._incompatible_params.get('test-model', set())
+
+    @run_async
+    async def test_cache_separates_reasoning(self, fake_llm, tmp_path):
+        Unishare.llm_cache = llmrag.QueryCache(str(tmp_path / 'cache'))
+        fake_llm.responses = ['medium-answer', 'low-answer']
+        assert await llmrag.Q('same prompt', reasoning='medium') == 'medium-answer'
+        assert await llmrag.Q('same prompt', reasoning='low') == 'low-answer'
+        assert await llmrag.Q('same prompt', reasoning='medium') == 'medium-answer'
+        assert len(fake_llm.calls) == 2
+
+    @run_async
+    async def test_cache_separates_models(self, fake_llm, tmp_path):
+        Unishare.llm_cache = llmrag.QueryCache(str(tmp_path / 'cache'))
+        fake_llm.responses = ['a', 'b']
+        assert await llmrag.Q('p') == 'a'
+        assert await llmrag.Q('p', model='other/model') == 'b'
+        assert await llmrag.Q('p') == 'a'
+        assert len(fake_llm.calls) == 2
+
+    @run_async
+    async def test_cache_config_change_is_a_miss(self, fake_llm, tmp_path):
+        """Changing config.reasoning between runs must not replay old answers."""
+        Unishare.llm_cache = llmrag.QueryCache(str(tmp_path / 'cache'))
+        fake_llm.responses = ['m', 'l']
+        Unishare.llm_reasoning = 'medium'
+        assert await llmrag.Q('p') == 'm'
+        Unishare.llm_reasoning = 'low'
+        assert await llmrag.Q('p') == 'l'
+        assert len(fake_llm.calls) == 2
+
+    def test_setup_records_config_reasoning(self, fake_config):
+        fake_config.llm = ['host', 'http://localhost:1234/v1', 'NO_SUCH_ENV', 'm']
+        fake_config.reasoning = 'medium'
+        llmrag.setup_llmrag()
+        assert Unishare.llm_reasoning == 'medium'
+        assert Unishare.llm_extra_body == {'reasoning': {'effort': 'medium', 'enabled': True}}
+
+    def test_setup_without_reasoning(self, fake_config):
+        fake_config.llm = ['host', 'http://localhost:1234/v1', 'NO_SUCH_ENV', 'm']
+        llmrag.setup_llmrag()
+        assert Unishare.llm_reasoning is None
+        assert Unishare.llm_extra_body is None

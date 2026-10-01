@@ -46,11 +46,11 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `pool` | int/None | `None` | Size of the `multiprocessing.Pool` used by `user.run_process()`; `None` = `os.cpu_count()` |
 | `debug` | bool | `False` | Debug flag read by the runtime |
 | `llm` | tuple/list/None | `None` | LLM provider config |
-| `llm_cache` | str (optional) | unset | Directory enabling a persistent disk cache for `Q()`/`Qx()` results |
+| `llm_cache` | str (optional) | unset | Directory enabling a persistent disk cache for `Q()`/`Qx()` results; keyed by prompt, expected type, effective model and reasoning effort (§15.2) |
 | `llm_cache_ttl` | int/None | `None` | Cache entry lifetime in seconds; `None` = never expires |
 | `temperature` | float | `0.0` | LLM sampling temperature |
 | `strict_schema` | bool | `True` | Whether structured `Q()` calls request strict JSON-Schema enforcement |
-| `reasoning` | str (optional) | unset | Effort level (e.g. `'medium'`) forwarded as `extra_body.reasoning` for reasoning models |
+| `reasoning` | str (optional) | unset | Default effort level (e.g. `'medium'`) forwarded as `extra_body.reasoning` for reasoning models; overridable per call via `Q(..., reasoning=...)` (§15.2) |
 | `db_path` | str/None | `None` | DB file path for persistent tables (or set `UNISI_DB_PATH` env var) |
 | `lang` | str | `"en-US"` | UI language |
 | `public_dirs` | list[str] | `[]` | Extra static roots |
@@ -696,7 +696,7 @@ table = Table("Persons", llm={"Date of birth": "Name", "Occupation": True}, ...)
 
 ### 15.2 Explicit queries
 
-`Q(prompt, type_value=..., images=None, **format_vars)` returns an awaitable with typed JSON validation.
+`Q(prompt, type_value=..., images=None, *, model=None, reasoning=None, **format_vars)` returns an awaitable with typed JSON validation.
 
 ```python
 country_info = await Q(
@@ -705,7 +705,7 @@ country_info = await Q(
 )
 ```
 
-`Qx(prompt, type_value=str, images=None)` is raw/non-extended prompt mode.
+`Qx(prompt, type_value=str, images=None, *, model=None, reasoning=None)` is raw/non-extended prompt mode.
 
 `images` (optional, on both `Q` and `Qx`) attaches one or more images to the query for vision-capable models — a single value or a `list`; `None` by default, which sends no image and leaves the request/cache key identical to a call made without this parameter at all. Each image is one of:
 - `'http://...'` / `'https://...'` — passed straight through as a remote URL
@@ -720,6 +720,25 @@ diff = await Q("What changed between these?", list[str], images=[url_before, url
 ```
 
 Not to be confused with the `Image` unit (§11), which displays a picture in the UI — `images` here sends a picture *to* the LLM as input. Whether the request succeeds still depends on the configured `config.llm` provider/model actually supporting image input; `Q`/`Qx` don't check that in advance, the provider's own error surfaces normally if it doesn't.
+
+**Per-call model / reasoning overrides** (optional, keyword-only, on both `Q` and `Qx`):
+
+| Parameter | Value | Effect |
+|---|---|---|
+| `model` | `None` (default) | model from `config.llm` |
+| | `str` | this model id, sent to the **same** endpoint/client as `config.llm` — must be a model that endpoint serves |
+| `reasoning` | `None` (default) | `config.reasoning` (if set) |
+| | `str` (`'low'`, `'medium'`, `'high'`, `'none'`, ...) | sent as `extra_body.reasoning = {'effort': value, 'enabled': True}` |
+| | `False` or `''` | no reasoning parameter is sent, even if `config.reasoning` is set; other `extra_body` keys are kept |
+
+```python
+tags  = await Qx(prompt, reasoning='low')
+facts = await Q(prompt, dict(name=str), model='openai/gpt-6-luna-mini', reasoning='high')
+```
+
+`model` and `reasoning` are parameters, so they are not available as `{model}` / `{reasoning}` prompt placeholders. Per-model incompatibility learning (a model rejecting `temperature` or strict JSON-Schema mode is remembered and retried without it) applies to the overridden model just as to the configured one.
+
+**Cache key.** With `config.llm_cache` set, an entry is keyed by the expected type, the final prompt, the *effective* model and the *effective* reasoning effort (plus the images, when passed). A different model or effort — whether from a per-call override or from editing `config.py` — is therefore a cache miss and never replays another configuration's answer. Entries written by unisi < 0.7.13 (whose key had no model/reasoning) are not hit any more: a one-time re-query.
 
 LLM provider is configured through `config.llm`.
 
