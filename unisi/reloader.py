@@ -1,5 +1,50 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
 from .autotest import config
+import re, sys
+from .utils import app_dir, divpath
+
+
+def imports(path, names):
+    """Does the source at path import any of the modules in names (also lazily, inside functions)?"""
+    try:
+        with open(path, "r") as file:
+            source = file.read()
+    except OSError:
+        return False
+    return any(re.search(rf"^[ \t]*(?:from[ \t]+{re.escape(n)}[ \t]+import\b|"
+                         rf"import[ \t]+(?:[\w.]+[ \t]*,[ \t]*)*{re.escape(n)}\b)", source, re.M)
+               for n in names)
+
+
+def drop_dependents(user, changed):
+    """An app module outside screens/blocks changed: unload it and everything that imports it,
+    transitively -- shared modules, the user's private blocks, other loaded screens -- so the
+    next import executes the new code (a module bound by `import x` / `from x import f` keeps
+    the old objects otherwise). Returns True if the current screen depends on it and must be
+    reloaded. A module nobody has loaded (a test, a script) and config are ignored."""
+    app = app_dir + divpath
+    shared = {n: m.__file__ for n, m in list(sys.modules.items())
+              if n != 'config' and (getattr(m, '__file__', None) or '').startswith(app)}
+    if changed not in shared:
+        return False
+    candidates = {**shared, **{n: m.__file__ for n, m in user.modules.items()}}
+    stale, todo = {changed}, [changed]
+    while todo:
+        name = todo.pop()
+        for n, path in candidates.items():
+            if n not in stale and imports(path, [name]):
+                stale.add(n)
+                todo.append(n)
+    for n in stale:
+        if n in user.modules:
+            user._drop_private_module(n)
+        else:
+            user._remove_module(n)
+    current = user.screen_module
+    for s in [s for s in user.screens if s is not current and imports(s.__file__, stale)]:
+        user.screens.remove(s)
+    return bool(current) and imports(current.__file__, stale)
+
 
 if not config.hot_reload:
     active_reloader = False
@@ -97,19 +142,13 @@ else:
 
                 if user.screen_module and dir not in [screens_dir, blocks_dir]:
                     changed_dependency = True
-                    #analyze if dependency exist
-                    file = open(user.screen_module.__file__, "r") 
                     arr[-1] = arr[-1][:-3]
-                    module_name = '.'.join(arr) 
-                    module_pattern = r'\.'.join(arr)                        
-                    
-                    if re.search(f"((import|from)[ \t]*{module_pattern}[ \t\n]*)",file.read()):
-                        if module_name in sys.modules:
-                            del sys.modules[module_name]                            
-                        short_path = user.screen_module.__file__
-                        if short_path.startswith(app_dir):
-                            short_path = short_path[len(app_dir) + 1:]
-                        dir, name = short_path.split(divpath)                            
+                    if not drop_dependents(user, '.'.join(arr)):
+                        return
+                    short_path = user.screen_module.__file__
+                    if short_path.startswith(app_dir):
+                        short_path = short_path[len(app_dir) + 1:]
+                    dir, name = short_path.split(divpath)
 
                 if dir in [screens_dir, blocks_dir]:
                     if dir == blocks_dir:

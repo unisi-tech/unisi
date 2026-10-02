@@ -1095,30 +1095,22 @@ class UserPersistMixin:
             namespace, path = identity
             context_key = _encode_context_key(new_key)
 
-            if new_key != getattr(unit, '_persist_key', _NO_KEY):
+            old_key = getattr(unit, '_persist_key', _NO_KEY)
+            key_changed = new_key != old_key
+            if key_changed:
                 object.__setattr__(unit, '_persist_key', new_key)
-                key_changed = True
-            else:
-                key_changed = False
 
-            if key_changed and unit not in touched:
-                # Restore only when nothing about this unit was ALSO edited
-                # this same round. On this unit's very first-ever key
-                # evaluation (_persist_key starts at the _NO_KEY sentinel,
-                # so key_changed is unconditionally True the first time,
-                # whether or not the key's own inputs "really" changed),
-                # `unit in touched` catches the case where the very same
-                # request that establishes the key also contains a fresh
-                # edit to this field -- e.g. app loads, the selector is
-                # already at its default key, and the user's first action
-                # is typing directly into the keyed field. Without this
-                # check that edit would silently never reach the elif
-                # below at all (if/elif made the two branches mutually
-                # exclusive with restore always winning), since restore
-                # unconditionally took priority regardless of `touched` --
-                # not lost from the live unit, since __setattr__ already
-                # applied it, but never persisted until some later request
-                # touches the field again.
+            # A real key change (another record selected) always restores: a
+            # value set in that same request is the handler's default for the
+            # new record, not a user edit, so it must neither win over the
+            # saved record nor be saved under the new key. The exception is
+            # the very first key evaluation (_persist_key still the _NO_KEY
+            # sentinel, so key_changed is True whether or not the key's inputs
+            # "really" changed): a touch there is a genuine first edit -- e.g.
+            # app loads with the selector at its default key and the user
+            # types straight into the keyed field -- and goes to the save
+            # branch below instead of being silently dropped.
+            if key_changed and (old_key is not _NO_KEY or unit not in touched):
                 db_ro = self._persist_db(create=False)
                 found = db_ro.lookup_keyed(namespace, path, context_key) if db_ro else _NOT_FOUND
                 if found is not _NOT_FOUND and isinstance(found, dict):

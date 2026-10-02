@@ -12,7 +12,8 @@ tests/users/ or tests/persist_voice_reloder/ exercise directly (they call
 ensure_screen/compile_screen incidentally, as a means to get a User onto a
 screen, but don't test those methods' own branches).
 
-reloader.py is deliberately NOT covered anywhere in this suite: its whole
+reloader.py is NOT covered here beyond its module-level helpers
+(imports / drop_dependents, see test_reloader_deps.py): the rest of its whole
 module body is gated behind `if not config.hot_reload: ... else: <imports
 watchdog, starts a real Observer() thread watching the filesystem>` at
 IMPORT time, which makes it fundamentally unit-test-unfriendly (no seam to

@@ -35,7 +35,7 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `port` | int | `8000` | HTTP/WebSocket server port |
 | `appname` | str | `"Unisi app"` | Default app header |
 | `upload_dir` | str | `"web"` | Upload/static exposed dir |
-| `hot_reload` | bool | `False` | Reload code changes |
+| `hot_reload` | bool | `False` | Reload code changes: screens, blocks and any loaded app module — a changed module is unloaded together with everything importing it (transitively, incl. blocks and screens), then the current screen reloads. Module-level state of those modules is reset; `config.py` needs a restart |
 | `autotest` | bool/str/list | `False` | Autotest mode: `True`/`'*'` runs every recorded fixture, a list restricts to named files |
 | `logfile` | str/None | `None` | Optional log file |
 | `mirror` | bool | `False` | New anonymous connections reflect the most recent user's session |
@@ -558,6 +558,7 @@ On every request, UNISI recomputes the key for each such unit:
 - If the key **changed** since last checked, it looks up a saved value for the new key:
   - **found** — the unit's value (or, for a `ParamBlock`, its whole `params` dict — see §7) is replaced with the saved one, and `unit.active` is set to `True`.
   - **not found** — the unit is left as-is (whatever a `changed` handler or `llm` computation already put there), and `unit.active` is set to `False`.
+  This holds even when the request that changed the key also set the unit (typically the selector's `changed` handler putting the new record's default there): the saved value wins, and a default is never saved under the new key. Only the unit's very first key evaluation treats such a touch as an edit and saves it.
 - If the key is **unchanged** but the unit — or, for a block, anything inside it — was edited this request, its current value is saved under that key and `unit.active` is set to `True`.
 
 `active` is an ordinary reactive property, readable and stylable on the client like any other — a natural way to indicate "this field holds a manual override for the current record" versus "showing the computed default."

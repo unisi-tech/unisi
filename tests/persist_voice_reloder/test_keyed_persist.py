@@ -65,6 +65,26 @@ async def test_switching_back_to_a_saved_key_restores_the_value(make_user, deliv
 
 
 @pytest.mark.asyncio
+async def test_handler_default_on_key_change_neither_hides_nor_overwrites_saved_value(make_user, deliver):
+    # The selector's handler resets the keyed field to a default in the very
+    # request that changes the key. That touch must not win over the record
+    # saved for the new key, nor be saved over it.
+    user = make_user("keyed")
+    await deliver(user, "Records", "Record", "changed", "A")
+    await deliver(user, "Records", "Record field", "changed", "override for A")
+    field = user.screen_module.record_field
+    ns, path = user.persist_location(field)
+
+    await deliver(user, "Records", "Record", "changed", "B")     # nothing saved for B
+    assert field.value == "" and field.active is False
+    assert user.get_objects(ns, path, "B") == {}
+
+    await deliver(user, "Records", "Record", "changed", "A")     # back: saved record wins
+    assert field.value == "override for A" and field.active is True
+    assert user.get_objects(ns, path, "A")["A"]["value"] == "override for A"
+
+
+@pytest.mark.asyncio
 async def test_multi_value_key_is_comma_joined(make_user, deliver):
     user = make_user("keyed")
     await deliver(user, "Root", "City", "changed", "London")
