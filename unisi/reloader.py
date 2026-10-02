@@ -102,17 +102,20 @@ else:
 
             for i, s in enumerate(user.screens):
                 if s.__file__ == module.__file__:
-                    same = user.screen_module.__file__ == module.__file__
+                    show = user.screen_module.__file__ == module.__file__
                     user.screens[i] = module
-                    if same:
-                        user.set_screen(module.screen.name)            
                     break
             else:
                 user.screens.append(module)
-                if len(user.screens) == 1:
-                    user.set_screen(module.name)                    
+                show = len(user.screens) == 1
 
             try:
+                # as on a normal screen load (ensure_screen): mark the fresh units' persist
+                # flags and restore their saved values -- otherwise reloaded block units
+                # come back with defaults and are not persisted
+                user._finish_loaded_screen(module)
+                if show:
+                    user.set_screen(module.screen.name)
                 user.screens.sort(key=lambda s: s.screen.order)           
                 user.update_menu()
                 user.set_clean() 

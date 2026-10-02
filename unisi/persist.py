@@ -564,12 +564,16 @@ class UserPersistMixin:
         _persist_identity.
 
         sync_keyed_persist calls this every request, so the result is cached
-        on `self` and only rebuilt once `self.modules` actually grows (a new
-        blocks/ module gets imported) rather than on every call — cheap even
-        then (top-level attributes of a handful of modules, no tree walking),
-        but no reason to redo it every request when nothing changed."""
+        on `self` and only rebuilt once `self.modules` actually changes (a
+        blocks/ module gets imported, or re-imported by the hot reloader --
+        same count, new module objects, new units: keying on the count alone
+        returned the old units and persist_location() gave None) rather than
+        on every call — cheap even then (top-level attributes of a handful of
+        modules, no tree walking), but no reason to redo it every request when
+        nothing changed."""
+        key = tuple(map(id, self.modules.values()))
         cached = getattr(self, '_shared_roots_cache', None)
-        if cached is not None and cached[0] == len(self.modules):
+        if cached is not None and cached[0] == key:
             return cached[1]
         roots = {
             id(value): (value, module_name)
@@ -577,7 +581,7 @@ class UserPersistMixin:
             for value in vars(module).values()
             if isinstance(value, Unit)
         }
-        self._shared_roots_cache = (len(self.modules), roots)
+        self._shared_roots_cache = (key, roots)
         return roots
 
     def _mark_persist_units(self):

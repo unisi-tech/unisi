@@ -84,3 +84,24 @@ def test_persist_and_restore_units_work_for_an_off_screen_shared_unit(make_user)
     field.value = "changed"
     assert user.restore_units(field, context_key="scene-1") == [field]
     assert field.value == "saved"
+
+
+def test_shared_block_roots_follow_reimported_block_modules():
+    """Hot reload re-imports a block: same number of modules, new module objects
+    and units. The cache must not hand back the old units (persist_location of a
+    fresh unit returned None, breaking the screen's prepare())."""
+    import types
+    from unisi.persist import UserPersistMixin
+    from unisi.units import Unit
+
+    def block():
+        m = types.ModuleType("blocks.content")
+        m.field = Unit("Field", "")
+        return m
+
+    user = types.SimpleNamespace(modules={"blocks.content": block()})
+    roots = UserPersistMixin._shared_block_roots(user)
+    assert id(user.modules["blocks.content"].field) in roots
+    user.modules["blocks.content"] = fresh = block()
+    roots = UserPersistMixin._shared_block_roots(user)
+    assert id(fresh.field) in roots and len(roots) == 1
