@@ -63,3 +63,24 @@ def test_manual_shared_unit_is_not_auto_persisted(make_user):
     shared_mod.manual_edit.value = "edited but not flagged"
 
     assert user.get_objects(ns, path, "") == {}
+
+
+def test_nested_unit_of_a_shared_block_resolves_off_screen(make_user):
+    # a generated ParamBlock field is not a module-level unit and no screen
+    # shows its block, yet its identity is still anchored to the module
+    user = make_user("shared_host")
+    params = user.modules["blocks.shared"].offscreen_params
+    field = params._name2elem["fp"]
+
+    assert user.persist_location(field) == ("@blocks.shared", "Fp@Offscreen params")
+
+
+def test_persist_and_restore_units_work_for_an_off_screen_shared_unit(make_user):
+    user = make_user("shared_host")
+    field = user.modules["blocks.shared"].offscreen_params._name2elem["fp"]
+
+    field.value = "saved"
+    assert user.persist_units(field, context_key="scene-1") == [field]
+    field.value = "changed"
+    assert user.restore_units(field, context_key="scene-1") == [field]
+    assert field.value == "saved"

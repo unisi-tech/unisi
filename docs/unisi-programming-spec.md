@@ -620,6 +620,13 @@ Returns `{context_key: fields_dict}`, empty if nothing matches or the session ha
 user.get_contexts("orders", "price@form", "..")   # -> ['Widget', 'Gadget']
 ```
 
+`set_object(namespace, path, context_key, fields)` is the write counterpart: it stores `fields` as the record at exactly that `(namespace, path, context_key)`, replacing what was there. For a keyed-persist unit this prepares a record for a key the unit is not showing right now — without touching the live unit; it is restored onto the unit when its key next takes that value. `fields` may be partial (e.g. `{"value": ...}`): restore applies only the fields present.
+
+```python
+ns, path = user.persist_location(price)
+user.set_object(ns, path, "Gadget", {"value": 42})   # shown when the selector reaches 'Gadget'
+```
+
 ### 14.5 Storage and Scope
 
 All of the above share the same storage: a local SQLite file per user session (`users/<session-id>.db`), created on first write. State is never shared between users or sessions. Persistence is automatically disabled during autotest runs.
@@ -641,6 +648,8 @@ header_block = Block("Header", theme)
 `theme` persists under `('@blocks.header', 'Theme')` regardless of which screen imports `header_block`, including a screen that has never declared its own `persist = True` and is the very first one loaded this session. (A field that is *not* separately named at module level — created inline as one of `header_block`'s children instead — gets a path measured leaf first, from it up to `header_block`, e.g. `'Theme@Header'`; either way the anchor is the block's module, never the hosting screen.)
 
 To look a specific unit's saved record up directly (e.g. via `get_objects`/`get_contexts`, §14.4) without hardcoding which namespacing scheme applies, use `user.persist_location(unit)`, which returns the `(namespace, path)` currently in effect for it.
+
+Because that identity never depends on a screen, `persist_location`, `persist_units` and `restore_units` (§14.7) resolve a unit of a `blocks/` module even when the current screen does not show it (the module only has to be imported by some loaded screen) — e.g. a batch job started from one screen can read or prepare records of fields that live on another.
 
 ### 14.7 On-demand save/restore (`persist_units` / `restore_units`)
 

@@ -115,3 +115,18 @@ async def test_positional_row_is_reachable_through_get_objects_with_empty_contex
     ns, path = user.persist_location(user.screen_module.flagged)
     assert user.get_objects(ns, path, "")[""]["value"] == "hi"
     assert user.get_contexts(ns, path, "") == [""]
+
+
+@pytest.mark.asyncio
+async def test_set_object_prepares_a_record_restored_when_the_key_comes(make_user, deliver):
+    user = make_user("keyed")
+    await deliver(user, "Root", "Selector", "changed", "A")
+    field = user.screen_module.single_key_field
+    ns, path = user.persist_location(field)
+
+    user.set_object(ns, path, "B", {"value": "prepared"})
+    assert field.value != "prepared"                      # the live unit is untouched
+    assert user.get_objects(ns, path, "B")["B"]["value"] == "prepared"
+
+    await deliver(user, "Root", "Selector", "changed", "B")
+    assert field.value == "prepared"

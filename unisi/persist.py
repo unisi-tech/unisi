@@ -5,6 +5,7 @@ import sqlite3
 import time
 
 from .common import strpath
+from .utils import fill_parents
 from .units import ChangedProxy, Unit
 
 SCHEMA = """
@@ -768,6 +769,18 @@ class UserPersistMixin:
             return db.lookup_objects(namespace, path, context_template)
         return {}
 
+    def set_object(self, namespace: str, path: str, context_key: str, fields: dict):
+        """Write counterpart of get_objects: store `fields` as the record at
+        (namespace, path, context_key), replacing whatever was there. For a
+        keyed-persist unit (namespace/path from persist_location, context_key
+        as its key function would produce it) the record is restored onto the
+        unit the next time its key takes that value — so a record can be
+        prepared for a key the unit is not showing now, without touching the
+        live unit. `fields` may be partial, e.g. {'value': ...}: restore applies
+        only the fields present."""
+        if db := self._persist_db(create=True):
+            db.save_keyed(namespace, path, context_key, fields)
+
     def _persist_context(self):
         """(parents, shared_roots, screen_name) for the current screen — the
         three pieces every _persist_identity call needs. Computed fresh each
@@ -779,6 +792,21 @@ class UserPersistMixin:
             self.assign_parent_links()
         return screen._parents, self._shared_block_roots(), _screen_name(self.screen_module)
 
+    def _unit_identity(self, unit, parents, shared_roots, screen_name):
+        """_persist_identity for the explicit, caller-named APIs below
+        (persist_location / persist_units / restore_units). A unit that lives
+        inside a blocks/ module is resolvable even when the current screen
+        doesn't show it: its identity is anchored to the block's own module,
+        not to a screen (see _persist_identity), so its position is looked up
+        in the subtrees of the shared roots themselves instead of the screen."""
+        identity = _persist_identity(unit, parents, shared_roots, screen_name)
+        if identity is None and shared_roots:
+            off_screen = {}
+            for root, _ in shared_roots.values():
+                fill_parents(root, None, off_screen)
+            identity = _persist_identity(unit, off_screen, shared_roots, screen_name)
+        return identity
+
     def persist_location(self, unit) -> tuple[str, str] | None:
         """Return the (namespace, path) `unit` is (or would be) stored under —
         the same identity save/restore resolve internally (see
@@ -787,13 +815,13 @@ class UserPersistMixin:
         a screen-local unit (namespace = current screen's name) or one
         living in a blocks/ module shared across screens (namespace = '@'
         followed by the module's dotted name, e.g. '@blocks.header').
-        None if `unit` isn't reachable from the current screen at all.
+        None if `unit` is neither on the current screen nor inside a blocks/ module.
 
         Example — read a shared unit's own positional-persist row directly:
             ns, path = user.persist_location(some_shared_unit)
             saved = user.get_objects(ns, path, "")   # {"": {...}} or {}
         """
-        return _persist_identity(unit, *self._persist_context())
+        return self._unit_identity(unit, *self._persist_context())
 
     def persist_units(self, *units, context_key: str | None = None) -> list:
         """Force-save the CURRENT state of specific units to storage right
@@ -856,7 +884,7 @@ class UserPersistMixin:
         for unit in units:
             if isinstance(unit, ChangedProxy):
                 unit = unit._obj
-            identity = _persist_identity(unit, parents, shared_roots, screen_name)
+            identity = self._unit_identity(unit, parents, shared_roots, screen_name)
             if not identity:
                 self.log(f'persist_units: "{unit}" is not reachable from the '
                          f'current screen ("{screen_name}") and was skipped', type='warning')
@@ -924,7 +952,7 @@ class UserPersistMixin:
         for unit in units:
             if isinstance(unit, ChangedProxy):
                 unit = unit._obj
-            identity = _persist_identity(unit, parents, shared_roots, screen_name)
+            identity = self._unit_identity(unit, parents, shared_roots, screen_name)
             if not identity:
                 self.log(f'restore_units: "{unit}" is not reachable from the '
                          f'current screen ("{screen_name}") and was skipped', type='warning')
