@@ -1,7 +1,7 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
 from .autotest import config
 import re, sys
-from .utils import app_dir, divpath
+from .utils import app_dir, app_path, divpath
 
 
 def imports(path, names):
@@ -52,7 +52,7 @@ else:
     active_reloader = True
     import os, sys, traceback
     from watchdog.observers import Observer
-    from watchdog.events import PatternMatchingEventHandler
+    from watchdog.events import PatternMatchingEventHandler, FileModifiedEvent
     from .users import User, Redesign, empty_app
     from .utils import blocks_dir, divpath, app_dir, screens_dir
     from .autotest import check_module
@@ -76,8 +76,9 @@ else:
     def reload(sname, changed_dependency = False):
         user = User.last_user
         if user:
-            file = open(f'{screens_dir}{divpath}{sname}', "r")
-            content = file.read()
+            # absolute: WanGP-like libraries chdir the whole process while they work
+            with open(app_path(screens_dir, sname), "r") as file:
+                content = file.read()
             if not changed_dependency and file_content[sname] == content:
                 return
             file_content[sname] = content
@@ -228,6 +229,12 @@ else:
                     user._drop_private_module(f'{blocks_dir}.{name[:-3]}')
                     if user.screen_module:
                         reload(user.screen_module.__file__.split(divpath)[-1], True)
+
+        def on_moved(self, event):
+            # atomic save (vim, many editors and tools): the new content is written to a
+            # temp file renamed over the original -- no 'modified' event for the .py itself
+            if not event.is_directory:
+                self.on_modified(FileModifiedEvent(event.dest_path))
 
     event_handler = ScreenEventHandler()
     observer = Observer()

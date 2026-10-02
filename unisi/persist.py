@@ -5,7 +5,7 @@ import sqlite3
 import time
 
 from .common import strpath
-from .utils import fill_parents
+from .utils import app_path, fill_parents
 from .units import ChangedProxy, Unit
 
 SCHEMA = """
@@ -283,7 +283,7 @@ def _smart_apply_dict(unit, saved_dict, unit_map):
 class Persist:
     @staticmethod
     def db_path_for(session_id):
-        return os.path.join('users', f'{session_id}.db')
+        return app_path('users', f'{session_id}.db')   # absolute once the server runs (cwd may be borrowed)
 
     @staticmethod
     def exists(session_id):

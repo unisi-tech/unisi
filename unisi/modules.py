@@ -6,7 +6,7 @@ import threading
 from dataclasses import dataclass
 
 from .containers import Screen
-from .utils import blocks_dir, divpath, py_files, screens_dir
+from .utils import app_path, blocks_dir, divpath, py_files, screens_dir
 
 
 @dataclass
@@ -31,7 +31,7 @@ class ModulesMixin:
 
     @classmethod
     def build_screen_registry(cls):
-        registry = [ScreenInfo(name='', file=file) for file in py_files(screens_dir)]
+        registry = [ScreenInfo(name='', file=file) for file in py_files(app_path(screens_dir))]
         return registry
 
     def _init_screen_registry(self):
@@ -105,7 +105,7 @@ class ModulesMixin:
 
     def compile_screen(self, file):
         name = file[:-3]
-        path = f'{screens_dir}{divpath}{file}'
+        path = app_path(screens_dir, file)   # absolute once the server runs (cwd may be borrowed)
         spec = importlib.util.spec_from_file_location(name, path)
         module = importlib.util.module_from_spec(spec)
         module.user = self

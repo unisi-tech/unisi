@@ -726,6 +726,8 @@ class TestStart:
         monkeypatch.setattr(s, "run_tests", fake_run_tests)
         monkeypatch.setattr(s, "setup_llmrag", lambda: calls.setdefault("llmrag", True))
         monkeypatch.setattr(User, "init_user", classmethod(lambda cls: "fake-init-user"))
+        from unisi import utils
+        monkeypatch.setattr(utils, "_app_root", None)     # start() fixes it to this tmp dir
         return calls
 
     def test_creates_screens_and_blocks_directories(self, no_op_start, tmp_path):

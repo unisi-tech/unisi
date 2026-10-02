@@ -15,6 +15,20 @@ libpath = os.path.dirname(os.path.realpath(__file__))
 # falls back to it for any file a custom config.web_client doesn't provide.
 webpath = f'{libpath}{divpath}web' 
 app_dir = os.getcwd()
+_app_root = None     # fixed by server.start(): the dir the app runs from
+
+
+def app_path(*parts):
+    """Path of an app file (screens/..., users/...). Once the server has started it is
+    absolute from the app dir: libraries such as WanGP chdir the WHOLE process for minutes
+    while they work, and a relative path would then point into their folder. Before
+    start (tests, scripts) -- relative to the current dir, as before."""
+    return os.path.join(_app_root, *parts) if _app_root else os.path.join(*parts)
+
+
+def fix_app_root():
+    global _app_root
+    _app_root = os.getcwd()
 
 try:
     import config

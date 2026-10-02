@@ -89,3 +89,17 @@ def test_imports_matching():
         assert not any(map(hit, ["a", "b", "y", "z", "q.r.s"]))
     finally:
         os.unlink(f.name)
+
+
+def test_app_path_survives_a_borrowed_cwd(tmp_path, monkeypatch):
+    """After server start, app paths stay in the app dir even while a library (WanGP)
+    has chdir'ed the whole process; before start they are relative, as they always were."""
+    from unisi import utils
+    monkeypatch.setattr(utils, "_app_root", None)
+    assert utils.app_path("screens", "book.py") == "screens/book.py".replace("/", utils.divpath)
+    app = tmp_path / "app"
+    app.mkdir()
+    monkeypatch.chdir(app)
+    utils.fix_app_root()
+    monkeypatch.chdir(tmp_path)                      # the library's folder
+    assert utils.app_path("users", "s.db") == str(app / "users" / "s.db")

@@ -35,7 +35,7 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `port` | int | `8000` | HTTP/WebSocket server port |
 | `appname` | str | `"Unisi app"` | Default app header |
 | `upload_dir` | str | `"web"` | Upload/static exposed dir |
-| `hot_reload` | bool | `False` | Reload code changes: screens, blocks and any loaded app module — a changed module is unloaded together with everything importing it (transitively, incl. blocks and screens), then the current screen reloads. Module-level state of those modules is reset; `config.py` needs a restart |
+| `hot_reload` | bool | `False` | Reload code changes: screens, blocks and any loaded app module — a changed module is unloaded together with everything importing it (transitively, incl. blocks and screens), then the current screen reloads. In-place and atomic (temp file renamed over) saves both count. Module-level state of those modules is reset; `config.py` needs a restart |
 | `autotest` | bool/str/list | `False` | Autotest mode: `True`/`'*'` runs every recorded fixture, a list restricts to named files |
 | `logfile` | str/None | `None` | Optional log file |
 | `mirror` | bool | `False` | New anonymous connections reflect the most recent user's session |

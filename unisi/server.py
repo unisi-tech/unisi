@@ -5,6 +5,7 @@ from pathlib import Path
 from .reloader import active_reloader  # noqa: F401 — imported for side-effect (starts reloader)
 from .autotest import recorder, run_tests
 from .common import  *
+from .utils import fix_app_root
 from .llmrag import setup_llmrag
 from .dbunits import dbupdates
 from .db import db 
@@ -428,4 +429,5 @@ def start(user_type = User, http_handlers = None):
 
     app = web.Application()
     app.add_routes(server_handlers)    
+    fix_app_root()
     web.run_app(app, port = config.port)
