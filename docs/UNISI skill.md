@@ -297,6 +297,15 @@ async def long_action(btn, _):
 `await user.progress(None)` on completion is optional but tidy — UNISI hides
 it on its own once the handler returns, this just does it earlier.
 
+**Background work with Pause/Cancel.** A long job started as an `asyncio` task
+from a handler (the UI stays responsive) reports through the same window with
+command buttons: `await user.progress(msg, commands=['Pause', 'Cancel'],
+on_command=fn)` — `fn(name)` runs on a click (a normal handler: may be async,
+may return Info/Warning). The client keeps such a window open across other
+responses, so the job **must** end with `await user.progress(None)` (in a
+`finally`). Each progress call replaces the buttons: a progress without
+`commands` removes them and drops `on_command`.
+
 ### CPU-bound / blocking work — do not call it inline
 
 A synchronous, CPU-heavy loop (or any blocking call) run directly inside a

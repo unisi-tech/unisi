@@ -211,7 +211,11 @@ Return contract:
 Common helper methods:
 - `unit.accept(value)` for standard value assignment path
 - `user.set_screen("Screen Name")` for navigation
-- `await user.progress("text")` for progress UI
+- `await user.progress("text")` for progress UI; `await user.progress(None)` closes it
+- `await user.progress("text", commands=['Pause', 'Cancel'], on_command=fn)` — command buttons in the
+  progress window (names, as in `Dialog`); a click calls `fn(name)` (path `[name, 'progress']` on the wire).
+  A window with commands reports background work (an `asyncio` task started by a handler), so the client
+  keeps it open across other responses until `progress(None)` or a progress without commands.
 
 ## 9. Event Interception (`@handle`)
 

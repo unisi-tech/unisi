@@ -768,16 +768,45 @@ class TestProgress:
 
     @pytest.mark.asyncio
     async def test_none_value_closes_the_progress_window(self, make_user, wire_send):
-        # progress() does TypeMessage('progress', str(value), ...) -- the
-        # wire value for "hide" is the literal string 'None', not Python's
-        # None.
+        # the wire value for "hide" is null -- the client closes the window on
+        # it; the string 'None' used to be sent and shown as the window caption.
         user = make_user()
         send = wire_send(user)
         user.reflections = []
 
         await user.progress(None)
 
-        assert send.sent[0].value == "None"
+        assert send.sent[0].value is None
+
+    @pytest.mark.asyncio
+    async def test_commands_are_sent_and_their_clicks_reach_on_command(self, make_user, wire_send):
+        user = make_user()
+        send = wire_send(user)
+        user.reflections = []
+        clicked = []
+
+        await user.progress("Rendering", commands=['Pause', 'Cancel'], on_command=clicked.append)
+        assert send.sent[0].commands == ['Pause', 'Cancel']
+
+        await user.process(ReceivedMessage({"path": ["Cancel", "progress"], "event": "changed", "value": None}))
+        assert clicked == ['Cancel']
+
+    @pytest.mark.asyncio
+    async def test_closing_or_a_plain_progress_drops_the_commands(self, make_user, wire_send):
+        user = make_user()
+        send = wire_send(user)
+        user.reflections = []
+        clicked = []
+
+        await user.progress("Rendering", commands=['Cancel'], on_command=clicked.append)
+        await user.progress("Next step")
+        assert not hasattr(send.sent[-1], 'commands') and user.progress_handler is None
+        await user.progress("Rendering", commands=['Cancel'], on_command=clicked.append)
+        await user.progress(None)
+        assert user.progress_handler is None
+
+        result = await user.process(ReceivedMessage({"path": ["Cancel", "progress"], "event": "changed", "value": None}))
+        assert clicked == [] and result.type == 'error'      # a stale click: no such element
 
     @pytest.mark.asyncio
     async def test_notifies_the_monitor_when_active(self, make_user, wire_send, monkeypatch):

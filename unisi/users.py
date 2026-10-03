@@ -21,6 +21,7 @@ class User(ModulesMixin, UserPersistMixin):
         self.session = session
         self._init_persist()
         self.active_dialog = None
+        self.progress_handler = None    # on_command of the open progress window (progress(commands=...))
         self.last_message = None
         self.changed_units = set()
         self.touched_units = set()
@@ -144,10 +145,17 @@ class User(ModulesMixin, UserPersistMixin):
                 if not isinstance(result, Message) or not result.contains(msg_object):
                     await self.broadcast(msg_object, persist=persist)
 
-    async def progress(self, value, *updates):
-        """open or update progress window if str != null else close it """
+    async def progress(self, value, *updates, commands = None, on_command = None):
+        """Open or update the progress window if value is not None, else close it.
+        commands -- button names shown in the window (e.g. ['Pause', 'Cancel']), like
+        Dialog's; a click calls on_command(name). A window with commands reports
+        background work rather than the current request, so the client keeps it
+        open until progress(None) (or a progress without commands)."""
+        self.progress_handler = on_command if commands and value is not None else None
         if not self.testing:
-            msg = TypeMessage('progress', str(value), *updates, user = self)
+            msg = TypeMessage('progress', None if value is None else str(value), *updates, user = self)
+            if commands and value is not None:
+                msg.commands = list(commands)
             # persist=False: this is a mid-request status push, not the request's
             # real response -- see prepare_result's docstring for why a genuine
             # persist pass has to wait for that instead.
@@ -430,6 +438,9 @@ class User(ModulesMixin, UserPersistMixin):
                     self.voice.stop()
             else:
                 return await self.voice.process_string(message.value)
+        elif message.path[1:] == ['progress'] and self.progress_handler:
+            # a command button of the progress window, see progress()
+            return await self.eval_handler(self.progress_handler, message.path[0])
         else:
             elem = self.find_element(message)
             if elem:

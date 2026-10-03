@@ -198,6 +198,15 @@ def resolve_in_root(root, rpath):
         pass
     return None
 
+def client_file(path) -> web.FileResponse:
+    """A web-client file. index.html goes out with Cache-Control: no-cache --
+    it is the one unhashed file of a client build and names the build's hashed
+    js/css, so a browser keeping a stale copy (heuristic freshness, there is no
+    explicit header otherwise) silently keeps running the previous build."""
+    no_cache = {'Cache-Control': 'no-cache'} if Path(path).name == 'index.html' else None
+    return web.FileResponse(path, headers=no_cache)
+
+
 async def static_serve(request: web.Request) -> web.StreamResponse:
     rpath = request.path
 
@@ -213,7 +222,7 @@ async def static_serve(request: web.Request) -> web.StreamResponse:
             sub_path = '/index.html'
         file_path = resolve_in_root(webpath, sub_path)
         if file_path:
-            return web.FileResponse(file_path)
+            return client_file(file_path)
         raise web.HTTPNotFound()
 
     if rpath == '/':
@@ -224,7 +233,7 @@ async def static_serve(request: web.Request) -> web.StreamResponse:
     # with path traversal protection.
     file_path = resolve_in_root(active_webpath(), rpath)
     if file_path:
-        return web.FileResponse(file_path)
+        return client_file(file_path)
 
     # 1b. A custom web_client is configured but doesn't have this file --
     # fall back to the bundled client's own copy before giving up on it.
@@ -241,7 +250,7 @@ async def static_serve(request: web.Request) -> web.StreamResponse:
     if config.web_client:
         file_path = resolve_in_root(webpath, rpath)
         if file_path:
-            return web.FileResponse(file_path)
+            return client_file(file_path)
 
     # 2. Serve from public_dirs (with Windows path unmasking)
     # unmask win path: /C:/public/img.png -> C:/public/img.png

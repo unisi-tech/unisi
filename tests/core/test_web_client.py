@@ -168,6 +168,20 @@ class TestDefaultRoute:
         assert await resp.text() == "console.log('not the default route')"
 
 
+class TestClientCaching:
+    @pytest.mark.asyncio
+    async def test_index_html_is_never_cached_hashed_assets_are(self, app_client, tmp_path, monkeypatch):
+        """A new client build must reach the browser on the next page load:
+        index.html (which names the build's hashed files) is no-cache."""
+        (tmp_path / "index.html").write_text("<html></html>")
+        (tmp_path / "app.1234.js").write_text("console.log('x')")
+        monkeypatch.setattr(server_mod.config, "web_client", str(tmp_path))
+
+        for url in ("/", "/index.html", DEFAULT_CLIENT_ROUTE):
+            assert (await app_client.get(url)).headers.get("Cache-Control") == "no-cache"
+        assert "Cache-Control" not in (await app_client.get("/app.1234.js")).headers
+
+
 class TestCustomWebClient:
     """config.web_client switches '/' (and other non-/default paths) over
     to a separate client's own files, per the docstring of this module.
