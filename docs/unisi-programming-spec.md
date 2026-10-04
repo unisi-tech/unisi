@@ -125,6 +125,9 @@ Layout rules:
 - plain sequence in `blocks` -> default orientation layout
 - nested lists define sub-layout areas
 - list of units inside a block row renders inline
+- the screen fits the window height (no page scroll): blocks with a table, chart or
+  text area take the free height and scroll inside; a row of such blocks stacked in a
+  column under a tall table keeps at least 288px (client `zone.vue`), the table shrinks
 
 Example from tests:
 
@@ -305,6 +308,11 @@ Common table options:
 - `view="i-1,2"` for chart projection
 - `multimode=True` for multi-row select
 - `max_column_length=40` (default `40`) — display-only cap on a cell's text
+- `toggles=True` — boolean cells are checkboxes clickable right in the row, without
+  editing mode (other cells stay read-only); a click sends `modify` with
+  `{value, delta, cell}` and does not select the row. For flag columns:
+  `Table("Chapters", headers=["id", "Ignored"], rows=[["2.1", False]], toggles=True)`
+  plus a `modify` handler (or `@handle(table, 'modify')`) that applies the flag.
 - `append`, `modify`, `delete`, `complete`, `update` handlers
 
 `max_column_length` is a plain attribute like `dense`/`editing` — the

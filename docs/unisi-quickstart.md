@@ -28,7 +28,7 @@ your_app/
 ```python
 port = 8000
 appname = "UNISI Demo"
-hot_reload = True
+hot_reload = True    # reload changed code on save: screens, blocks and any app module (not config.py)
 upload_dir = "web"
 ```
 
