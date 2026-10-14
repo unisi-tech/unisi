@@ -279,7 +279,7 @@ Every unit below also accepts a common `persist` kwarg (positional `True` or a k
 - `Select(name, value?, options=[])`
 - `Tree(name, value?, options=dict|list)`
 - `HTML(name, html_string, changed?, scale?, edit?)`
-- `Image(name_or_url, value=False, handler=None, label="", width=300, ...)`
+- `Image(name_or_url, value=False, handler=None, label="", width=300, ...)` — a click toggles `value` (selection checkmark); a right click or a click on the `label` caption opens an enlarged view in the client
 - `Video(name, value = { "position": float, "play": bool, "volume": Number},
      changed?, fragments=[{url: str, start: float, end: float}])
 - `Sound(name, value = {'url': str, "position": float, "play": bool, "volume": Number},
@@ -857,6 +857,7 @@ blocks = [controls]
 - Dialog remains active if callback returns message/update that keeps it open.
 - `prepare()` runs when screen is displayed and is appropriate for sync/rebuild logic.
 -  A standout feature of HTML component is its interactive zoom capability: by including a scale property (e.g., "scale": 1) in your data configuration, a slider control will automatically render above the content. This allows end-users to dynamically scale the entire HTML block—including text, images, and layout—from 0.5x to 3.0x. 
+- An `HTML` unit with a `changed` handler receives its DOM events (`click`, `mouseover`, `mouseout`, `focus`, ...) as `{type, target: {tagName, id, classList, attributes, value}}` — filter by `type` in the handler. After a handler switched the screen (`return user.set_screen(...)`), late non-click events of the previous screen's HTML unit are dropped silently instead of the "does not exist" error.
 - A keyed-persist key function (§14.2) should return plain, JSON-serializable values and read *other* units, not the persisted unit's own value — a key derived from the unit's own state is self-referential and won't behave usefully.
 - If a keyed-persist key function raises, the error is logged and that unit's persistence is skipped for the request; it does not fail the request.
 - A `Table`'s `rows` may be dataclass instances instead of lists (§12) — matched positionally against `headers` for a non-persistent table, or by field name for a persistent (`id=`) table's `append_row`/`append_rows`/seeding. The bundled web client still expects list rows for display. Surviving a `persist=True` restore needs `row_type` (explicit or inferred) — see §12.

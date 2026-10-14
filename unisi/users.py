@@ -445,6 +445,9 @@ class User(ModulesMixin, UserPersistMixin):
             elem = self.find_element(message)
             if elem:
                 return await self.process_element(elem, message)
+            value = message.value
+            if isinstance(value, dict) and 'target' in value and value.get('type') != 'click':
+                return  # HTML event (mouseout...) of the previous screen arriving after a screen switch
             error = f'Element {strpath(message.path)} does not exist!'
             self.log(error)
             return Error(error)

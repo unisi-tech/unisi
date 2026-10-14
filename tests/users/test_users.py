@@ -452,6 +452,15 @@ class TestProcess:
         assert "does not exist" in result.value
 
     @pytest.mark.asyncio
+    async def test_stale_html_event_of_a_missing_element_is_ignored(self, make_user):
+        """An HTML unit forwards mouseout etc.: after a click switched the screen they arrive for an element
+        the new screen lacks — dropped silently; a click there is still an error."""
+        user = make_user("home")
+        event = lambda kind: received("Root", "NoSuchHtml", "changed", {"type": kind, "target": {"tagName": "IMG"}})
+        assert await user.process(event("mouseout")) is None
+        assert "does not exist" in (await user.process(event("click"))).value
+
+    @pytest.mark.asyncio
     async def test_voice_message_creates_a_voicecom_instance(self, make_user):
         from unisi.voicecom import VoiceCom
         user = make_user("home")

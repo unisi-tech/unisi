@@ -544,11 +544,11 @@ Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm
 | `Switch(name, value=False, changed?, type?)` | `type`: `'switch'` (default) or `'check'` |
 | `Select(name, value?, changed?, options=[])` | `type` auto: `'radio'` if ≤3 options, else `'select'`; explicit `type='list'` renders a vertical list instead |
 | `Tree(name, value?, changed?, options={child: parent})` | root items map to `parent=None` |
-| `Image(path_or_url, value=False, handler?, label='', width=300, url?)` | click toggles a selection checkmark |
+| `Image(path_or_url, value=False, handler?, label='', width=300, url?)` | click toggles a selection checkmark; a right click or a click on the `label` caption opens an enlarged view (client-side, no server message) |
 | `Video(name, value?, changed?, fragments=[])` | `value = {"position": float, "play": bool, "sound": bool}` |
 | `Sound(name, value?, handler?)` | `value = {"url", "play", "position", "volume"}` |
 | `Chart(name, option, changed?)` | raw ECharts `option` dict passed as the constructor's value, stored on `.option` (`.value` becomes the current selection, not the chart data) — see §18 below; full contract in the spec §13 |
-| `HTML(name, html_string, changed?, scale?, **kwargs)` | a raw HTML/JS content container (`type='html'`); the Python side does no special handling of any kwarg beyond the base `Unit` constructor — `scale` (e.g. `1`) is a frontend-only convention that renders a slider zooming the content from 0.5× to 3.0× |
+| `HTML(name, html_string, changed?, scale?, **kwargs)` | a raw HTML/JS content container (`type='html'`); the Python side does no special handling of any kwarg beyond the base `Unit` constructor — `scale` (e.g. `1`) is a frontend-only convention that renders a slider zooming the content from 0.5× to 3.0×; with `changed` it gets every DOM event (`{type, target: {tagName, attributes, ...}}` — mouseover too, filter by `type`); late non-click events after a screen switch are dropped, not reported as a missing element |
 | `Graph(name, value?, changed?, nodes=[Node(...)], edges=[Edge(...)])` | `value = {'nodes': [...], 'edges': [...]}` selection |
 | `Net(name, value?, topology=None, **kwargs)` | a `Graph` auto-built from a topology of *Units* (screen/block/unit map) instead of manual nodes/edges |
 | `Table(name, value?, changed?, **kwargs)` | see §6; `view=` chart projection → §18; DB-backed mode → `persistent_tables.md` |
