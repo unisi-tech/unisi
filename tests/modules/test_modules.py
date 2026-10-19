@@ -383,6 +383,12 @@ class TestLoadScreen:
         module = user.load_screen("alpha.py")
         assert module.screen.name == "Alpha"
 
+    def test_block_sees_its_user_while_it_is_imported(self, make_user):
+        import builtins
+        user = make_user()
+        user.load_screen("uses_block.py")
+        assert user.modules["blocks.widget"].importing_user is user and not hasattr(builtins, "user")
+
     def test_captures_block_modules_after_loading(self, make_user):
         user = make_user()
         user.load_screen("uses_block.py")

@@ -1,4 +1,5 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
+import builtins
 import copy
 import importlib
 import sys
@@ -7,6 +8,8 @@ from dataclasses import dataclass
 
 from .containers import Screen
 from .utils import app_path, blocks_dir, divpath, py_files, screens_dir
+
+_no_user = object()
 
 
 @dataclass
@@ -97,9 +100,15 @@ class ModulesMixin:
     def load_screen(self, file):
         with self.module_lock:
             self._install_modules()
+            outer = builtins.__dict__.get('user', _no_user)
+            builtins.user = self        # a block the screen imports sees its user while it runs, like the screen
             try:
                 module = self.compile_screen(file)
             finally:
+                if outer is _no_user:
+                    del builtins.user
+                else:
+                    builtins.user = outer
                 self._capture_modules()
         return module
 

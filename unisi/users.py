@@ -189,6 +189,15 @@ class User(ModulesMixin, UserPersistMixin):
         return self.session
 
     @property
+    def dir(self):
+        """Session's own folder for working files, `<upload_dir>/<session>` (created on
+        first access): served statically like the rest of upload_dir, so its relative
+        paths are ready-made urls. Removing a session = its users/<session>.db + this folder."""
+        path = os.path.join(config.upload_dir, self.session)
+        os.makedirs(path, exist_ok=True)
+        return path
+
+    @property
     def screen(self):
         return self.screen_module.screen if self.screen_module else empty_app
 

@@ -47,6 +47,9 @@ Consequences:
 - `user` in a screen/block module is injected as a plain module attribute, not
   imported — UNISI also writes `typings/__builtins__.pyi` declaring `user: User`
   on every `unisi.start()`, so Pylance/Pyright stop flagging it as undefined.
+  A block's top-level code may use `user` too: while `load_screen` runs, `builtins.user`
+  is that user (restored afterwards), so a block the screen imports sees it during its
+  import; afterwards its own `module.user` (set on capture) answers.
 - Storing session state in module-level variables is the *correct*, intended
   pattern, not a workaround.
 
@@ -518,6 +521,9 @@ Notes:
   output) and changes often — that one row gets rewritten every time. For
   that: write to a file/DB yourself, or use `user.persist_units()` to
   snapshot it only at explicit moments instead of on every change.
+- **Session files: `user.dir`** = `<upload_dir>/<session-id>` (created on first
+  access, served statically — its relative paths are urls). Keep a session's
+  working files there: the session is then its `.db` + that folder.
 - Persistence is automatically disabled during autotest runs
   (`user.testing`) — don't design a recorded fixture that depends on it.
 - A widget inside a `blocks/` module keeps its persisted state under a

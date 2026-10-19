@@ -7,3 +7,5 @@ from unisi import *
 shared_label = Text("Shared widget content")
 
 widget_block = Block("Widget", shared_label)
+
+importing_user = user     # bound already while the block runs (ModulesMixin.load_screen)

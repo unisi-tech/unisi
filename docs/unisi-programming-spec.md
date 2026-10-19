@@ -93,6 +93,10 @@ Always injected by runtime in screen module:
 - `user` (current `User`)
 - `screen` (current `Screen`)
 
+A `blocks/` module imported by the screen sees `user` as well, already while its top-level code runs
+(`builtins.user` is that user for the duration of `load_screen`, restored afterwards; then the block's own
+`module.user` takes over).
+
 Example:
 
 ```python
@@ -643,6 +647,8 @@ user.set_object(ns, path, "Gadget", {"value": 42})   # shown when the selector r
 ### 14.5 Storage and Scope
 
 All of the above share the same storage: a local SQLite file per user session (`users/<session-id>.db`), created on first write. State is never shared between users or sessions. Persistence is automatically disabled during autotest runs.
+
+Working files of a session (renders, generated images, uploads it owns) go to `user.dir` — `<upload_dir>/<session-id>`, created on first access and served statically like the rest of `upload_dir`, so a path under it is already a url (`web/<session-id>/refs/a.png`). A session is then exactly two things: `users/<session-id>.db` and `user.dir`; removing both removes it.
 
 Save and restore both stay plain JSON in and out — deliberately, not an implementation detail: it can't execute code on load the way a binary format like `pickle` could from a file that's ultimately per-user, it stays inspectable as text for debugging, and stale data from a since-changed class tolerates being loaded as a plain dict instead of hard-failing the whole restore. Restore only ever reconstructs *Unit* instances this way, matched against the live tree by a saved id — never an arbitrary Python object, which is what keeps the "never executes code from storage" guarantee simple. A unit that needs to fix up something more than that after restore (e.g. `Table` turning a dataclass row that degraded to a plain dict back into a real instance — see §12's `row_type`) can define a zero-argument `_after_persist_restore()` method; the restore path calls it, generically, on any unit that has one, right after that unit's saved fields are applied.
 

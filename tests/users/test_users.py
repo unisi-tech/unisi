@@ -193,6 +193,12 @@ class TestProperties:
         user = make_user(session=testdir)
         assert user.id == user.session == testdir
 
+    def test_dir_is_session_folder_in_upload_dir(self, make_user, tmp_path, monkeypatch):
+        import os, config
+        monkeypatch.setattr(config, "upload_dir", str(tmp_path / "web"))
+        user = make_user()
+        assert user.dir == os.path.join(str(tmp_path / "web"), user.session) and os.path.isdir(user.dir)
+
     def test_global_persist_reflects_config(self, make_user, monkeypatch):
         import config
         user = make_user(session=testdir)
