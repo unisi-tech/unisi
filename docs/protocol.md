@@ -171,7 +171,7 @@ message (3.1) with `"reload": true`.
 ### 4.1 General shape
 
 ```json
-{"path": ["Edit1", "B1"], "event": "changed", "value": "new text"}
+{"path": ["Edit1", "B1"], "event": "changed", "value": "new text", "screen": "Main"}
 ```
 
 - `path` — same convention as an update's `path` (3.2): the target
@@ -182,6 +182,25 @@ message (3.1) with `"reload": true`.
   given table was constructed with hooks for.
 - `value` — whatever that event expects: the new field value for
   `"changed"`, a row index for `"get"`, etc.
+- `screen` (optional) — the `name` of the screen the client was displaying
+  when it produced the event. A `path` names its target only by element and
+  block names, so it means something only on that screen. The client keeps
+  showing the old screen until the server's full-screen reply (3.5) arrives,
+  and the server handles messages one by one: while a long handler (one that
+  reports `user.progress`, say) is running, a screen switch (4.3) and the
+  events the user still makes on the old screen queue up behind it. By the
+  time they are processed the session is on the new screen, where the same
+  `path` names another element, a block, or nothing — and a scalar `value`
+  assigned to a block raised an error that closed the connection. So **the
+  server ignores an element event whose `screen` is not the session's
+  current screen** and answers it like any message that changed nothing
+  (3.2): `null`, or the pending updates. The same event is processed again
+  once the user is back on that screen. A client that omits the field keeps
+  the old behaviour (the `path` is resolved on the current screen), so every
+  client SHOULD send it. Messages that are not addressed to an element of a
+  screen — a screen switch (`["root"]`), `["voice"]`, `["close"]` and the
+  commands of the progress window (`[<command>, "progress"]`) — are never
+  filtered, and a dialog's own events are not either (a dialog is modal).
 - **`event` defaults to accepting the value directly if the target unit has
   no explicit handler for it** — `unit.value = value`, no error. A handler
   only needs to exist for events you want to intercept, validate, or react

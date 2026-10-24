@@ -140,7 +140,9 @@ class User(ModulesMixin, UserPersistMixin):
         if self.reflections and not (message and message.screen_type):
             if result:
                 await self.broadcast(result, persist=persist)
-            if message:
+            if message and not self.is_stale(message):
+                # (a stale message's path means nothing on the current screen, so it
+                # cannot be resolved to the element it was addressed to -- see is_stale)
                 msg_object = self.find_element(message)
                 if not isinstance(result, Message) or not result.contains(msg_object):
                     await self.broadcast(msg_object, persist=persist)
@@ -260,6 +262,26 @@ class User(ModulesMixin, UserPersistMixin):
     def blocks(self):
         return [self.active_dialog, *self.screen.blocks] if self.active_dialog and \
             self.active_dialog.value else self.screen.blocks
+
+    def is_stale(self, message) -> bool:
+        """True for an element event that was produced on another screen than the current one.
+
+        A message path names its target only by element and block names, so it means something
+        only on the screen the client displayed when it sent the message. The client keeps
+        showing the old screen until the server's full-screen reply arrives, while the server
+        handles the messages one by one: when a long handler (one that reports progress(), say)
+        is running, a screen switch and the events the user still makes on the old screen queue
+        up behind it. By the time they are processed the server is on the new screen, where the
+        same path names another element -- or a block, and then `block.value = True` raises in
+        Block.set_reactivity and the whole connection is closed -- or nothing at all.
+
+        So a client sends, in the optional `screen` field, the name of the screen it displayed
+        when it produced the event (docs/protocol.md, 4.1). A message without the field (an
+        older client) is never stale. Screen switches and the other messages that are not
+        addressed to an element of a screen carry no such field, or it is not checked for them.
+        """
+        screen = message.screen
+        return bool(screen) and screen != self.screen.name
 
     def find_element(self, message):
         elname, *blnames = message.path
@@ -414,8 +436,9 @@ class User(ModulesMixin, UserPersistMixin):
         return raw
 
     def screen_process(self, message):
-        screen_change_message = message.screen and self.screen.name != message.screen
-        if screen_change_message or message.screen_type:
+        # `message.screen` is NOT a request to switch: it tells which screen an element event
+        # was produced on and is checked by is_stale() in process()
+        if message.screen_type:
             s = self.ensure_screen(message.value)
             if not s:
                 error = f'Unknown screen name: {message.value}'
@@ -425,8 +448,6 @@ class User(ModulesMixin, UserPersistMixin):
                 self.changed_units.add(s.screen)
                 self.screen_module = s
                 self._screen_has_persist = self._screen_has_persist_targets(s)
-                if screen_change_message:
-                    return
                 if self.voice:
                     self.voice.set_screen(s.screen)
                     self.voice.start()
@@ -451,6 +472,8 @@ class User(ModulesMixin, UserPersistMixin):
             # a command button of the progress window, see progress()
             return await self.eval_handler(self.progress_handler, message.path[0])
         else:
+            if self.is_stale(message):
+                return  # the user has already left the screen this event was produced on
             elem = self.find_element(message)
             if elem:
                 return await self.process_element(elem, message)
