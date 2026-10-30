@@ -268,6 +268,10 @@ async def on_dialog(dialog, command):
         ...
 ```
 
+One dialog is open at a time: a handler returning a `Dialog` while another is open (e.g. the button
+that opens it clicked twice) replaces it on the server (`user.active_dialog`) and in the client, which
+hides the previous one without reporting it.
+
 ## 11. Unit Catalog (Practical API)
 
 From `unisi/units.py`:
