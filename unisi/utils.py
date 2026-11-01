@@ -89,7 +89,8 @@ set_defaults(config,  dict(
     web_client = None,
     debug = False,
     session = None,
-    image = 'icons/favicon-32x32.png'
+    image = 'icons/favicon-32x32.png',
+    admin = None      # the password of the admin panel; None - the panel has no password, False - there is no panel
 ))
 
 Screen.defaults = dict(
@@ -103,7 +104,8 @@ Screen.defaults = dict(
     reload = config.hot_reload, 
     lang = config.lang,
     voice = not config.mirror,
-    image = config.image
+    image = config.image,
+    admin = config.admin is not False     # the web client shows the admin button
 )
 
 if config.froze_time == 0:

@@ -76,6 +76,11 @@ blocks = block
 | persist  | Optional | boolean | Persist all units on screen for the user |
 | voice | Optional | boolean | Enable voice control on this screen. Default True (False when config.mirror is set) |
 
+The server reads `name`, `icon` and `order` of the screens that are not loaded yet, without running them, if they are
+written as literals that start a line (`name = 'Home'`, `order = 1`). So the menu lists every screen by its name, in its order,
+and a new session starts at the screen of the lowest order (of the same order - by the file name). A computed value
+(`name = make_name()`) is known when the screen is loaded.
+
 
 ### Server start
 my_project/run.py
@@ -259,6 +264,8 @@ Edit('Some field', '', edit = False)
 Text('Some field')
 ```
 complete handler is optional function which accepts the current edit value and returns a string list for autocomplete.
+
+`Edit('Password', '', type = 'password')` is a masked field (the bundled client adds a button to reveal it). What is typed goes to the server as the usual `changed` messages, and is kept out of `user.last_message`, which the log of an error and the monitor show.
 
 ```
 def get_complete_list(unit, current_value):
@@ -553,6 +560,25 @@ http://localhost:8000/default   -> the bundled UNISI client, always
 ```
 
 The bundled client is never removed — it stays reachable at `/default` (and everything under it) no matter what `web_client` is set to, so it's always available as a reference or fallback UI. Any file your custom client's own directory doesn't provide (favicon, fonts, an icon you didn't bother to copy over) is also transparently served from the bundled client instead of 404ing, so a minimal custom client still works. If `web_client` doesn't point to a valid client (no `index.html` there), UNISI logs a warning on startup and simply keeps serving the bundled client at `/` until it's fixed.
+
+### Administrator panel
+
+Activation: always on. `admin = 'password'` in config.py sets the password of the panel, `admin = False` turns the panel off.
+
+The panel lists the sessions of the app: when each was created, when it was last used, or `active` while a client is connected to it. It is a UNISI `Dialog` of ordinary units, built and shown by the server, and it has two doors: the page `/admin` of the bundled web client (it serves no session of its own, nothing of the app is loaded for it) and the **admin** button in the toolbar of any session.
+
+- A click on a session loads it into the connection of the administrator. A session somebody works in right now is joined as one more live view (as `share` does), any other is resumed from its saved state.
+- **New** creates a session and loads it, **Refresh** reads the list again, **Close** closes the window.
+- The basket of the table deletes the selected session after a confirmation: its saved state, its working folder (`user.dir`), and its clients, who are told and disconnected. The mode button of the table switches to the multiple selection, where a click only marks a session instead of loading it, so several sessions can be deleted at once.
+
+```python
+# config.py
+admin = 'a long secret'     # asked once per connection
+```
+
+The password is typed into a masked field and travels only as a message of the websocket, never in an address; a wrong one is answered after a short delay. Without `admin` the panel is open to anyone who can reach the server, and it can delete sessions: **set a password** in production and serve the app over HTTPS, so that it cannot be read on the wire.
+
+The list is taken from `users/sessions.json` (a session is written there when its last client leaves, if it has a saved state or a working folder, or was made in the panel) and from the saved states already in `users/`, whose dates are those of the files. Where the system keeps no creation time of a file (Linux), the creation date of such an old session is unknown, and shown empty.
 
 ### Monitoring
 

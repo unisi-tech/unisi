@@ -289,6 +289,9 @@ class Persist:
     def exists(session_id):
         return os.path.exists(Persist.db_path_for(session_id))
 
+    def close(self):
+        self.conn.close()
+
     def __init__(self, session_id):
         self.db_path = self.db_path_for(session_id)
         os.makedirs(os.path.dirname(self.db_path), exist_ok=True)
@@ -530,7 +533,9 @@ class UserPersistMixin:
         self._pending_persist_units = set()
 
     def _persist_enabled(self):
-        return not self.testing
+        # _removed: the session was deleted in the admin panel -- saving anything
+        # now would bring its files back
+        return not self.testing and not getattr(self, '_removed', False)
 
     def _persist_db(self, create=False):
         if not self._persist_enabled():

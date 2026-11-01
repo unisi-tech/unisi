@@ -40,6 +40,7 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `logfile` | str/None | `None` | Optional log file |
 | `mirror` | bool | `False` | New anonymous connections reflect the most recent user's session |
 | `share` | bool | `False` | Session reattachment via `?session=` |
+| `admin` | str/None/False | `None` | Password of the admin panel (§22). `None` — no password, the panel is open; `False` — no panel |
 | `profile` | int/float | `0` | Log a warning if a handler runs longer than this many seconds |
 | `froze_time` | int/float/None | `None` | Log a warning if a session waits longer than this many seconds (monitoring) |
 | `monitor_tick` | float | `0.005` | Poll interval, in seconds, for the monitor process and `run_process` |
@@ -88,6 +89,12 @@ Optional globals:
 - `header: str`
 - `toolbar: list[Unit]`
 - `prepare: callable`
+
+`name`, `icon` and `order` written as literals that start a line (`name = "Main"`, `order = 0`) are read by the
+server without running the screen: the menu lists every screen by its name, in its order, before the screen is
+loaded, and a new session starts at the screen of the lowest `order` (screens of the same order go by file name).
+A computed value (`name = make_name()`) is known when the screen is loaded. The server reads only the head of a
+file, up to the last line that starts with one of the three names, so keep them at the top of the screen.
 
 Always injected by runtime in screen module:
 - `user` (current `User`)
@@ -883,3 +890,17 @@ blocks = [controls]
 - `test_apps/persistence/screens/animals.py`, `notes.py` (positional and keyed `persist`)
 - `test_apps/proxy/run_blocks.py`, `run_vision.py` (Remote API / `Proxy`)
 - `tests/core/test_web_client.py` (`config.web_client` switching, `/default`, and the bundled-client fallback — see §18)
+
+## 22. Administrator Panel (`config.admin`)
+
+The panel lists every session of the app and lets the administrator load, create and delete them. It is built of the framework's own units — a `Dialog` (`AdminDialog`, in `unisi/admin.py`) with a `Table` of `Session | Created | Last used` (`active` instead of a date while a client is connected) — so it speaks the ordinary protocol and needs no HTTP API of its own.
+
+- **Doors.** The page `/admin` of the web client connects with `/ws?page=admin`: the server makes an `AdminUser` for it, a user that serves no session (no screen of the app is loaded, nothing is saved for it, it is not in `Unishare.sessions`), and sends its empty screen and the panel at once. The toolbar of every screen has an **admin** button (the screen object carries `admin: true`, see `Screen.defaults`), which sends `{"path": ["admin"]}`; the server answers with the panel, or with the password dialog first. A custom client does the same two things (protocol §1, §4.3).
+- **Password.** `admin = 'secret'` is asked once per connection, in a masked field (`Edit(type='password')`), compared with `hmac.compare_digest`; a wrong password is answered after 0.5 s with a warning and the question again. It is never read from the URL. `admin = None` (or absent, or `''`) asks nothing; `admin = False` removes the panel: no button, `/ws?page=admin` is an ordinary session, `{"path": ["admin"]}` an error.
+- **Load.** A click on a row moves the websocket of the administrator to that session. A session with a live user is joined as a reflection (`config.share` semantics, whatever the setting), any other is resumed from `users/<id>.db`. The window closes; a click on the session the administrator is already in just closes it.
+- **New / Refresh / Close** — a session made in the panel is saved at once, unused until somebody loads it; Refresh rebuilds the list; Close closes the window.
+- **Delete.** The basket of the table, after a confirmation (`Cancel` is the primary button): the session's clients are sent an error and disconnected, its `users/<id>.db` (with `-wal`, `-shm`, `-journal`) and `<upload_dir>/<id>` are removed, it is forgotten. The administrator who deletes the session he works in is left on a console (`AdminUser`) showing the panel. The mode button of the table switches to the multiple selection, where a click only marks rows (no load) — for deleting several at once.
+- **Registry.** `unisi/sessions.py`: `session_registry` tracks the live sessions in memory and records a session in `users/sessions.json` (`created`, `used`) when its last client leaves — only if it has a footprint (saved state or working folder) or was made in the panel, so anonymous visits do not pile up. Sessions saved before the registry existed are listed from `users/*.db` with the dates of the file (the creation date is `None` where the file system keeps none). `open_session()` and `delete_session()` are what the panel does with it.
+- **What the panel does not touch.** Its messages are private to the administrator: not reflected to the other users of a shared session, not recorded by the autotest recorder, and a password typed into a `type='password'` field is kept out of `user.last_message`.
+
+Without a password the panel is open to anyone who can reach the server; set `admin` in production, and serve the app over HTTPS.

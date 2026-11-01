@@ -123,6 +123,7 @@ several of these.
 | `logfile` | `None` | Log file path; `None` = console only |
 | `mirror` | `False` | New anonymous connections start as a reflection of the most recent user — see §12 |
 | `share` | `False` | Enables `?session=` reattachment — see §12 |
+| `admin` | `None` | Password of the admin panel (page `/admin`, the **admin** button of the toolbar) — see the programming spec §22. `None`: no password, the panel is open to anyone; `False`: no panel |
 | `profile` | `0` | Log a warning if a handler takes longer than this many seconds |
 | `froze_time` | `None` | Log a warning if a session sits waiting longer than this many seconds. **Not `freeze_time`** — see the note below |
 | `monitor_tick` | `0.005` | Poll interval (seconds) for the monitor process and for `run_process`'s progress relay |

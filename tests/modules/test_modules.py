@@ -13,12 +13,26 @@ one user's session) get juggled through sys.modules around each compile.
 Uses real User instances against fixtures_app/ -- same rationale as
 tests/users/conftest.py and tests/persist_voice_reloder/conftest.py.
 """
+import ast
+import random
 import sys
 
 import pytest
 
-from unisi.modules import ScreenInfo, screen_info_from_module
+from unisi.modules import ScreenInfo, declared_in, declared_screen_info, screen_info_from_module
 from unisi.units import Button, Edit
+
+
+def record_parsed(monkeypatch):
+    """the sizes of what ast.parse is asked to parse from now on"""
+    sizes, parse = [], ast.parse
+
+    def parsing(source, *args, **kwargs):
+        sizes.append(len(source))
+        return parse(source, *args, **kwargs)
+
+    monkeypatch.setattr(ast, "parse", parsing)
+    return sizes
 
 
 # =============================================================================
@@ -58,20 +72,153 @@ class TestBuildScreenRegistry:
         files = {info.file for info in registry}
         assert files == {"alpha.py", "beta.py", "uses_block.py"}
 
-    def test_entries_start_with_a_blank_name_and_zero_order(self):
+    def test_entries_carry_what_the_files_declare(self):
         """
-        Documents real behaviour: build_screen_registry() only lists
-        FILENAMES -- it doesn't compile anything, so it can't know a
-        screen's declared `name` or `order` yet. Those get filled in only
-        once the screen is actually loaded (compile_screen ->
-        _upsert_screen_info). Until then, every entry is a blank
-        placeholder with name='' and order=0, regardless of what the
-        screen file itself declares.
+        build_screen_registry() doesn't compile anything, but it reads the `name`, `icon` and
+        `order` a screen file declares at its module level as plain literals (ast, the file is not
+        run). So the menu has the names of the screens not loaded yet, they are found by their names,
+        and the registry is in the order of the screens from the start.
         """
         from unisi.users import User
         registry = User.build_screen_registry()
-        assert all(info.name == "" for info in registry)
-        assert all(info.order == 0 for info in registry)
+        assert [(info.name, info.file, info.order) for info in registry] == [
+            ("Alpha", "alpha.py", 0), ("Beta", "beta.py", 1), ("UsesBlock", "uses_block.py", 2)]
+
+    def test_what_is_not_declared_as_a_literal_is_left_to_the_load(self, real_screens_dir_modules):
+        """a computed or odd-typed declaration is no use before the screen runs: the entry stays
+        a placeholder (blank name, order 0) for it, and the load fills it in"""
+        from unisi.users import User
+        (real_screens_dir_modules / "plain.py").write_text('name = "Plain"\nicon = "home"\norder = 5\n')
+        (real_screens_dir_modules / "computed.py").write_text('name = "Comp" + "uted"\norder = 2 + 1\n')
+        (real_screens_dir_modules / "typed.py").write_text('name = 7\norder = True\nicon = ["x"]\n')
+        (real_screens_dir_modules / "broken.py").write_text('def (\nname = "Broken"\n')
+        registry = {info.file: info for info in User.build_screen_registry()}
+
+        assert (registry["plain.py"].name, registry["plain.py"].icon, registry["plain.py"].order) == ("Plain", "home", 5)
+        for file in ("computed.py", "typed.py", "broken.py"):
+            assert (registry[file].name, registry[file].icon, registry[file].order) == ("", None, 0)
+
+    def test_declared_screen_info_takes_the_last_literal_and_forgets_a_computed_one(self, real_screens_dir_modules):
+        (real_screens_dir_modules / "again.py").write_text('name = "First"\nname = "Second"\norder: int = 4\n')
+        (real_screens_dir_modules / "later.py").write_text('name = "Literal"\nname = make_name()\norder = 1\n')
+        (real_screens_dir_modules / "nested.py").write_text('def prepare():\n    name = "Local"\n    order = 9\n')
+        assert declared_screen_info("again.py") == {"name": "Second", "order": 4}
+        assert declared_screen_info("later.py") == {"order": 1}
+        assert declared_screen_info("nested.py") == {}          # a local of a function is not the screen's
+        assert declared_screen_info("missing.py") == {}
+
+    def test_only_the_head_of_a_screen_is_parsed(self, real_screens_dir_modules, monkeypatch):
+        """Every screen file is asked at the first session of the server: reading three lines at
+        the top of a long screen must not cost the parsing of all of it"""
+        head = 'from unisi import *\nname = "Long"\norder = 3\n'
+        (real_screens_dir_modules / "long.py").write_text(head + "def handler(value):\n    return value\n" * 5000)
+        parsed = record_parsed(monkeypatch)
+        assert declared_screen_info("long.py") == {"name": "Long", "order": 3}
+        assert parsed == [len(head)]
+
+    def test_a_screen_declaring_nothing_is_not_parsed_at_all(self, real_screens_dir_modules, monkeypatch):
+        """a name that only starts with name, icon or order is not a declaration"""
+        (real_screens_dir_modules / "bare.py").write_text(
+            "from unisi import *\nnames = ['a']\norder_by = 1\niconic = None\nblocks = []\n")
+        parsed = record_parsed(monkeypatch)
+        assert declared_screen_info("bare.py") == {}
+        assert parsed == []
+
+    def test_a_declaration_far_below_the_top_is_found(self, real_screens_dir_modules):
+        body = "def handler(value):\n    return value\n" * 300
+        (real_screens_dir_modules / "late.py").write_text('name = "Late"\n' + body + "order = 7\n" + body)
+        assert declared_screen_info("late.py") == {"name": "Late", "order": 7}
+
+    def test_a_declaration_that_goes_on_in_the_next_lines_is_read_from_the_whole_file(
+            self, real_screens_dir_modules, monkeypatch):
+        (real_screens_dir_modules / "wrapped.py").write_text(
+            'name = (\n    "Wrap"\n    "ped"\n)\norder = (\n    4\n)\nblocks = []\n')
+        parsed = record_parsed(monkeypatch)
+        assert declared_screen_info("wrapped.py") == {"name": "Wrapped", "order": 4}
+        assert len(parsed) == 2         # the head ended inside the statement, so all of the file decided
+
+    def test_what_looks_like_a_declaration_inside_a_string_is_not_one(self, real_screens_dir_modules):
+        (real_screens_dir_modules / "doc_first.py").write_text(
+            '"""A screen.\nname = \'Fake\'\norder = 9\n"""\nname = "Real"\n')
+        (real_screens_dir_modules / "doc_last.py").write_text(
+            'name = "Real"\nNOTES = """\nname = \'Fake\'\norder = 9\n"""\n')
+        assert declared_screen_info("doc_first.py") == {"name": "Real"}
+        assert declared_screen_info("doc_last.py") == {"name": "Real"}
+
+    def test_a_file_with_a_byte_order_mark_and_windows_line_ends(self, real_screens_dir_modules):
+        (real_screens_dir_modules / "windows.py").write_bytes(
+            b'\xef\xbb\xbfname = "Win"\r\nblocks = []\r\norder = 2\r\n')
+        (real_screens_dir_modules / "first.py").write_bytes(b'\xef\xbb\xbfname = "First"\r\nblocks = []\r\n')
+        assert declared_screen_info("windows.py") == {"name": "Win", "order": 2}
+        assert declared_screen_info("first.py") == {"name": "First"}    # the mark does not hide the first line
+
+    def test_the_last_line_needs_no_line_end(self, real_screens_dir_modules):
+        (real_screens_dir_modules / "eof.py").write_text('blocks = []\nname = "Eof"')
+        assert declared_screen_info("eof.py") == {"name": "Eof"}
+
+    def test_a_file_broken_below_its_declarations_still_declares_them(self, real_screens_dir_modules):
+        """so the menu names the screen while it is being fixed: the load reports the error"""
+        (real_screens_dir_modules / "below.py").write_text('name = "Below"\norder = 1\ndef (\n')
+        (real_screens_dir_modules / "above.py").write_text('def (\nname = "Above"\n')
+        assert declared_screen_info("below.py") == {"name": "Below", "order": 1}
+        assert declared_screen_info("above.py") == {}
+
+    def test_a_declaration_is_a_statement_that_starts_a_line_with_the_name(self, real_screens_dir_modules):
+        """the price of not parsing the whole file: `x = name = 'A'`, a declaration behind a
+        semicolon or in parentheses is known when the screen is loaded, like a computed one --
+        wherever it is in the file"""
+        files = {
+            "chained.py": 'x = name = "Chained"\norder = 1\n',
+            "chained_late.py": 'order = 1\nx = name = "Chained"\n',
+            "semicolon.py": 'blocks = []; name = "Semi"\norder = 1\n',
+            "semicolon_late.py": 'order = 1\nblocks = []; name = "Semi"\n',
+            "paren.py": '(name) = "Paren"\norder = 1\n',
+            "paren_late.py": 'order = 1\n(name) = "Paren"\n',
+        }
+        for file, text in files.items():
+            (real_screens_dir_modules / file).write_text(text)
+            assert declared_screen_info(file) == {"order": 1}, file
+        (real_screens_dir_modules / "both.py").write_text('name = icon = "Both"\n')      # the first one counts
+        assert declared_screen_info("both.py") == {"name": "Both"}
+
+    def test_the_head_says_what_the_whole_file_says(self, real_screens_dir_modules):
+        """whatever a screen is made of, reading the head of it gives what parsing all of it does"""
+        fragments = [
+            "from unisi import *\n", "import os\n",
+            '"""A screen.\nname = \'Fake\'\norder = 9\n"""\n', "NOTES = '''\nicon = 'fake'\n'''\n",
+            'name = "A"\n', "name = 'B'  # a comment\n", "name = 7\n", "name = make_name()\n",
+            'name = (\n    "Wr"\n    "apped"\n)\n',
+            "icon = 'home'\n", "icon = None\n", "icon: str = 'tune'\n",
+            "order = 3\n", "order = 2.5\n", "order = True\n", "order = 1 + 1\n", "order = (\n    4\n)\n",
+            "def handler(name='x'):\n    order = 9\n    return name\n",
+            "class K:\n    name = 'inner'\n    order = 8\n",
+            "if True:\n    name = 'conditional'\n",
+            "names = []\norder_by = 1\n",
+            "x = name = 'chained'\n", "blocks = []; order = 5\n", "(icon) = 'paren'\n", "name = icon = 'both'\n",
+            "blocks = [Block('B', Edit('E', ''))]\n",
+            "filler = 1\n" * 40,
+        ]
+        rng = random.Random(7)
+        for _ in range(300):
+            source = "".join(rng.choice(fragments) for _ in range(rng.randint(1, 12)))
+            (real_screens_dir_modules / "case.py").write_text(source)
+            assert declared_screen_info("case.py") == declared_in(ast.parse(source)), source
+
+    def test_the_first_entry_is_the_screen_of_the_lowest_order(self, real_screens_dir_modules):
+        """it is the screen a new session starts at: whatever the order of the files"""
+        from unisi.users import User
+        (real_screens_dir_modules / "a_settings.py").write_text('name = "Settings"\norder = 2\n')
+        (real_screens_dir_modules / "b_main.py").write_text('name = "Main"\norder = 1\n')
+        (real_screens_dir_modules / "c_help.py").write_text('name = "Help"\n')
+        assert [info.name for info in User.build_screen_registry()] == ["Help", "Main", "Settings"]
+
+    def test_screens_of_the_same_order_are_listed_by_their_file_names(self, real_screens_dir_modules):
+        """not in the order the file system happens to list them, which differs from system to
+        system: the first entry is the screen a new session starts at"""
+        from unisi.users import User
+        for file in ("c.py", "a.py", "b.py"):
+            (real_screens_dir_modules / file).write_text("")
+        assert [info.file for info in User.build_screen_registry()] == ["a.py", "b.py", "c.py"]
 
     def test_init_screen_registry_only_scans_once(self, registry_snapshot):
         from unisi.users import User
@@ -107,21 +254,18 @@ class TestScreenInfoLookup:
         assert info is not None
         assert info.file == "alpha.py"
 
-    def test_not_found_by_declared_name_before_first_load(self, registry_snapshot):
+    def test_found_by_declared_name_before_any_load(self, registry_snapshot):
         """
-        Documents real behaviour, worth knowing: build_screen_registry()'s
-        placeholder entries (see TestBuildScreenRegistry above) have a
-        blank `name`, so a screen that has never been loaded/compiled by
-        ANY user yet in this process can only be found by filename here --
-        not by the name: string it declares internally -- until the first
-        successful load fills that in via _upsert_screen_info.
+        The entries of build_screen_registry() carry the names the files declare (see
+        TestBuildScreenRegistry), so a screen that no user has loaded yet in this process is
+        found by its declared name as well as by its filename.
         """
         from unisi.users import User
         User._screen_registry_ready = False
         User.screen_registry = User.build_screen_registry()  # fresh, nothing loaded yet
         user = object.__new__(User)
 
-        assert user._screen_info("Alpha") is None  # declared name, not yet known
+        assert user._screen_info("Alpha").file == "alpha.py"  # declared name, not yet loaded by anyone
         assert user._screen_info("alpha.py") is not None  # filename always works
 
     def test_found_by_declared_name_after_a_load(self, make_user):
@@ -157,6 +301,21 @@ class TestUpsertScreenInfo:
         assert len(matches) == 1
         assert matches[0].name == "Alpha Take 2"
         assert matches[0].order == 7
+
+    def test_a_loaded_screen_keeps_its_place_among_the_ones_of_the_same_order(self, real_screens_dir_modules):
+        """Screens without an `order` all have the same, 0. The one just loaded used to be moved
+        behind the others (removed, appended, then sorted -- and a sort is stable), so the next
+        session started at another screen than the one before it."""
+        from unisi.users import User
+        for name in "abc":
+            (real_screens_dir_modules / f"{name}.py").write_text(f'name = "{name.upper()}"\n')
+        User.screen_registry = User.build_screen_registry()
+        user = object.__new__(User)
+
+        user._upsert_screen_info(ScreenInfo(name="A", file="a.py"))
+        assert [info.file for info in user.screen_registry] == ["a.py", "b.py", "c.py"]
+        user._upsert_screen_info(ScreenInfo(name="B", file="b.py"))
+        assert [info.file for info in user.screen_registry] == ["a.py", "b.py", "c.py"]
 
     def test_resorts_by_order(self, make_user, registry_snapshot):
         user = make_user()
@@ -444,6 +603,17 @@ class TestLoadLazy:
         user = User("scratch-load-lazy-1")
         assert user.screen_module is not None
         assert user.screens == [user.screen_module]
+
+    def test_every_new_session_starts_at_the_same_screen(self, real_screens_dir_modules):
+        """With no `order` anywhere the first screen of the registry is the first by name. Each of
+        the first few sessions used to start at another one: the one loaded was moved to the end of
+        the registry, and the next session took the screen then standing first."""
+        from unisi.users import User
+        for name in "abc":
+            (real_screens_dir_modules / f"{name}.py").write_text(
+                f'from unisi import *\nname = "{name.upper()}"\nblocks = [Block("Root", Edit("Field", "x"))]\n')
+        users = [User(f"scratch-load-lazy-same-{i}") for i in range(5)]
+        assert [user.screen.name for user in users] == ["A"] * 5
 
     def test_call_with_a_screen_param_loads_that_specific_screen(self):
         from unisi.users import User

@@ -7,6 +7,7 @@ from .containers import Dialog
 from .multimon import notify_monitor, logging_lock, run_external_process
 from .dbunits import dbshare, dbupdates
 from .persist import UserPersistMixin
+from .sessions import session_registry
 from .modules import ModulesMixin, screen_info_from_module
 import asyncio, logging
 
@@ -16,6 +17,7 @@ class User(ModulesMixin, UserPersistMixin):
     _screen_registry_ready = False
     toolbar = []
     count = 0
+    admin_ok = False    # the password of the admin panel is entered (see admin.py); it stays with the connection
 
     def __init__(self, session: str, share = None, screen: str | None = None):
         self.session = session
@@ -172,6 +174,7 @@ class User(ModulesMixin, UserPersistMixin):
             self.reflections.remove(self) #not optimized for len == 1 -> clear(), because weird bug occurs
         if not self.reflections and Unishare.sessions.get(self.session) is self:
             del Unishare.sessions[self.session]
+        session_registry.closed(self.session, self)
         if notify_monitor:
             await notify_monitor('-', self.session, self.last_message)
         if config.share:
@@ -221,7 +224,7 @@ class User(ModulesMixin, UserPersistMixin):
         if dialog := self.active_dialog:
             if len(message.path) == 1: #dialog command button is pressed
                 self.active_dialog = None
-                if self.reflections:
+                if self.reflections and not getattr(dialog, 'private', False):
                     # persist=False: this notice fires before dialog.changed (the
                     # actual callback) has run at all -- see prepare_result's docstring.
                     await self.broadcast(close_message, persist=False)
@@ -468,6 +471,9 @@ class User(ModulesMixin, UserPersistMixin):
                     self.voice.stop()
             else:
                 return await self.voice.process_string(message.value)
+        elif message.admin_type:
+            from .admin import open_panel   # not at the top: admin.py imports this module
+            return await open_panel(self)
         elif message.path[1:] == ['progress'] and self.progress_handler:
             # a command button of the progress window, see progress()
             return await self.eval_handler(self.progress_handler, message.path[0])
@@ -486,6 +492,9 @@ class User(ModulesMixin, UserPersistMixin):
 
     async def process_element(self, elem, message):
         event = message.event
+        if getattr(elem, 'type', None) == 'password':
+            # what is typed in such a field must not stay in the log or the monitor, which show the last message
+            self.last_message = ReceivedMessage({**vars(message), 'value': '***'})
         if elem.type != 'command' and event not in ('complete', 'get'):
             self.touched_units.add(elem)
         handler = self.handlers.get((elem, event), None)

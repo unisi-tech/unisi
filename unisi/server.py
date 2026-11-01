@@ -9,6 +9,8 @@ from .utils import fix_app_root
 from .llmrag import setup_llmrag
 from .dbunits import dbupdates
 from .db import db 
+from .admin import AdminUser, ADMIN_PAGE, admin_enabled, is_admin_message, open_for
+from .sessions import open_session, session_registry
 import traceback, json, random, string, os
 from urllib.parse import parse_qs
 import config
@@ -49,6 +51,9 @@ if db:
 
 def make_user(request):    
     parsed_query = parse_qs(request.query_string)
+    if parsed_query.get('page') == ['admin'] and admin_enabled():
+        # the page /admin: a connection that serves no session, only the admin panel
+        return AdminUser(), True
     requested_screen = parsed_query.get('screen', [None])[0]
     if 'session' in parsed_query:
         session = parsed_query['session'][0]
@@ -60,17 +65,18 @@ def make_user(request):
         user_id = parsed_query.get('id', [User.count])[0]
         session = f'{generate_random_string()}-{user_id}'      
           
-    register = True
+    root = None
     if config.share and 'session' in parsed_query:
         root = Unishare.sessions.get(session, None)
-        if not root:
+        # a session nobody is connected to is not unknown if it was saved or is in
+        # the admin panel: it is resumed, as it is without `share`
+        if not root and not session_registry.resumable(session):
             error = f'Session id "{session}" is unknown. Connection refused!'
             with logging_lock:
                 logging.error(error)
             return None, Error(error)
-        user = User.type(session, root, screen=requested_screen)
-        ok = user.screens
-        # Don't overwrite Unishare.sessions[session]: it must keep pointing
+    if root:
+        # Don't overwrite Unishare.sessions[session] (register=False): it must keep pointing
         # at `root`, the stable session every future share='session' lookup
         # (and the reflections group itself) is anchored to. Registering
         # `user` (a transient proxy/reflection) here instead makes the NEXT
@@ -78,17 +84,12 @@ def make_user(request):
         # this one disconnects, that next connect's own reflections list
         # gets rebuilt from a dead object, silently dropping the root out of
         # the broadcast group.
-        register = False
+        user = open_session(session, root, requested_screen, register=False)
     elif config.mirror and User.count:
-        user = User.type(session, User.last_user, screen=requested_screen)
-        ok = user.screens
+        user = open_session(session, User.last_user, requested_screen)
     else:
-        user = User.type(session, screen=requested_screen)
-        ok = user.screens
-    User.count += 1
-    if register:
-        Unishare.sessions[session] = user 
-    return user, ok
+        user = open_session(session, None, requested_screen)
+    return user, user.screens
 
 def handle(unit, event):
     # Resolve "the current user" primarily from the real call stack
@@ -225,7 +226,9 @@ async def static_serve(request: web.Request) -> web.StreamResponse:
             return client_file(file_path)
         raise web.HTTPNotFound()
 
-    if rpath == '/':
+    # The admin panel is a page of the web client itself (its own router shows
+    # it, without opening a session), so /admin is the client's index.html.
+    if rpath == '/' or rpath.rstrip('/') == ADMIN_PAGE:
         rpath = '/index.html'
 
     # 1. Serve from the active web client (config.web_client if a custom
@@ -289,9 +292,26 @@ async def websocket_handler(request):
                 pass
             return prepared
 
+        async def switch(new_user):
+            """The admin panel moves this connection to another user: a session it loads, or
+            nothing but the panel when the session of the administrator is deleted (admin.py)."""
+            nonlocal user
+            old, user = user, new_user
+            user.send, user.ws, user.switch, user.admin_ok = send, ws, switch, old.admin_ok
+
+            async def detached(res, persist=True):
+                """what the previous user still does (a long task) must not reach the page that shows another one"""
+            old.send = detached
+            await old.delete()
+            await send(True)
+
         user.send = send         
+        user.ws = ws    # the admin panel disconnects the users of a deleted session
+        user.switch = switch
 
         await send(True if status else empty_app) 
+        if isinstance(user, AdminUser): # the page /admin shows the panel at once
+            await send(await open_for(user))
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
@@ -306,6 +326,7 @@ async def websocket_handler(request):
                     else:
                         raw_message = json.loads(msg.data)
                         message = None
+                        private = False  # a message of the admin panel is nobody else's business
                         if isinstance(raw_message, list):
                             if raw_message:
                                 # `result` deliberately keeps the *last
@@ -326,6 +347,7 @@ async def websocket_handler(request):
                                 result = None
                                 for raw_submessage in raw_message:
                                     message = ReceivedMessage(raw_submessage)
+                                    private = private or is_admin_message(user, message)
                                     sub_result = await user.result4message(message)
                                     if sub_result is not None:
                                         result = sub_result
@@ -336,9 +358,10 @@ async def websocket_handler(request):
                             if message.close_type:
                                 await ws.close()
                                 continue
+                            private = is_admin_message(user, message)
                             result = await user.result4message(message)                    
                         prepared = await send(result)
-                        if message:
+                        if message and not private:
                             if recorder.record_file:
                                 # Reuse the exact object send() just prepared (and sent)
                                 # instead of calling prepare_result() a second time: that

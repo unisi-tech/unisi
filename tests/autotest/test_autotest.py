@@ -136,10 +136,40 @@ class TestCheckBlock:
         assert any("already used" in e for e in errors)
 
     def test_nested_block_errors_propagate_up(self):
-        inner = Block("", Button("Save"))  # missing name -> 1 error
+        inner = Block("Inner", Edit("Same", "a"), Edit("Same", "b"))  # a duplicated name -> 1 error
         outer = Block("Outer", inner)
         errors = check_block(outer, {})
-        assert any("does not contain name" in e for e in errors)
+        assert len(errors) == 1
+        assert 'The block Inner contains a duplicated element name "Same"' in errors[0]
+
+    def test_a_nested_block_without_a_name_is_reported_by_its_parent(self):
+        """a missing or blank name is found in the block that contains the element and reset to
+        Unknown, so the nested block does not report it once more"""
+        inner = Block("", Button("Save"))
+        outer = Block("Outer", inner)
+        errors = check_block(outer, {})
+        assert len(errors) == 1
+        assert "The block Outer contains element" in errors[0]
+        assert "with invalid name ``" in errors[0]
+        assert inner.name == "Unknown"
+
+    def test_a_nested_block_without_a_name_is_still_checked_inside(self):
+        """one defect of a block must not hide the others in it"""
+        inner = Block(" ", Edit("Same", "a"), Edit("Same", "b"))
+        outer = Block("Outer", inner)
+        errors = check_block(outer, {})
+        assert len(errors) == 2
+        assert any("with invalid name" in e for e in errors)
+        assert any('contains a duplicated element name "Same"' in e for e in errors)
+
+    def test_an_element_without_a_name_is_reported_and_reset_to_unknown(self):
+        nameless = Button("")
+        block = Block("Root", nameless, Edit("Plain", "x"))
+        errors = check_block(block, {})
+        assert len(errors) == 1
+        assert "The block Root contains element" in errors[0]
+        assert "with invalid name ``" in errors[0]
+        assert nameless.name == "Unknown"
 
     def test_chart_without_view_or_option_reports_error(self):
         raw_chart = Unit("MyChart", type="chart")  # bypasses the Chart class's own defaults

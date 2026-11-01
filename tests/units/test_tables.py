@@ -774,7 +774,9 @@ class TestDeletePandaRow:
         t.delete(t, 1)  # remove Bob (the middle row)
         t.append(t, '')
         assert len(t.panda) == 3
-        assert list(t.panda['name']) == ['Alice', 'Carol', None]
+        assert list(t.panda['name'].iloc[:2]) == ['Alice', 'Carol']
+        # the new row is blank: None in an object column, NaN in the string dtype of pandas 3
+        assert pd.isna(t.panda['name'].iloc[2])
         assert list(t.panda.index) == [0, 1, 2]  # contiguous again
 
     def test_regression_reset_index_does_not_leave_a_stray_index_column(self):

@@ -52,3 +52,37 @@ TypeError: Hello_user.__init__() got an unexpected keyword argument 'screen'
   User is disconnected, session: pInO4bFZ8f-3
 2026-09-04 21:54:34,144 - INFO - session: Sd19aLniMh-4, screen: Blocks, message: None
   User is connected, session: Sd19aLniMh-4, share: None
+2026-11-01 21:54:21,348 - INFO - session: hM4l3Ar2s5-0, screen: Blocks, message: None
+  User is connected, session: hM4l3Ar2s5-0, share: None
+2026-11-01 21:55:04,683 - INFO - session: fR52jGusMg-1, screen: Blocks, message: None
+  User is connected, session: fR52jGusMg-1, share: None
+2026-11-01 21:56:11,675 - INFO - session: hM4l3Ar2s5-0, screen: Blocks, message: None
+  User is connected, session: hM4l3Ar2s5-0, share: hM4l3Ar2s5-0
+2026-11-01 21:56:11,677 - INFO - session: fR52jGusMg-1, screen: Blocks, message: Sessions@Administration->changed(1)
+  User is disconnected, session: fR52jGusMg-1
+2026-11-01 21:56:22,343 - ERROR - session: hM4l3Ar2s5-0, screen: Blocks, message: Create autotest..->changed(None)
+  Traceback (most recent call last):
+  File "/home/george/Projects/unisi/unisi/server.py", line 381, in websocket_handler
+    await user.reflect(message, result, persist=False)
+  File "/home/george/Projects/unisi/unisi/users.py", line 148, in reflect
+    msg_object = self.find_element(message)
+  File "/home/george/Projects/unisi/unisi/users.py", line 296, in find_element
+    root_block_name = blnames[-1]
+IndexError: list index out of range
+
+2026-11-01 21:56:22,344 - INFO - session: hM4l3Ar2s5-0, screen: Blocks, message: Create autotest..->changed(None)
+  User is disconnected, session: hM4l3Ar2s5-0
+2026-11-01 21:57:40,620 - INFO - session: BBPkIZz6sN-3, screen: Blocks, message: None
+  User is connected, session: BBPkIZz6sN-3, share: None
+2026-11-01 21:58:13,747 - INFO - session: hM4l3Ar2s5-0, screen: Blocks, message: None
+  User is connected, session: hM4l3Ar2s5-0, share: hM4l3Ar2s5-0
+2026-11-01 21:58:13,749 - INFO - session: BBPkIZz6sN-3, screen: Blocks, message: Sessions@Administration->changed(1)
+  User is disconnected, session: BBPkIZz6sN-3
+2026-11-01 21:58:46,825 - INFO - session: P1kFQecGqr-0, screen: Blocks, message: None
+  User is connected, session: P1kFQecGqr-0, share: None
+2026-11-01 21:58:52,949 - INFO - session: jogDpI3mSJ-1, screen: Blocks, message: None
+  User is connected, session: jogDpI3mSJ-1, share: None
+2026-11-01 21:59:03,499 - INFO - session: P1kFQecGqr-0, screen: Blocks, message: None
+  User is connected, session: P1kFQecGqr-0, share: P1kFQecGqr-0
+2026-11-01 21:59:03,503 - INFO - session: jogDpI3mSJ-1, screen: Blocks, message: Sessions@Administration->changed(1)
+  User is disconnected, session: jogDpI3mSJ-1

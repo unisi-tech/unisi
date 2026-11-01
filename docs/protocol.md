@@ -10,7 +10,7 @@ independently re-verified over the wire) say so explicitly.
 ## 1. Transport
 
 ```
-GET ws://<host>:<port>/ws[?screen=<name>][&id=<session-id>]
+GET ws://<host>:<port>/ws[?screen=<name>][&id=<session-id>][&page=admin]
 ```
 
 - One WebSocket connection per browser tab/client. There is no separate
@@ -23,6 +23,13 @@ GET ws://<host>:<port>/ws[?screen=<name>][&id=<session-id>]
   new one. Only takes effect when the server has `share = True` in
   `config.py` (see README, "Shared sessions"); this is the query-string
   equivalent of `Proxy(session=...)`.
+- `page=admin` (optional) — the connection of the page `/admin` of the web
+  client: it is not a session of the app. The server loads nothing of the
+  app for it and sends an empty screen (`"admin": true`) and, right after
+  it, the admin panel — a `dialog` message (4.5). If the server has the
+  panel turned off (`admin = False` in `config.py`) the parameter is ignored
+  and the connection is an ordinary session. Nothing secret ever goes in the
+  query: the password of the panel, if there is one, is typed into the panel.
 - The very first thing the server sends, unprompted, is a full screen
   object (3.1) — there's no explicit "hello"/handshake message to wait for
   first.
@@ -65,6 +72,9 @@ or a handler returning `True`/`Redesign`).
 - Every field a handler is set for (`changed`, `delete`, `append`, ...)
   serializes as the boolean `true`, never the function itself — the client
   only needs to know *that* an event is handled, not by what.
+- `admin` is `true` when the server has the admin panel (always, unless
+  `admin = False` in `config.py`): a client then shows an **admin** button
+  that sends `["admin"]` (4.3).
 - `reload` is `false` on the very first connect, `true` on every screen
   object sent afterward as the result of an explicit screen switch (3.5).
 - A `Table` that's DB-backed (constructed with `id=`) does not inline all
@@ -222,6 +232,7 @@ one frame; each is processed in order, same as if sent as separate frames.
 | `["root"]` | Switch screens. `value` is the target screen's name. Answered with a full `screen` message, `reload: true` (3.5). |
 | `["voice"]` | Talk to the voice ("Mate") subsystem instead of a screen element — see §5. |
 | `["close"]` | Close the connection. No reply. See 4.4. |
+| `["admin"]` | Open the admin panel (4.5). Answered with a `dialog` message — the panel, or the password dialog first — or with an `error` if the panel is turned off. |
 
 ### 4.4 Closing the connection
 
@@ -230,14 +241,33 @@ one frame; each is processed in order, same as if sent as separate frames.
 ```
 
 Closes the socket from the server side, code 1000, no reply sent first —
-there's no graceful "goodbye" message to wait for. This is the third
-reserved single-element path, alongside `["root"]` and `["voice"]` (4.3).
+there's no graceful "goodbye" message to wait for. This is one of the
+reserved single-element paths (4.3).
 
 > A bare, non-JSON `"close"` string (just those 7 characters, no quotes,
 > no braces) is also still accepted, purely for compatibility with
 > whatever already sends it — it predates the rest of this protocol
 > settling on JSON for everything. A new client should send the JSON form
 > above; there's no reason to reach for the raw string.
+
+### 4.5 The admin panel
+
+The panel of the administrator is made of ordinary units, so there is nothing
+here that a client which handles `dialog` messages does not already do.
+`["admin"]` (or the connection `?page=admin`) is answered with a `dialog`
+(`name: "Administration"`, `icon: "admin_panel_settings"`) holding a table
+`Sessions` — columns `Session`, `Created`, `Last used` (`active` while a
+client is connected) — and the commands `Close`, `New`, `Refresh`. A click on
+a row is the table's `changed` with the row index: the connection moves to
+that session and the server answers with its `screen`. The basket of the
+table is its `delete` event, answered with a confirmation `dialog`.
+
+If `admin = 'password'` is set in `config.py`, the first answer is a `dialog`
+with one `type: "password"` field and the commands `Enter`, `Cancel`. The
+client sends what is typed as that field's `changed` (as for any field), then
+the command; a wrong password is answered with a `warning` and the same
+dialog. It is asked once per connection. The field has to be masked by the
+client; the password is never part of the URL.
 
 ## 5. Voice / Mate Sub-Protocol
 

@@ -252,7 +252,7 @@ class TestScreenDefaults:
     def test_has_the_expected_keys(self):
         assert set(Screen.defaults.keys()) == {
             "icon", "prepare", "blocks", "header", "toolbar", "order",
-            "persist", "reload", "lang", "voice", "image",
+            "persist", "reload", "lang", "voice", "image", "admin",
         }
 
     def test_blocks_and_toolbar_default_to_empty_lists(self):
@@ -264,6 +264,9 @@ class TestScreenDefaults:
 
     def test_voice_is_the_opposite_of_mirror(self):
         assert Screen.defaults["voice"] == (not utils_mod.config.mirror)
+
+    def test_admin_button_is_shown_unless_the_panel_is_turned_off(self):
+        assert Screen.defaults["admin"] == (utils_mod.config.admin is not False)
 
 
 class TestConfigBootstrap:

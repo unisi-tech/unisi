@@ -248,3 +248,23 @@ async def app_client(_app_on_path):
     ])
     async with TestClient(TestServer(app)) as client:
         yield client
+
+
+@pytest.fixture
+def clean_state(_app_on_path):
+    """For the tests of sessions: the registry is a process-wide singleton and the sessions
+    are files -- give each test an empty registry and remove whatever it left in users/
+    and downloads/. Opt in with `pytestmark = pytest.mark.usefixtures("clean_state")`."""
+    from unisi.sessions import session_registry
+    from adminkit import forget_new_files, snapshot
+
+    reg = session_registry
+    before = snapshot()
+    live, saved, path = dict(reg.live), reg._saved, reg._path
+    reg.live.clear()
+    reg._saved = reg._path = None
+    yield
+    forget_new_files(before)
+    reg.live.clear()
+    reg.live.update(live)
+    reg._saved, reg._path = saved, path

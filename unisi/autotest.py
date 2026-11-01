@@ -170,7 +170,7 @@ def check_block(block, hash_elements):
             elif not isinstance(child.name, str) or not child.name.strip():
                 errors.append(f'The block {block.name} contains element {child} with invalid name `{child.name}`!')
                 child.name = 'Unknown'
-            elif isinstance(child, Block):
+            if isinstance(child, Block):    # the one just renamed too: a bad name does not hide what is wrong inside
                 errs = check_block(child, hash_elements)
                 if errs:
                     errors += errs

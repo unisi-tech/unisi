@@ -1,7 +1,9 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
+import ast
 import builtins
 import copy
 import importlib
+import re
 import sys
 import threading
 from dataclasses import dataclass
@@ -29,12 +31,76 @@ def screen_info_from_module(module):
     )
 
 
+# what a screen declares of itself starts a line: `name = 'Home'`
+_declaration = re.compile(rb'^(?:name|icon|order)(?![A-Za-z0-9_])', re.MULTILINE)
+
+
+def declared_screen_info(file):
+    """What a screen file declares at its module level as plain literals -- `name = 'Home'`,
+    `icon = 'home'`, `order = 1` -- read without running the file. Whatever is computed, or
+    not of the right type, is left out: it becomes known when the screen is loaded.
+
+    A declaration is a statement that starts a line with the name (see declared_in). The registry
+    asks every screen file at the first session of the server, and a screen is long while its
+    declarations are at its top, so what is parsed is the head of the file up to the last line that
+    starts with one of the three names; the whole file is parsed only when that head ends inside a
+    statement (a declaration that goes on in the next lines, a string that is still open)."""
+    path = app_path(screens_dir, file)
+    try:
+        with open(path, 'rb') as source:
+            data = source.read().removeprefix(b'\xef\xbb\xbf')
+    except OSError:
+        return {}
+    last = None
+    for last in _declaration.finditer(data):
+        pass
+    if last is None:
+        return {}
+    end = data.find(b'\n', last.end()) + 1      # 0: the line is the last one and has no line end
+    for part in (data[:end], data) if 0 < end < len(data) else (data,):
+        try:
+            return declared_in(ast.parse(part, path))
+        except (SyntaxError, ValueError):
+            pass
+    return {}
+
+
+def declared_in(tree):
+    """The `name`, `icon` and `order` the top level of a module assigns as plain literals, in the
+    statements that start a line with the name: not `x = name = 'Home'` or `a = 1; name = 'Home'`."""
+    found = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            target, value = node.targets[0], node.value
+        elif isinstance(node, ast.AnnAssign) and node.value is not None:
+            target, value = node.target, node.value
+        else:
+            continue
+        if isinstance(target, ast.Name) and target.id in ('name', 'icon', 'order') and not target.col_offset:
+            if isinstance(value, ast.Constant):
+                found[target.id] = value.value
+            else:
+                found.pop(target.id, None)
+    types = dict(name=str, icon=(str, type(None)), order=(int, float))
+    return {key: value for key, value in found.items() if isinstance(value, types[key]) and not isinstance(value, bool)}
+
+
 class ModulesMixin:
     module_lock = threading.RLock()
 
     @classmethod
     def build_screen_registry(cls):
-        registry = [ScreenInfo(name='', file=file) for file in py_files(app_path(screens_dir))]
+        # The screens are not loaded yet, but what their files declare is known: the menu shows
+        # their names, they can be found by them, and the first of the registry -- the screen every
+        # new session starts at -- is the one of the lowest order. The files are taken sorted, as the
+        # listing order of a directory depends on the file system.
+        registry = []
+        for file in sorted(py_files(app_path(screens_dir))):
+            declared = declared_screen_info(file)
+            registry.append(ScreenInfo(name=declared.get('name', ''), file=file,
+                icon=declared.get('icon', Screen.defaults.get('icon')),
+                order=declared.get('order', Screen.defaults.get('order', 0))))
+        registry.sort(key=lambda info: info.order)
         return registry
 
     def _init_screen_registry(self):
@@ -48,8 +114,19 @@ class ModulesMixin:
                 return info
 
     def _upsert_screen_info(self, info):
-        registry = [old for old in self.screen_registry if old.file != info.file]
-        registry.append(info)
+        # A known screen keeps its place among the screens of the same order. The ones not loaded
+        # yet are placeholders of order 0, so appending the screen just loaded behind them (and
+        # only then sorting) would move it after them: the next session would start at another
+        # screen than this one did, and so would each of the following ones, until all were loaded.
+        registry, placed = [], False
+        for old in self.screen_registry:
+            if old.file != info.file:
+                registry.append(old)
+            elif not placed:
+                registry.append(info)
+                placed = True
+        if not placed:
+            registry.append(info)
         registry.sort(key=lambda item: item.order)
         self.__class__.screen_registry = registry
         self.__class__._screen_registry_ready = True
