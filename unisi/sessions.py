@@ -17,8 +17,13 @@ was created or last used, so the registry below does:
     creation time of a file (Linux), the creation date of such a session is
     unknown (None) rather than a wrong one.
 
-The admin panel (admin.py) is the only consumer of the list; `delete_session`
-and `open_session` are what it does with it.
+A session that is not wanted any more can be put aside instead of deleted: `archive_session`
+moves its two things into `archive/<id>/` (the saved state into `users/`, the working folder
+into `upload_dir/` of it, and a `session.json` that says when it was archived and what dates it
+had), `restore_session` moves them back to where they were, `archived_rows` lists the archive.
+
+The admin panel (admin.py) is the only consumer of all this; `delete_session`, `archive_session`,
+`restore_session` and `open_session` are what it does with it.
 """
 import asyncio, json, logging, os, secrets, shutil, string, time
 from .common import Unishare, Error
@@ -27,7 +32,11 @@ from .utils import app_path, testdir
 import config
 
 REGISTRY_FILE = 'sessions.json'    # in users/, next to the <session>.db files
+ARCHIVE_DIR = 'archive'            # in the app dir, next to users/: archive/<id>/{users,upload_dir,session.json}
+ARCHIVE_INFO = 'session.json'      # written last: it is what makes archive/<id> an archived session
+STATE_SUFFIXES = ('', '-wal', '-shm', '-journal')   # <id>.db and the files SQLite keeps beside it
 DISCONNECT_TIMEOUT = 5             # seconds to wait for the clients of a deleted session to go away
+FOLDER_SCAN_LIMIT = 20000          # files of a working folder counted to tell what is in it, no more
 
 
 class SessionError(Exception):
@@ -43,6 +52,34 @@ def valid_id(session):
 
 def session_dir(session):
     return app_path(config.upload_dir, session)
+
+
+def archive_path(*parts):
+    return app_path(ARCHIVE_DIR, *parts)
+
+
+def folder_info(session):
+    """What the working folder of the session (`<upload_dir>/<id>`, see `User.dir`) holds:
+    None if there is no such folder, otherwise {'files': n, 'size': bytes, 'link': bool,
+    'more': bool}. A link is not followed -- it stands for a folder somewhere else; only the
+    first FOLDER_SCAN_LIMIT files are counted (`more`), so that a huge folder does not hold up
+    the question that asks what to do with it."""
+    folder = session_dir(session)
+    if os.path.islink(folder):
+        return dict(files=0, size=0, link=True, more=False)
+    if not os.path.isdir(folder):
+        return None
+    files = size = 0
+    for root, _, names in os.walk(folder):
+        for name in names:
+            files += 1
+            try:
+                size += os.lstat(os.path.join(root, name)).st_size
+            except OSError:
+                pass
+            if files >= FOLDER_SCAN_LIMIT:
+                return dict(files=files, size=size, link=False, more=True)
+    return dict(files=files, size=size, link=False, more=False)
 
 
 def has_footprint(session):
@@ -180,6 +217,11 @@ class SessionRegistry:
         if self.saved.pop(session, None) is not None:
             self._save()
 
+    def restore(self, session, created, used):
+        """a session brought back from the archive is listed again, with the dates it had"""
+        self.saved[session] = {'created': created, 'used': used}
+        self._save()
+
     def rows(self):
         """all the sessions, the active ones first, then the most recently used"""
         rows = {}
@@ -215,9 +257,9 @@ def open_session(session, share=None, screen=None, register=True):
     return user
 
 
-async def _disconnect(user):
+async def _disconnect(user, reason):
     try:
-        await user.send(Error('The session was deleted by the administrator.'), persist=False)
+        await user.send(Error(f'The session was {reason} by the administrator.'), persist=False)
     except Exception:
         pass
     try:
@@ -226,15 +268,20 @@ async def _disconnect(user):
         pass
 
 
-async def delete_session(session, keep=()):
-    """Remove a session as a whole: disconnect its clients, delete its saved state and its
-    working folder, forget it. The users in `keep` are not disconnected -- the administrator
-    who deletes the session he works in: they only lose it and are to be moved elsewhere."""
+def _check(session):
+    """a session the administrator may do something with"""
     if not valid_id(session) or session == testdir:
         raise SessionError('Invalid session id')
     if not session_registry.knows(session) and session not in Unishare.sessions:
         raise SessionError('Unknown session')
 
+
+async def _detach(session, keep, reason):
+    """Take a session away from the running app, before its files are removed or moved: nobody
+    of it saves anything any more (that would recreate the files), its database is closed, it is
+    not one of `Unishare.sessions`, and its clients are told the `reason` and disconnected --
+    but the users in `keep`: the administrator who deals with the session he works in only
+    loses it and is to be moved elsewhere."""
     users = session_registry.users(session)
     if (root := Unishare.sessions.get(session)) and root not in users:
         users.append(root)
@@ -251,13 +298,20 @@ async def delete_session(session, keep=()):
     leaving = [user for user in users if user not in keep]
     if leaving:
         try:
-            await asyncio.wait_for(asyncio.gather(*(_disconnect(user) for user in leaving)), DISCONNECT_TIMEOUT)
+            await asyncio.wait_for(asyncio.gather(*(_disconnect(user, reason) for user in leaving)), DISCONNECT_TIMEOUT)
         except asyncio.TimeoutError:
             pass
 
+
+async def delete_session(session, keep=()):
+    """Remove a session as a whole: disconnect its clients, delete its saved state and its
+    working folder, forget it. The users in `keep` are not disconnected -- the administrator
+    who deletes the session he works in: they only lose it and are to be moved elsewhere."""
+    _check(session)
+    await _detach(session, keep, 'deleted')
     try:
         base = Persist.db_path_for(session)
-        for suffix in ('', '-wal', '-shm', '-journal'):
+        for suffix in STATE_SUFFIXES:
             try:
                 os.remove(base + suffix)
             except FileNotFoundError:
@@ -270,3 +324,162 @@ async def delete_session(session, keep=()):
     except OSError as e:
         raise SessionError(f'The session files are not removed: {e.strerror or e}')
     session_registry.forget(session)
+
+
+# ── the archive ───────────────────────────────────────────────────────────────
+def _places(session):
+    """[(where in the app, where in the archive)] of the two things a session is: the files of
+    its saved state, and its working folder"""
+    state = Persist.db_path_for(session)
+    name = os.path.basename(state)
+    places = [(state + suffix, archive_path(session, 'users', name + suffix)) for suffix in STATE_SUFFIXES]
+    places.append((session_dir(session), archive_path(session, 'upload_dir')))
+    return places
+
+
+def _transfer(pairs, then=None):
+    """Move each (source, destination) of `pairs`, then run `then`. If anything fails, what was
+    moved is moved back: a session is never left half in one place and half in the other."""
+    moved = []
+    try:
+        for source, destination in pairs:
+            os.makedirs(os.path.dirname(destination), exist_ok=True)
+            shutil.move(source, destination)
+            moved.append((source, destination))
+        if then:
+            then()
+    except BaseException:
+        for source, destination in reversed(moved):
+            try:
+                shutil.move(destination, source)
+            except OSError:
+                logging.exception(f'{destination} is not moved back to {source}')
+        raise
+
+
+def _prune(folder):
+    """remove `folder`, and the folders in it, as far as they are empty -- never a file"""
+    for root, _, _ in os.walk(folder, topdown=False):
+        try:
+            os.rmdir(root)
+        except OSError:
+            pass
+
+
+def _write_info(session, info):
+    path = archive_path(session, ARCHIVE_INFO)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(f'{path}.tmp', 'w', encoding='utf-8') as file:
+        json.dump(info, file, ensure_ascii=False, indent=1)
+    os.replace(f'{path}.tmp', path)     # atomic, as the registry is: a crash never leaves half of it
+
+
+def _read_info(session):
+    try:
+        with open(archive_path(session, ARCHIVE_INFO), encoding='utf-8') as file:
+            info = json.load(file)
+    except (OSError, ValueError):
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+def _is_archived(session):
+    return valid_id(session) and os.path.isfile(archive_path(session, ARCHIVE_INFO))
+
+
+def _dates(session):
+    """(created, last used) of a session as the panel lists them; one somebody works in is in use now"""
+    row = next((row for row in session_registry.rows() if row['id'] == session), None)
+    if row is None:
+        return None, None
+    return row['created'], time.time() if row['active'] else row['used']
+
+
+def _store(session, info):
+    """the files of the session into the archive, and its info last"""
+    pairs = [(home, archived) for home, archived in _places(session) if os.path.lexists(home)]
+    try:
+        _transfer(pairs, lambda: _write_info(session, info))
+    except BaseException:
+        _prune(archive_path(session))       # the folders that were made for it
+        raise
+
+
+async def archive_session(session, keep=()):
+    """Put a session aside instead of deleting it. Its saved state (`users/<id>.db` and what
+    SQLite keeps beside it) goes to `archive/<id>/users/`, its working folder
+    (`<upload_dir>/<id>`), if it has one, to `archive/<id>/upload_dir/`, and `archive/<id>/session.json`
+    says when it was archived and what dates it had. For the app it is then as if it was deleted:
+    its clients are disconnected (but the users in `keep`, see `delete_session`) and it is forgotten.
+    A failure leaves everything where it was. `restore_session` brings it back."""
+    _check(session)
+    if os.path.lexists(archive_path(session)):
+        raise SessionError(f'The archive has a session {session} already')
+    created, used = _dates(session)
+    await _detach(session, keep, 'archived')
+    info = dict(session=session, created=created, used=used, archived=time.time())
+    try:
+        # off the event loop: a folder that goes to another disk is copied, which takes a while
+        await asyncio.to_thread(_store, session, info)
+    except OSError as e:
+        raise SessionError(f'The session files are not moved: {e.strerror or e}')
+    session_registry.forget(session)
+
+
+def archived_rows():
+    """the sessions of the archive, the most recently archived first"""
+    try:
+        names = os.listdir(archive_path())
+    except OSError:
+        return []
+    rows = []
+    for session in names:
+        if not _is_archived(session):       # not a session of ours: some other folder
+            continue
+        info = _read_info(session)
+        archived = _time(info.get('archived'))
+        if archived is None:
+            try:
+                archived = os.stat(archive_path(session, ARCHIVE_INFO)).st_mtime
+            except OSError:
+                pass
+        rows.append(dict(id=session, created=_time(info.get('created')), used=_time(info.get('used')), archived=archived))
+    return sorted(rows, key=lambda r: -(r['archived'] or 0))
+
+
+async def restore_session(session):
+    """Bring an archived session back: its saved state to `users/`, its folder to
+    `<upload_dir>/<id>` (the `upload_dir` of the config as it is now), and it is listed again with
+    the dates it had. A session of the same id that is in the app is not replaced: it has to be
+    deleted or archived first. A failure leaves everything where it was."""
+    if not valid_id(session) or session == testdir:
+        raise SessionError('Invalid session id')
+    if not _is_archived(session):
+        raise SessionError('The session is not in the archive')
+    if session_registry.knows(session) or session in Unishare.sessions:
+        raise SessionError(f'The session {session} exists already')
+    pairs = [(archived, home) for home, archived in _places(session) if os.path.lexists(archived)]
+    for _, home in pairs:
+        if os.path.lexists(home):
+            raise SessionError(f'{home} exists already')
+    info = _read_info(session)
+    try:
+        await asyncio.to_thread(_transfer, pairs)
+    except OSError as e:
+        raise SessionError(f'The session files are not moved: {e.strerror or e}')
+    session_registry.restore(session, _time(info.get('created')), _time(info.get('used')))
+    try:
+        os.remove(archive_path(session, ARCHIVE_INFO))
+    except OSError:
+        pass
+    _prune(archive_path(session))
+
+
+async def delete_archived(session):
+    """remove a session of the archive for good"""
+    if not _is_archived(session):
+        raise SessionError('The session is not in the archive')
+    try:
+        await asyncio.to_thread(shutil.rmtree, archive_path(session))
+    except OSError as e:
+        raise SessionError(f'The archived session is not removed: {e.strerror or e}')

@@ -24,7 +24,7 @@ def sid(name):
 
 def snapshot():
     found = set()
-    for top in (Path("users"), Path("downloads")):
+    for top in (Path("users"), Path("downloads"), Path("archive")):
         if top.exists():
             found.add(top)
             found.update(top.rglob("*"))

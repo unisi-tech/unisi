@@ -255,12 +255,27 @@ reserved single-element paths (4.3).
 The panel of the administrator is made of ordinary units, so there is nothing
 here that a client which handles `dialog` messages does not already do.
 `["admin"]` (or the connection `?page=admin`) is answered with a `dialog`
-(`name: "Administration"`, `icon: "admin_panel_settings"`) holding a table
-`Sessions` — columns `Session`, `Created`, `Last used` (`active` while a
-client is connected) — and the commands `Close`, `New`, `Refresh`. A click on
-a row is the table's `changed` with the row index: the connection moves to
-that session and the server answers with its `screen`. The basket of the
-table is its `delete` event, answered with a confirmation `dialog`.
+(`name: "Administration"`, `icon: "admin_panel_settings"`) holding a switch
+`Archive` (off) and a table `Sessions` — columns `Session`, `Created`,
+`Last used` (`active` while a client is connected) — and the commands `Close`,
+`Go to`, `New`, `Refresh`. A click on a row is the table's `changed` with the
+row index (or a list of indices in the multiple mode, `null` when it is
+cleared): it only selects the session. The command `Go to` moves the
+connection to the selected session and the server answers with its `screen`;
+if there is nothing to go to, it answers with a `warning` (or an `error`) and
+the `dialog` again. The basket of the table is its `delete` event, answered
+with a `dialog` that asks what to do — the commands `Cancel`, `Archive`,
+`Delete`, and a line of text about the working folder of the session, if it
+has one; the answer is an `info` (`Archived: …`) or an `error` and the panel.
+
+The switch is `changed` of the unit `Archive` (`["Archive", "Administration"]`,
+`true` or `false`) and is answered with the panel in the other mode. On: the
+table is `Archived sessions` — columns `Session`, `Last used`, `Archived` — and
+the commands are `Close`, `Restore`, `Refresh`. `Restore` restores the sessions
+selected in the table (a `warning` if none) and is answered with an `info`
+(`Restored: …`) and/or an `error`, then the `dialog` again, in the same mode.
+The basket there is answered with a `dialog` (`Cancel`, `Delete`) that asks to
+remove the archived sessions for good.
 
 If `admin = 'password'` is set in `config.py`, the first answer is a `dialog`
 with one `type: "password"` field and the commands `Enter`, `Cancel`. The

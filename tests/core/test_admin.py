@@ -6,8 +6,9 @@ common.py (`ReceivedMessage.admin_type`).
 The panel is made of UNISI units and talks the ordinary websocket protocol, so most of
 it is tested the way a web client uses it -- over a real websocket of `app_client`
 (conftest.py): `/ws?page=admin` is the page /admin, `{"path": ["admin"]}` is the button of the
-toolbar, a click on a row is `changed` of the table, and so on. The password and the
+toolbar, a click on a row is `changed` of the table, `Go to` is the command of the dialog, and so on. The password and the
 list are also checked directly, on a user wired without a socket (adminkit.py).
+The switch `Archive` is `changed` of the switch, `Restore` a command of the dialog.
 """
 import asyncio
 import json
@@ -23,12 +24,12 @@ from unisi.admin import (ADMIN_PAGE, AdminDialog, AdminUser, admin_enabled, admi
                          open_panel, password_ok, panel)
 from unisi.common import ReceivedMessage, Unishare
 from unisi.persist import Persist
-from unisi.sessions import session_registry
+from unisi.sessions import archive_path, archive_session, archived_rows, session_dir, session_registry
 from unisi.users import User
 
 pytestmark = pytest.mark.usefixtures("clean_state")
 
-TABLE, PANEL = "Sessions", "Administration"
+TABLE, ARCHIVE_TABLE, PANEL = "Sessions", "Archived sessions", "Administration"
 BUTTON_ADMIN = {"path": ["admin"], "event": "changed", "value": None}
 
 
@@ -59,11 +60,21 @@ class Client:
         await self.send(["admin"])
         return await self.next("dialog")
 
-    async def click(self, index):
-        await self.send([TABLE, PANEL], "changed", index)
+    async def click(self, index, table=TABLE):
+        await self.send([table, PANEL], "changed", index)
+
+    async def go_to(self, index):
+        """select a session and press `Go to`"""
+        await self.click(index)
+        await self.command("Go to")
 
     async def command(self, name):
         await self.send([name, PANEL])
+
+    async def show_archive(self, on=True):
+        """the switch of the mode; the answer is the panel in the mode"""
+        await self.send(["Archive", PANEL], "changed", on)
+        return await self.next("dialog")
 
     async def closed(self, timeout=3):
         while True:
@@ -88,6 +99,27 @@ def unit(data, name):
 def table_of(dialog):
     return next(unit for unit in (u for part in dialog["value"] for u in (part if isinstance(part, list) else [part]))
                 if unit.get("type") == "table")
+
+
+def table_in(dialog):
+    """the table of a panel that is a Dialog object (not its JSON)"""
+    return next(u for u in dialog.value[1:] if getattr(u, "type", None) == "table")
+
+
+def notes(dialog):
+    """the lines of text of a dialog (JSON): the units that only show a text"""
+    found = []
+
+    def walk(data):
+        if isinstance(data, dict):
+            if data.get("type") == "string":
+                found.append(data["value"])
+            data = list(data.values())
+        if isinstance(data, list):
+            for item in data:
+                walk(item)
+    walk(dialog["value"])
+    return found
 
 
 def listed(dialog):
@@ -224,8 +256,8 @@ class TestPanelDialog:
         user = new_user()
         dialog = panel(user)
         assert isinstance(dialog, AdminDialog) and dialog.name == PANEL
-        assert dialog.commands == ["Close", "New", "Refresh"]
-        table = next(u for u in dialog.value[1:] if getattr(u, "type", None) == "table")
+        assert dialog.commands == ["Close", "Go to", "New", "Refresh"]
+        table = table_in(dialog)
         assert table.name == TABLE and table.headers == ["Session", "Created", "Last used"]
         assert s in [r[0] for r in table.rows]
 
@@ -233,42 +265,81 @@ class TestPanelDialog:
         s = sid("dates")
         session_registry.saved[s] = {"created": 1_700_000_000, "used": 1_700_003_600}
         dialog = panel(AdminUser())
-        rows = {r[0]: r for r in dialog.value[1].rows}
+        rows = {r[0]: r for r in table_in(dialog).rows}
         assert rows[s][1] and rows[s][2] and rows[s][1] != rows[s][2]
         assert len(rows[s][1]) == len("2023-11-14 22:13")
 
     def test_active_is_shown_instead_of_the_last_use(self, new_user):
         s = sid("active")
         session_registry.opened(s, new_user(session=s))
-        assert {r[0]: r[2] for r in panel(AdminUser()).value[1].rows}[s] == "active"
+        assert {r[0]: r[2] for r in table_in(panel(AdminUser())).rows}[s] == "active"
 
     def test_dates_that_are_not_known_are_empty_cells(self):
         session_registry.saved["unused"] = {"created": 50, "used": None}
         session_registry.saved["legacy"] = {}
-        rows = {r[0]: r for r in panel(AdminUser()).value[1].rows}
+        rows = {r[0]: r for r in table_in(panel(AdminUser())).rows}
         assert rows["unused"][2] is None and rows["legacy"][1:] == [None, None]
 
     def test_the_session_of_the_user_is_the_selected_row(self, new_user):
         s = sid("mine")
         user = new_user(session=s)
         session_registry.opened(s, user)
-        table = panel(user).value[1]
+        table = table_in(panel(user))
         assert table.rows[table.value][0] == s
 
     def test_nothing_is_selected_without_a_session(self):
         session_registry.saved["x"] = {"created": 1, "used": 2}
-        assert panel(AdminUser()).value[1].value is None
+        assert table_in(panel(AdminUser())).value is None
 
     def test_the_table_has_the_basket_but_no_editing(self):
-        table = panel(AdminUser()).value[1]
+        table = table_in(panel(AdminUser()))
         assert table.edit is False and callable(table.delete) and not hasattr(table, "append")
+
+    def test_has_the_switch_of_the_mode_off(self):
+        switch = panel(AdminUser()).value[1]
+        assert switch.type == "switch" and switch.name == "Archive" and switch.value is False and callable(switch.changed)
+
+    @pytest.mark.asyncio
+    async def test_the_archive_mode_lists_the_archive(self):
+        s = sid("shelved")
+        save_state(s)
+        session_registry.saved[s] = {"created": 1_700_000_000, "used": 1_700_003_600}
+        await archive_session(s)
+        dialog = panel(AdminUser(), archive=True)
+        assert dialog.name == PANEL and dialog.commands == ["Close", "Restore", "Refresh"]
+        assert dialog.value[1].value is True
+        table = table_in(dialog)
+        assert table.name == ARCHIVE_TABLE and table.headers == ["Session", "Last used", "Archived"]
+        assert [r[0] for r in table.rows] == [s]
+        assert len(table.rows[0][1]) == len("2023-11-14 22:13") and len(table.rows[0][2]) == len("2023-11-14 22:13")
+        assert callable(table.delete) and table.edit is False
+
+    @pytest.mark.parametrize("archive", [False, True])
+    def test_no_two_units_of_the_panel_have_the_same_name(self, archive):
+        """a message names its unit: with a name used twice what is meant for the second reaches the first"""
+        dialog = panel(AdminUser(), archive=archive)
+        names = [unit.name for unit in dialog.value[1:-1]] + [button.name for button in dialog.value[-1]]
+        assert len(names) == len(set(names))
+
+    def test_in_the_archive_nothing_is_selected_whatever_session_the_user_is_in(self, new_user):
+        user = new_user(session=sid("in"))
+        session_registry.opened(user.session, user)
+        assert table_in(panel(user, archive=True)).value is None
+
+    def test_serializes_the_archive_for_the_client(self, new_user):
+        from unisi.common import toJson
+        data = json.loads(toJson(panel(new_user(), archive=True)))
+        assert data["commands"] == ["Close", "Restore", "Refresh"]
+        assert unit(data, "Archive")["value"] is True and unit(data, "Archive")["type"] == "switch"
+        assert table_of(data)["name"] == ARCHIVE_TABLE
 
     def test_serializes_for_the_client(self, new_user):
         from unisi.common import toJson
         data = json.loads(toJson(panel(new_user())))
-        assert data["type"] == "dialog" and data["name"] == PANEL and data["commands"] == ["Close", "New", "Refresh"]
+        assert data["type"] == "dialog" and data["name"] == PANEL and data["commands"] == ["Close", "Go to", "New", "Refresh"]
         table = table_of(data)
-        assert table["changed"] is True and table["delete"] is True and table["edit"] is False
+        # a click needs no handler of the app: the selection is stored by the server as it is
+        assert not table.get("changed") and table["delete"] is True and table["edit"] is False
 
 
 # ── the panel and the password, on a user without a socket ───────────────────
@@ -559,11 +630,26 @@ def index_of(dialog, session):
 
 class TestLoading:
     @pytest.mark.asyncio
-    async def test_a_click_loads_a_saved_session_into_the_connection(self, connection):
+    async def test_a_click_only_selects_the_session(self, connection):
+        target = sid("selected")
+        save_state(target)
+        dialog = await connection.open_panel()
+        user = Unishare.sessions[connection.session]
+        await connection.click(index_of(dialog, target))
+        assert await settle(lambda: table_in(user.active_dialog).value == index_of(dialog, target))
+
+        # the connection is where it was, and the panel is open: the click was the selection and no more
+        assert isinstance(user.active_dialog, AdminDialog)
+        assert target not in Unishare.sessions and connection.session in Unishare.sessions
+        await connection.command("Close")
+        assert (await connection.next("action"))["value"] == "close"        # the first reply is not a screen
+
+    @pytest.mark.asyncio
+    async def test_go_to_loads_the_selected_session_into_the_connection(self, connection):
         target = sid("saved")
         save_state(target)
         dialog = await connection.open_panel()
-        await connection.click(index_of(dialog, target))
+        await connection.go_to(index_of(dialog, target))
 
         assert (await connection.next("action"))["value"] == "close"        # the panel goes away
         screen = await connection.next("screen")
@@ -581,7 +667,7 @@ class TestLoading:
         target = sid("target")
         save_state(target)
         dialog = await connection.open_panel()
-        await connection.click(index_of(dialog, target))
+        await connection.go_to(index_of(dialog, target))
         await connection.next("screen")
         gone = row(connection.session)
         assert gone["active"] is False and gone["used"]
@@ -598,7 +684,7 @@ class TestLoading:
         assert await settle(lambda: target not in session_registry.live)       # the client has gone
 
         dialog = await connection.open_panel()
-        await connection.click(index_of(dialog, target))
+        await connection.go_to(index_of(dialog, target))
         screen = await connection.next("screen")
         assert unit(screen, "Plain")["value"] == "typed by the user"
 
@@ -611,7 +697,7 @@ class TestLoading:
             root = Unishare.sessions[s]
             dialog = await connection.open_panel()
             assert listed(dialog)[s] == "active"
-            await connection.click(index_of(dialog, s))
+            await connection.go_to(index_of(dialog, s))
             await connection.next("screen")
 
             assert Unishare.sessions[s] is root                 # the first user stays the root of the session
@@ -629,7 +715,7 @@ class TestLoading:
             other = Client(other_ws)
             await other.next("screen")
             dialog = await connection.open_panel()
-            await connection.click(index_of(dialog, s))             # joins it
+            await connection.go_to(index_of(dialog, s))             # joins it
             await connection.next("screen")
             assert len(Unishare.sessions[s].reflections) == 2
 
@@ -642,29 +728,73 @@ class TestLoading:
             assert await other.next() == "saved"
 
     @pytest.mark.asyncio
-    async def test_a_click_on_the_session_the_connection_is_in_closes_the_panel(self, connection, monkeypatch):
+    async def test_go_to_the_session_the_connection_is_in_just_closes_the_panel(self, connection, monkeypatch):
         monkeypatch.setattr(server_mod.config, "admin", None)
-        dialog = await connection.open_panel()
-        # the client toggles the selected row off, then on again: the second `changed` is a click on it
-        await connection.click(index_of(dialog, connection.session))
+        await connection.open_panel()
+        user = Unishare.sessions[connection.session]
+        # it is the session selected when the panel opens: there is nowhere to go
+        await connection.command("Go to")
         assert (await connection.next("action"))["value"] == "close"
+        assert Unishare.sessions[connection.session] is user and user.active_dialog is None
+        await connection.send(["Save", "Root"], "changed", "x")
+        assert await connection.next() == "saved"                       # no screen came: the connection is where it was
+
+    @pytest.mark.asyncio
+    async def test_a_session_marked_alone_in_the_multiple_mode_is_the_one_to_go_to(self, connection):
+        target = sid("alone")
+        save_state(target)
+        dialog = await connection.open_panel()
+        await connection.click([index_of(dialog, target)])
+        await connection.command("Go to")
+        assert (await connection.next("screen"))["name"] == "Home"
+        assert Unishare.sessions[target].session == target
+
+    @pytest.mark.asyncio
+    async def test_go_to_without_a_selection_says_so_and_keeps_the_panel(self, connection):
+        await connection.open_panel()
+        await connection.click(None)                # the selected row is clicked off
+        await connection.command("Go to")
+        assert "Select the session" in (await connection.next("warning"))["value"]
+        back = await connection.next("dialog")                  # a button closes its window: the panel is sent again...
+        assert back["name"] == PANEL and table_of(back)["value"] is None    # ...as it was: nothing is marked
         assert connection.session in Unishare.sessions
 
     @pytest.mark.asyncio
-    async def test_nothing_is_loaded_by_a_deselection(self, connection):
+    async def test_go_to_with_several_sessions_marked_asks_for_one(self, connection):
+        save_state(sid("second"))                   # two rows to be marked
         await connection.open_panel()
-        await connection.click(None)
-        await connection.click([0, 1])          # the multiple mode only marks rows
-        await connection.command("Close")
-        assert (await connection.next("action"))["value"] == "close"
+        await connection.click([0, 1])              # the multiple mode marks rows
+        await connection.command("Go to")
+        assert "Select one session" in (await connection.next("warning"))["value"]
+        assert (await connection.next("dialog"))["name"] == PANEL
         assert connection.session in Unishare.sessions
 
     @pytest.mark.asyncio
     async def test_a_stale_list_does_not_load_the_wrong_session(self, connection):
         await connection.open_panel()
         await connection.click(10_000)
+        await connection.command("Go to")
         assert "out of date" in (await connection.next("error"))["value"]
+        assert (await connection.next("dialog"))["name"] == PANEL
         assert connection.session in Unishare.sessions
+
+    @pytest.mark.asyncio
+    async def test_refresh_keeps_the_selection(self, connection):
+        target = sid("kept")
+        save_state(target)
+        dialog = await connection.open_panel()
+        await connection.click(index_of(dialog, target))
+        await connection.command("Refresh")
+        again = await connection.next("dialog")
+        table = table_of(again)
+        assert table["rows"][table["value"]][0] == target
+
+    @pytest.mark.asyncio
+    async def test_refresh_keeps_an_empty_selection_empty(self, connection):
+        await connection.open_panel()               # the session the connection is in is marked...
+        await connection.click(None)                # ...and the mark is taken off
+        await connection.command("Refresh")
+        assert table_of(await connection.next("dialog"))["value"] is None
 
     @pytest.mark.asyncio
     async def test_a_session_that_cannot_be_loaded_is_an_error_not_a_crash(self, connection, monkeypatch):
@@ -675,8 +805,10 @@ class TestLoading:
             raise RuntimeError("corrupted state")
         monkeypatch.setattr(admin_mod, "open_session", boom)
         dialog = await connection.open_panel()
-        await connection.click(index_of(dialog, target))
+        await connection.go_to(index_of(dialog, target))
         assert "corrupted state" in (await connection.next("error"))["value"]
+        back = await connection.next("dialog")                  # the panel is there for another try, the session still selected
+        assert back["name"] == PANEL and table_of(back)["rows"][table_of(back)["value"]][0] == target
         assert connection.session in Unishare.sessions          # still where it was
         assert target not in session_registry.live
 
@@ -686,7 +818,7 @@ class TestLoading:
         save_state(target)
         left = Unishare.sessions[connection.session]
         dialog = await connection.open_panel()
-        await connection.click(index_of(dialog, target))
+        await connection.go_to(index_of(dialog, target))
         await connection.next("screen")
         await left.send("progress of a task of the session left")        # a long task of it goes on
         await connection.send(["Save", "Root"], "changed", "x")
@@ -719,7 +851,7 @@ class TestNew:
         save_state(target)
         dialog = await connection.open_panel()
         assert listed(dialog)[created] == "active"
-        await connection.click(index_of(dialog, target))
+        await connection.go_to(index_of(dialog, target))
         await connection.next("screen")
         left = row(created)
         assert left["active"] is False and left["used"] and left["created"]
@@ -733,8 +865,62 @@ class TestDelete:
         dialog = await connection.open_panel()
         await connection.send([TABLE, PANEL], "delete", index_of(dialog, victim))
         ask = await connection.next("dialog")
-        assert victim in ask["name"] and ask["commands"] == ["Cancel", "Delete"]
+        assert victim in ask["name"] and ask["commands"] == ["Cancel", "Archive", "Delete"]
         assert Persist.exists(victim)               # nothing is deleted yet
+
+    @pytest.mark.asyncio
+    async def test_the_question_tells_about_the_folder_of_the_session(self, connection):
+        victim = sid("with-folder")
+        save_state(victim)
+        make_folder(victim)                         # file.txt: 1 byte
+        dialog = await connection.open_panel()
+        await connection.send([TABLE, PANEL], "delete", index_of(dialog, victim))
+        ask = await connection.next("dialog")
+        assert notes(ask) == [f"Folder {server_mod.config.upload_dir}/{victim}: 1 file, 1 B"]
+
+    @pytest.mark.asyncio
+    async def test_a_session_without_a_folder_has_no_line_about_one(self, connection):
+        victim = sid("no-folder")
+        save_state(victim)
+        dialog = await connection.open_panel()
+        await connection.send([TABLE, PANEL], "delete", index_of(dialog, victim))
+        assert notes(await connection.next("dialog")) == []
+
+    @pytest.mark.asyncio
+    async def test_the_question_for_several_sessions_sums_their_folders_up(self, connection):
+        a, b, c = sid("f1"), sid("f2"), sid("f3")
+        for x in (a, b, c):
+            save_state(x)
+        (make_folder(a) / "more.txt").write_text("yy")
+        make_folder(b)
+        dialog = await connection.open_panel()
+        await connection.send([TABLE, PANEL], "delete", [index_of(dialog, x) for x in (a, b, c)])
+        ask = await connection.next("dialog")
+        assert "3 sessions" in ask["name"] and "archive them" in ask["name"]
+        assert notes(ask) == [f"2 of 3 sessions have a folder in {server_mod.config.upload_dir}: 3 files, 4 B"]
+
+    @pytest.mark.asyncio
+    async def test_an_empty_folder_is_told_as_such(self, connection):
+        victim = sid("empty")
+        save_state(victim)
+        Path(session_dir(victim)).mkdir(parents=True)
+        dialog = await connection.open_panel()
+        await connection.send([TABLE, PANEL], "delete", index_of(dialog, victim))
+        assert notes(await connection.next("dialog")) == [f"Folder {server_mod.config.upload_dir}/{victim}: empty"]
+
+    @pytest.mark.asyncio
+    async def test_a_link_is_told_as_one_and_not_looked_into(self, connection, tmp_path):
+        victim = sid("linked")
+        save_state(victim)
+        (tmp_path / "elsewhere").mkdir()
+        (tmp_path / "elsewhere" / "big.bin").write_text("x" * 100)
+        try:
+            Path(session_dir(victim)).symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+        except OSError:
+            pytest.skip("no symlinks here")
+        dialog = await connection.open_panel()
+        await connection.send([TABLE, PANEL], "delete", index_of(dialog, victim))
+        assert notes(await connection.next("dialog")) == [f"Folder {server_mod.config.upload_dir}/{victim}: a link"]
 
     @pytest.mark.asyncio
     async def test_cancel_gives_the_list_back(self, connection):
@@ -802,7 +988,7 @@ class TestDelete:
         save_state(target)
         await connection.send(["Refresh", PANEL])
         again = await connection.next("dialog")
-        await connection.click(index_of(again, target))
+        await connection.go_to(index_of(again, target))
         assert (await connection.next("screen"))["name"] == "Home"
         assert Unishare.sessions[target].session == target
 
@@ -866,6 +1052,322 @@ class TestDelete:
         assert (await connection.next("dialog"))["name"] == PANEL
         await connection.send([TABLE, PANEL], "delete", 10_000)
         assert (await connection.next("dialog"))["name"] == PANEL
+
+
+class TestArchive:
+    """`Archive`, the second answer of the question of the basket"""
+
+    @staticmethod
+    async def ask(connection, *sessions):
+        dialog = await connection.open_panel()
+        await connection.send([TABLE, PANEL], "delete",
+                              [index_of(dialog, x) for x in sessions] if len(sessions) > 1 else index_of(dialog, sessions[0]))
+        return await connection.next("dialog")
+
+    @pytest.mark.asyncio
+    async def test_archive_puts_the_session_aside_and_stays_in_the_panel(self, connection):
+        victim = sid("shelve")
+        save_state(victim)
+        folder = make_folder(victim)
+        session_registry.saved[victim] = {"created": 1, "used": 2}
+        ask = await self.ask(connection, victim)
+        await connection.send(["Archive", ask["name"]])
+        assert (await connection.next("info"))["value"] == f"Archived: {victim}"
+        back = await connection.next("dialog")
+
+        assert back["name"] == PANEL and victim not in listed(back)
+        assert not Persist.exists(victim) and not folder.exists() and victim not in session_registry.saved
+        assert Path(archive_path(victim, "users", f"{victim}.db")).exists()
+        assert (Path(archive_path(victim, "upload_dir")) / "file.txt").read_text() == "x"
+        assert connection.session in Unishare.sessions       # the connection of the administrator is as it was
+
+    @pytest.mark.asyncio
+    async def test_several_sessions_marked_in_the_multiple_mode_are_archived_together(self, connection):
+        victims = [sid("m1"), sid("m2")]
+        for v in victims:
+            save_state(v)
+        keeper = sid("keeper")
+        save_state(keeper)
+        ask = await self.ask(connection, *victims)
+        await connection.send(["Archive", ask["name"]])
+        assert (await connection.next("info"))["value"] == f"Archived: {', '.join(victims)}"
+        back = await connection.next("dialog")
+        assert not any(v in listed(back) for v in victims) and keeper in listed(back)
+        assert [r["id"] for r in archived_rows()] == victims[::-1] or {r["id"] for r in archived_rows()} == set(victims)
+        assert Persist.exists(keeper) and not any(Persist.exists(v) for v in victims)
+
+    @pytest.mark.asyncio
+    async def test_the_session_the_administrator_is_in_can_be_archived_too(self, connection):
+        save_state(connection.session)
+        ask = await self.ask(connection, connection.session)
+        await connection.send(["Archive", ask["name"]])
+        assert (await connection.next("info"))["value"] == f"Archived: {connection.session}"
+
+        # what is left of the connection is the page of the panel, as after a deletion
+        assert (await connection.next("screen"))["name"] == "Administration"
+        back = await connection.next("dialog")
+        assert back["name"] == PANEL and connection.session not in listed(back)
+        assert table_of(back)["value"] is None
+        assert not Persist.exists(connection.session) and Path(archive_path(connection.session, "session.json")).exists()
+        assert connection.session not in Unishare.sessions and connection.session not in session_registry.live
+        assert connection.ws.closed is False
+
+    @pytest.mark.asyncio
+    async def test_a_session_of_another_client_is_archived_under_it(self, app_client, connection):
+        s = sid("evicted")
+        async with app_client.ws_connect(f"/ws?session={s}") as ws:
+            other = Client(ws)
+            await other.next("screen")
+            save_state(s)
+            ask = await self.ask(connection, s)
+            await connection.send(["Archive", ask["name"]])
+            await connection.next("dialog")
+
+            told = await other.next("error")
+            assert "archived" in told["value"]
+            assert await other.closed()
+        assert await settle(lambda: s not in session_registry.live)
+        assert not Persist.exists(s) and row(s) is None and Path(archive_path(s, "session.json")).exists()
+
+    @pytest.mark.asyncio
+    async def test_files_that_cannot_be_moved_are_reported_and_stay_where_they_are(self, connection, monkeypatch):
+        import unisi.sessions as sessions_mod
+        victim = sid("stuck")
+        save_state(victim)
+        folder = make_folder(victim)
+        session_registry.saved[victim] = {"created": 1, "used": 2}
+        real = sessions_mod.shutil.move
+
+        def flaky(source, destination, *args, **kwargs):
+            if str(source) == str(session_dir(victim)):
+                raise PermissionError(13, "Permission denied")
+            return real(source, destination, *args, **kwargs)
+        monkeypatch.setattr(sessions_mod.shutil, "move", flaky)
+
+        ask = await self.ask(connection, victim)
+        await connection.send(["Archive", ask["name"]])
+        error = await connection.next("error")
+        assert victim in error["value"] and "Permission denied" in error["value"]
+        back = await connection.next("dialog")
+        assert back["name"] == PANEL and victim in listed(back)
+        assert Persist.exists(victim) and folder.is_dir() and not Path(archive_path(victim)).exists()
+
+    @pytest.mark.asyncio
+    async def test_a_session_that_is_in_the_archive_under_that_id_already_is_reported(self, connection):
+        victim = sid("again")
+        save_state(victim)
+        await archive_session(victim)
+        save_state(victim)                      # a new session of the same id
+        ask = await self.ask(connection, victim)
+        await connection.send(["Archive", ask["name"]])
+        error = await connection.next("error")
+        assert victim in error["value"] and "already" in error["value"]
+        assert victim in listed(await connection.next("dialog")) and Persist.exists(victim)
+
+    @pytest.mark.asyncio
+    async def test_a_session_that_is_gone_meanwhile_is_reported(self, connection):
+        victim = sid("twice")
+        save_state(victim)
+        ask = await self.ask(connection, victim)
+        for suffix in ("", "-wal", "-shm"):
+            Path(Persist.db_path_for(victim) + suffix).unlink(missing_ok=True)      # somebody else was quicker
+        await connection.send(["Archive", ask["name"]])
+        assert "Unknown session" in (await connection.next("error"))["value"]
+        assert (await connection.next("dialog"))["name"] == PANEL
+
+
+class TestArchiveMode:
+    """the switch `Archive`, and what the panel does with the archive"""
+
+    @staticmethod
+    async def shelved(*names):
+        found = []
+        for name in names:
+            s = sid(name)
+            save_state(s)
+            await archive_session(s)
+            found.append(s)
+        return found
+
+    @pytest.mark.asyncio
+    async def test_the_switch_shows_the_archive_and_back(self, connection):
+        (s,) = await self.shelved("shelved")
+        first = await connection.open_panel()
+        assert unit(first, "Archive")["value"] is False and s not in listed(first)       # by default: the sessions of the app
+
+        shown = await connection.show_archive(True)
+        assert shown["name"] == PANEL and shown["commands"] == ["Close", "Restore", "Refresh"]
+        table = table_of(shown)
+        assert table["name"] == ARCHIVE_TABLE and table["headers"] == ["Session", "Last used", "Archived"]
+        assert [r[0] for r in table["rows"]] == [s] and table["value"] is None
+        assert unit(shown, "Archive")["value"] is True
+
+        back = await connection.show_archive(False)
+        assert back["commands"] == ["Close", "Go to", "New", "Refresh"] and table_of(back)["name"] == TABLE
+        assert unit(back, "Archive")["value"] is False and connection.session in listed(back) and s not in listed(back)
+
+    @pytest.mark.asyncio
+    async def test_a_click_in_the_archive_only_selects(self, connection):
+        """the table and the switch are two units: a click on a row is no turn of the switch"""
+        await self.shelved("one", "two")
+        await connection.open_panel()
+        user = Unishare.sessions[connection.session]
+        await connection.show_archive(True)
+        await connection.click(1, ARCHIVE_TABLE)
+        assert await settle(lambda: table_in(user.active_dialog).value == 1)
+        assert table_in(user.active_dialog).name == ARCHIVE_TABLE and user.active_dialog.value[1].value is True
+
+    @pytest.mark.asyncio
+    async def test_restore_brings_the_selected_session_back(self, connection):
+        s = sid("back")
+        save_state(s)
+        folder = make_folder(s)
+        session_registry.saved[s] = {"created": 5, "used": 6}
+        await archive_session(s)
+        await connection.open_panel()
+        shown = await connection.show_archive()
+        await connection.click(index_of(shown, s), ARCHIVE_TABLE)
+        await connection.command("Restore")
+
+        assert (await connection.next("info"))["value"] == f"Restored: {s}"
+        back = await connection.next("dialog")
+        assert table_of(back)["name"] == ARCHIVE_TABLE and table_of(back)["rows"] == []       # the archive view stays
+        assert Persist.exists(s) and (folder / "file.txt").read_text() == "x" and not Path(archive_path(s)).exists()
+        assert row(s)["created"] == 5 and row(s)["used"] == 6
+        assert listed(await connection.show_archive(False))[s]          # and it is among the sessions of the app again
+
+    @pytest.mark.asyncio
+    async def test_restore_without_a_selection_says_so_and_stays_in_the_archive(self, connection):
+        (s,) = await self.shelved("kept")
+        await connection.open_panel()
+        await connection.show_archive()
+        await connection.command("Restore")
+        assert "Select the sessions to restore" in (await connection.next("warning"))["value"]
+        back = await connection.next("dialog")
+        assert table_of(back)["name"] == ARCHIVE_TABLE and table_of(back)["value"] is None and [r[0] for r in table_of(back)["rows"]] == [s]
+        assert not Persist.exists(s)
+
+    @pytest.mark.asyncio
+    async def test_several_sessions_marked_in_the_multiple_mode_are_restored_together(self, connection):
+        a, b, keeper = await self.shelved("a", "b", "keeper")
+        await connection.open_panel()
+        shown = await connection.show_archive()
+        await connection.click([index_of(shown, a), index_of(shown, b)], ARCHIVE_TABLE)
+        await connection.command("Restore")
+        assert (await connection.next("info"))["value"] == f"Restored: {a}, {b}"
+        back = await connection.next("dialog")
+        assert [r[0] for r in table_of(back)["rows"]] == [keeper]
+        assert Persist.exists(a) and Persist.exists(b) and not Persist.exists(keeper)
+
+    @pytest.mark.asyncio
+    async def test_a_stale_list_does_not_restore_the_wrong_session(self, connection):
+        (s,) = await self.shelved("shelved")
+        await connection.open_panel()
+        await connection.show_archive()
+        await connection.click(10_000, ARCHIVE_TABLE)
+        await connection.command("Restore")
+        assert "out of date" in (await connection.next("error"))["value"]
+        assert table_of(await connection.next("dialog"))["name"] == ARCHIVE_TABLE
+        assert not Persist.exists(s) and Path(archive_path(s, "session.json")).exists()
+
+    @pytest.mark.asyncio
+    async def test_what_cannot_be_restored_is_reported_and_the_rest_goes_on(self, connection):
+        a, b = await self.shelved("blocked", "free")
+        save_state(a)                           # a session of that id is there now
+        await connection.open_panel()
+        shown = await connection.show_archive()
+        await connection.click([index_of(shown, a), index_of(shown, b)], ARCHIVE_TABLE)
+        await connection.command("Restore")
+        assert (await connection.next("info"))["value"] == f"Restored: {b}"
+        error = await connection.next("error")
+        assert a in error["value"] and "exists already" in error["value"]
+        back = await connection.next("dialog")
+        assert [r[0] for r in table_of(back)["rows"]] == [a]
+        assert Persist.exists(b) and Path(archive_path(a, "session.json")).exists()
+
+    @pytest.mark.asyncio
+    async def test_refresh_keeps_the_archive_view_and_its_selection(self, connection):
+        first, second = await self.shelved("first", "second")
+        await connection.open_panel()
+        shown = await connection.show_archive()
+        await connection.click(index_of(shown, first), ARCHIVE_TABLE)
+        await connection.command("Refresh")
+        back = await connection.next("dialog")
+        table = table_of(back)
+        assert table["name"] == ARCHIVE_TABLE and table["rows"][table["value"]][0] == first and unit(back, "Archive")["value"] is True
+
+    @pytest.mark.asyncio
+    async def test_the_basket_of_the_archive_asks_and_removes_for_good(self, connection):
+        (s,) = await self.shelved("purge")
+        await connection.open_panel()
+        shown = await connection.show_archive()
+        await connection.send([ARCHIVE_TABLE, PANEL], "delete", index_of(shown, s))
+        ask = await connection.next("dialog")
+        assert s in ask["name"] and "archived session" in ask["name"] and ask["commands"] == ["Cancel", "Delete"]
+        assert Path(archive_path(s, "session.json")).exists()          # nothing is removed yet
+
+        await connection.send(["Cancel", ask["name"]])
+        back = await connection.next("dialog")
+        assert table_of(back)["name"] == ARCHIVE_TABLE and [r[0] for r in table_of(back)["rows"]] == [s]
+
+        await connection.send([ARCHIVE_TABLE, PANEL], "delete", 0)
+        ask = await connection.next("dialog")
+        await connection.send(["Delete", ask["name"]])
+        back = await connection.next("dialog")
+        assert table_of(back)["name"] == ARCHIVE_TABLE and table_of(back)["rows"] == []      # still the archive
+        assert not Path(archive_path(s)).exists() and not Persist.exists(s)                  # gone, and not restored
+
+    @pytest.mark.asyncio
+    async def test_the_basket_of_the_archive_with_several_sessions(self, connection):
+        a, b, keeper = await self.shelved("a", "b", "keeper")
+        await connection.open_panel()
+        shown = await connection.show_archive()
+        await connection.send([ARCHIVE_TABLE, PANEL], "delete", [index_of(shown, a), index_of(shown, b)])
+        ask = await connection.next("dialog")
+        assert "2 archived sessions" in ask["name"]
+        await connection.send(["Delete", ask["name"]])
+        back = await connection.next("dialog")
+        assert [r[0] for r in table_of(back)["rows"]] == [keeper]
+
+    @pytest.mark.asyncio
+    async def test_what_the_archive_cannot_remove_is_reported(self, connection, monkeypatch):
+        import unisi.sessions as sessions_mod
+        (s,) = await self.shelved("stubborn")
+
+        def boom(path):
+            raise PermissionError(13, "Permission denied")
+        monkeypatch.setattr(sessions_mod.shutil, "rmtree", boom)
+        await connection.open_panel()
+        shown = await connection.show_archive()
+        await connection.send([ARCHIVE_TABLE, PANEL], "delete", index_of(shown, s))
+        ask = await connection.next("dialog")
+        await connection.send(["Delete", ask["name"]])
+        error = await connection.next("error")
+        assert s in error["value"] and "Permission denied" in error["value"]
+        assert [r[0] for r in table_of(await connection.next("dialog"))["rows"]] == [s]
+
+    @pytest.mark.asyncio
+    async def test_the_basket_of_the_archive_with_nothing_selected_gives_the_archive_back(self, connection):
+        await self.shelved("kept")
+        await connection.open_panel()
+        await connection.show_archive()
+        for value in (None, 10_000):
+            await connection.send([ARCHIVE_TABLE, PANEL], "delete", value)
+            assert table_of(await connection.next("dialog"))["name"] == ARCHIVE_TABLE
+
+    @pytest.mark.asyncio
+    async def test_what_the_switch_does_is_nobody_elses_business(self, app_client, connection):
+        s = sid("shared")
+        async with app_client.ws_connect(f"/ws?session={s}") as other_ws:
+            other = Client(other_ws)
+            await other.next("screen")
+            dialog = await connection.open_panel()
+            await connection.go_to(index_of(dialog, s))             # joins it
+            await connection.next("screen")
+            await connection.open_panel()
+            await connection.show_archive(True)
+            await other.send(["Save", "Root"], "changed", "ping")
+            assert await other.next() == "saved"                    # the first thing it hears is the answer to its own message
 
 
 # ── secrets stay out of the records of the server ─────────────────────────────

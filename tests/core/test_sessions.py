@@ -1,6 +1,6 @@
 """
-Tests for the session registry and the deletion of sessions: unisi/sessions.py, and
-its hooks in server.py (`make_user`) and users.py (`User.delete`).
+Tests for the session registry, the deletion and the archive of sessions: unisi/sessions.py,
+and its hooks in server.py (`make_user`) and users.py (`User.delete`).
 
 Layered like the rest of tests/core:
   * valid_id / file_times are small pure functions -- tested directly.
@@ -24,8 +24,9 @@ import unisi.sessions as sessions_mod
 from adminkit import connect, ids, make_folder, row, save_state, sid, wire
 from unisi.common import Message, Unishare
 from unisi.persist import Persist
-from unisi.sessions import (SessionError, SessionRegistry, delete_session, file_times, open_session,
-                            session_registry, valid_id)
+from unisi.sessions import (SessionError, SessionRegistry, archive_path, archive_session, archived_rows,
+                            delete_archived, delete_session, file_times, folder_info, open_session,
+                            restore_session, session_dir, session_registry, valid_id)
 from unisi.users import User
 
 pytestmark = pytest.mark.usefixtures("clean_state")
@@ -411,6 +412,458 @@ class TestDeleteSession:
         assert other.ws.closed
         assert not admin._persist_enabled()         # it is only left to be moved elsewhere
         assert not Persist.exists(s) and row(s) is None
+
+
+# ── the archive ───────────────────────────────────────────────────────────────
+def archived(session, *parts):
+    return Path(archive_path(session, *parts))
+
+
+def info_of(session):
+    return json.loads(archived(session, "session.json").read_text())
+
+
+async def archived_session(name, state=True, folder=True, dates=(1, 2)):
+    """a session that is in the archive: it had a saved state and/or a folder, and these dates"""
+    s = sid(name)
+    if state:
+        save_state(s)
+    if folder:
+        make_folder(s)
+    session_registry.saved[s] = {"created": dates[0], "used": dates[1]}
+    await archive_session(s)
+    return s
+
+
+class TestFolderInfo:
+    def test_a_session_without_a_folder(self):
+        assert folder_info(sid("none")) is None
+
+    def test_what_the_folder_holds(self):
+        s = sid("holds")
+        folder = make_folder(s)                         # file.txt: 1 byte
+        (folder / "sub").mkdir()
+        (folder / "sub" / "deep.txt").write_text("12345")
+        assert folder_info(s) == dict(files=2, size=6, link=False, more=False)
+
+    def test_an_empty_folder_is_a_folder(self):
+        s = sid("empty")
+        Path(session_dir(s)).mkdir(parents=True)
+        assert folder_info(s) == dict(files=0, size=0, link=False, more=False)
+
+    def test_a_link_is_not_followed(self, tmp_path):
+        s = sid("link")
+        (tmp_path / "elsewhere").mkdir()
+        (tmp_path / "elsewhere" / "big.bin").write_text("x" * 100)
+        try:
+            Path(session_dir(s)).symlink_to(tmp_path / "elsewhere", target_is_directory=True)
+        except OSError:
+            pytest.skip("no symlinks here")
+        assert folder_info(s) == dict(files=0, size=0, link=True, more=False)
+
+    def test_a_huge_folder_is_counted_only_so_far(self, monkeypatch):
+        monkeypatch.setattr(sessions_mod, "FOLDER_SCAN_LIMIT", 3)
+        s = sid("huge")
+        folder = make_folder(s)
+        for i in range(5):
+            (folder / f"{i}.txt").write_text("x")
+        info = folder_info(s)
+        assert info["files"] == 3 and info["more"] is True
+
+
+class TestArchiveSession:
+    @pytest.mark.asyncio
+    async def test_moves_the_state_and_the_folder_into_the_archive(self, clock):
+        clock.now = 1000.0
+        s = sid("all")
+        save_state(s)
+        base = Persist.db_path_for(s)
+        for suffix in ("-wal", "-shm"):
+            Path(base + suffix).touch()
+        content = Path(base).read_bytes()
+        folder = make_folder(s)
+        (folder / "sub").mkdir()
+        (folder / "sub" / "deep.txt").write_text("deep")
+        session_registry.saved[s] = {"created": 1, "used": 2}
+
+        await archive_session(s)
+
+        # for the app it is as if it was deleted ...
+        assert not Path(base).exists() and not Path(base + "-wal").exists() and not Path(base + "-shm").exists()
+        assert not folder.exists()
+        assert row(s) is None and s not in json.loads(Path("users", "sessions.json").read_text())
+        # ... and everything of it is in the archive
+        assert archived(s, "users", f"{s}.db").read_bytes() == content
+        assert archived(s, "users", f"{s}.db-wal").exists() and archived(s, "users", f"{s}.db-shm").exists()
+        assert (archived(s, "upload_dir") / "file.txt").read_text() == "x"
+        assert (archived(s, "upload_dir") / "sub" / "deep.txt").read_text() == "deep"
+        assert info_of(s) == dict(session=s, created=1, used=2, archived=1000.0)
+
+    @pytest.mark.asyncio
+    async def test_a_session_without_a_folder_takes_only_its_state(self):
+        s = await archived_session("state-only", folder=False)
+        assert archived(s, "users", f"{s}.db").exists() and not archived(s, "upload_dir").exists()
+
+    @pytest.mark.asyncio
+    async def test_a_session_without_a_state_takes_only_its_folder(self):
+        s = await archived_session("folder-only", state=False)
+        assert (archived(s, "upload_dir") / "file.txt").exists() and not archived(s, "users").exists()
+
+    @pytest.mark.asyncio
+    async def test_a_session_made_in_the_panel_without_any_files_leaves_only_its_info(self):
+        s = session_registry.create()
+        await archive_session(s)
+        assert row(s) is None
+        assert sorted(p.name for p in archived(s).iterdir()) == ["session.json"]
+        assert info_of(s)["session"] == s
+
+    @pytest.mark.asyncio
+    async def test_nothing_else_is_touched(self):
+        s, other = sid("mine"), sid("other")
+        for x in (s, other):
+            save_state(x)
+            make_folder(x)
+        sibling = Path("downloads", s + "-sibling")
+        sibling.mkdir()
+        await archive_session(s)
+        assert Persist.exists(other) and Path(session_dir(other)).is_dir()
+        assert sibling.is_dir() and not archived(other).exists()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad", ["", ".", "..", "../users", "a/b", "downloads/..", None, 7])
+    async def test_an_id_that_names_something_else_is_refused(self, bad):
+        with pytest.raises(SessionError, match="Invalid"):
+            await archive_session(bad)
+
+    @pytest.mark.asyncio
+    async def test_unknown_session_is_refused_and_its_folder_is_left_alone(self):
+        s = sid("stranger")
+        folder = make_folder(s)
+        with pytest.raises(SessionError, match="Unknown"):
+            await archive_session(s)
+        assert folder.is_dir() and not archived(s).exists()
+
+    @pytest.mark.asyncio
+    async def test_the_autotest_session_is_not_a_session(self):
+        with pytest.raises(SessionError):
+            await archive_session("autotest")
+
+    @pytest.mark.asyncio
+    async def test_a_session_of_the_same_id_in_the_archive_is_not_overwritten_nor_disturbed(self):
+        s = await archived_session("twice")
+        first = archived(s, "users", f"{s}.db").read_bytes()
+        save_state(s)                           # a new session of that id, with somebody working in it
+        user = wire(connect(s))
+        with pytest.raises(SessionError, match="already"):
+            await archive_session(s)
+        assert not user.ws.closed and user.sent == [] and user._persist_enabled()      # checked before anybody is disturbed
+        assert Persist.exists(s) and archived(s, "users", f"{s}.db").read_bytes() == first
+
+    @pytest.mark.asyncio
+    async def test_a_link_in_place_of_the_folder_is_moved_not_followed(self, tmp_path):
+        s = sid("link")
+        save_state(s)
+        target = tmp_path / "precious"
+        target.mkdir()
+        (target / "keep.txt").write_text("keep")
+        link = Path(session_dir(s))
+        try:
+            link.symlink_to(target, target_is_directory=True)
+        except OSError:
+            pytest.skip("no symlinks here")
+        await archive_session(s)
+        assert not link.exists() and not link.is_symlink()
+        assert archived(s, "upload_dir").is_symlink() and (target / "keep.txt").read_text() == "keep"
+        await restore_session(s)
+        assert link.is_symlink() and (target / "keep.txt").read_text() == "keep"
+        assert not archived(s).exists()
+
+    @pytest.mark.asyncio
+    async def test_a_connected_session_is_disconnected_first_and_told_why(self):
+        s = sid("connected")
+        save_state(s)
+        user = wire(connect(s))
+        user.db = Persist(s)       # it has the database open
+        conn = user.db.conn
+
+        await archive_session(s)
+
+        assert user.ws.closed
+        assert [m.type for m in user.sent] == ["error"] and "archived" in user.sent[0].value
+        assert user.db is None
+        with pytest.raises(sqlite3.ProgrammingError):
+            conn.execute("SELECT 1")        # closed, or the file could not be moved on Windows
+        assert s not in Unishare.sessions
+        assert not Persist.exists(s) and archived(s, "users", f"{s}.db").exists()
+        assert row(s) is None
+
+    @pytest.mark.asyncio
+    async def test_a_session_somebody_works_in_was_used_just_now(self, clock):
+        clock.now = 777.0
+        s = sid("busy")
+        save_state(s)
+        wire(connect(s))
+        await archive_session(s)
+        assert info_of(s)["used"] == 777.0
+
+    @pytest.mark.asyncio
+    async def test_the_archived_user_can_not_bring_the_session_back(self):
+        s = sid("zombie")
+        user = wire(connect(s))
+        await archive_session(s)
+
+        assert not user._persist_enabled()
+        user.set_key("k", "v")          # a handler that is still running saves something ...
+        assert not Persist.exists(s)    # ... to nowhere
+
+        await user.delete()             # the websocket handler's `finally`
+        assert row(s) is None and s not in session_registry.saved
+
+    @pytest.mark.asyncio
+    async def test_a_user_to_keep_loses_the_session_but_not_his_connection(self, monkeypatch):
+        s = sid("keep")
+        save_state(s)
+        monkeypatch.setattr(server_mod.config, "share", False)
+        admin, other = wire(connect(s)), wire(connect(s))
+        await archive_session(s, keep=[admin])
+        assert not admin.ws.closed and admin.sent == []
+        assert other.ws.closed
+        assert not admin._persist_enabled()
+        assert not Persist.exists(s) and row(s) is None and archived(s, "users", f"{s}.db").exists()
+
+    @pytest.mark.asyncio
+    async def test_files_that_cannot_be_moved_leave_the_session_where_it_was(self, monkeypatch):
+        s = sid("stuck")
+        save_state(s)
+        folder = make_folder(s)
+        session_registry.saved[s] = {"created": 1, "used": 2}
+        real = sessions_mod.shutil.move
+
+        def flaky(source, destination, *args, **kwargs):
+            if str(source) == str(session_dir(s)):      # the folder is the last: the state has been moved already
+                raise PermissionError(13, "Permission denied")
+            return real(source, destination, *args, **kwargs)
+        monkeypatch.setattr(sessions_mod.shutil, "move", flaky)
+
+        with pytest.raises(SessionError, match="Permission denied"):
+            await archive_session(s)
+        assert Persist.exists(s) and folder.is_dir()            # the state was moved, and moved back
+        assert not archived(s).exists()                         # no half of an archive is left
+        assert row(s) is not None and s in session_registry.saved
+
+    @pytest.mark.asyncio
+    async def test_an_info_that_cannot_be_written_puts_everything_back(self, monkeypatch):
+        s = sid("full-disk")
+        save_state(s)
+        folder = make_folder(s)
+
+        def boom(session, info):
+            raise OSError(28, "No space left on device")
+        monkeypatch.setattr(sessions_mod, "_write_info", boom)
+
+        with pytest.raises(SessionError, match="No space"):
+            await archive_session(s)
+        assert Persist.exists(s) and folder.is_dir() and not archived(s).exists()
+
+    @pytest.mark.asyncio
+    async def test_the_files_are_moved_off_the_event_loop(self, monkeypatch):
+        import threading
+        seen = []
+        real = sessions_mod._store
+
+        def spy(*args):
+            seen.append(threading.get_ident())
+            return real(*args)
+        monkeypatch.setattr(sessions_mod, "_store", spy)
+        s = sid("thread")
+        save_state(s)
+        await archive_session(s)
+        assert seen and seen[0] != threading.get_ident()
+
+
+class TestRestoreSession:
+    @pytest.mark.asyncio
+    async def test_brings_everything_back_where_it_was(self):
+        s = sid("back")
+        save_state(s)
+        base = Persist.db_path_for(s)
+        content = Path(base).read_bytes()
+        folder = make_folder(s)
+        (folder / "sub").mkdir()
+        (folder / "sub" / "deep.txt").write_text("deep")
+        session_registry.saved[s] = {"created": 11, "used": 22}
+        await archive_session(s)
+        assert row(s) is None
+
+        await restore_session(s)
+
+        assert Path(base).read_bytes() == content
+        assert (folder / "file.txt").read_text() == "x" and (folder / "sub" / "deep.txt").read_text() == "deep"
+        assert not archived(s).exists()                         # nothing of it is left in the archive
+        assert archived_rows() == []
+        found = row(s)
+        assert found["created"] == 11 and found["used"] == 22 and found["active"] is False
+        assert json.loads(Path("users", "sessions.json").read_text())[s] == {"created": 11, "used": 22}
+
+    @pytest.mark.asyncio
+    async def test_the_folder_goes_to_the_upload_dir_of_now(self, monkeypatch, tmp_path):
+        s = await archived_session("moved-dir")
+        monkeypatch.setattr(sessions_mod.config, "upload_dir", str(tmp_path / "uploads"))
+        await restore_session(s)
+        assert (tmp_path / "uploads" / s / "file.txt").read_text() == "x"
+        assert Persist.exists(s)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("state, folder", [(True, False), (False, True), (False, False)])
+    async def test_a_session_comes_back_with_what_it_had(self, state, folder):
+        s = await archived_session("parts", state=state, folder=folder)
+        await restore_session(s)
+        assert Persist.exists(s) is state and Path(session_dir(s)).is_dir() is folder
+        assert row(s) is not None and not archived(s).exists()
+
+    @pytest.mark.asyncio
+    async def test_a_restored_session_is_resumed_from_its_state(self):
+        s = await archived_session("resume", folder=False)
+        await restore_session(s)
+        db = Persist(s)
+        try:
+            assert db.conn.execute("SELECT count(*) FROM state").fetchone()[0] == 1
+        finally:
+            db.close()
+        user = open_session(s)
+        assert user.session == s and session_registry.users(s) == [user]
+
+    @pytest.mark.asyncio
+    async def test_unknown_dates_stay_unknown(self):
+        s = await archived_session("nodates", dates=(None, None))
+        await restore_session(s)
+        assert session_registry.saved[s] == {"created": None, "used": None}
+
+    @pytest.mark.asyncio
+    async def test_a_session_can_be_archived_again(self):
+        s = await archived_session("round")
+        await restore_session(s)
+        await archive_session(s)
+        assert archived(s, "session.json").exists() and not Persist.exists(s)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("how", ["state", "folder", "registry", "live"])
+    async def test_a_session_of_that_id_in_the_app_is_not_replaced(self, how):
+        s = await archived_session("taken")
+        match how:
+            case "state":
+                save_state(s)
+            case "folder":
+                make_folder(s)
+            case "registry":
+                session_registry.saved[s] = {"created": 5, "used": 6}
+            case "live":
+                wire(connect(s))
+        with pytest.raises(SessionError, match="exists already"):
+            await restore_session(s)
+        # nothing was moved: the archive is as complete as it was
+        assert archived(s, "session.json").exists() and archived(s, "users", f"{s}.db").exists()
+        assert (archived(s, "upload_dir") / "file.txt").exists()
+
+    @pytest.mark.asyncio
+    async def test_a_session_that_is_not_in_the_archive_is_refused(self):
+        with pytest.raises(SessionError, match="not in the archive"):
+            await restore_session(sid("never"))
+        stranger = Path(archive_path("stranger"))               # a folder of the archive that is not a session of ours
+        stranger.mkdir(parents=True)
+        (stranger / "users").mkdir()
+        with pytest.raises(SessionError, match="not in the archive"):
+            await restore_session("stranger")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad", ["", ".", "..", "../users", "a/b", None, 7, "autotest"])
+    async def test_an_id_that_names_something_else_is_refused(self, bad):
+        with pytest.raises(SessionError, match="Invalid"):
+            await restore_session(bad)
+
+    @pytest.mark.asyncio
+    async def test_files_that_cannot_be_moved_back_stay_in_the_archive(self, monkeypatch):
+        s = await archived_session("stays")
+        real = sessions_mod.shutil.move
+
+        def flaky(source, destination, *args, **kwargs):
+            if str(destination) == str(session_dir(s)):         # the folder is the last: the state has been moved already
+                raise PermissionError(13, "Permission denied")
+            return real(source, destination, *args, **kwargs)
+        monkeypatch.setattr(sessions_mod.shutil, "move", flaky)
+
+        with pytest.raises(SessionError, match="Permission denied"):
+            await restore_session(s)
+        assert not Persist.exists(s) and not Path(session_dir(s)).exists() and row(s) is None
+        assert archived(s, "session.json").exists() and archived(s, "users", f"{s}.db").exists()
+        assert (archived(s, "upload_dir") / "file.txt").exists()
+        assert [r["id"] for r in archived_rows()] == [s]
+
+
+class TestArchivedRows:
+    @pytest.mark.asyncio
+    async def test_the_most_recently_archived_comes_first(self, clock):
+        clock.now = 100.0
+        first = await archived_session("first", dates=(1, 2))
+        clock.now = 200.0
+        second = await archived_session("second", dates=(3, 4))
+        assert archived_rows() == [dict(id=second, created=3.0, used=4.0, archived=200.0),
+                                   dict(id=first, created=1.0, used=2.0, archived=100.0)]
+
+    def test_no_archive_no_rows(self):
+        assert archived_rows() == []
+
+    @pytest.mark.asyncio
+    async def test_what_is_not_an_archived_session_is_not_listed(self):
+        s = await archived_session("real")
+        Path(archive_path("stranger", "users")).mkdir(parents=True)     # no session.json
+        Path(archive_path("readme.txt")).write_text("notes of the administrator")
+        assert [r["id"] for r in archived_rows()] == [s]
+
+    def test_an_info_that_is_garbage_does_not_break_the_list(self):
+        Path(archive_path("odd")).mkdir(parents=True)
+        Path(archive_path("odd", "session.json")).write_text("{not json")
+        Path(archive_path("odder")).mkdir(parents=True)
+        Path(archive_path("odder", "session.json")).write_text("[1, 2]")
+        rows = {r["id"]: r for r in archived_rows()}
+        assert set(rows) == {"odd", "odder"}
+        for r in rows.values():             # the dates are not known, but the session is: when it was put aside is the file's date
+            assert r["created"] is None and r["used"] is None and r["archived"] > 0
+
+
+class TestDeleteArchived:
+    @pytest.mark.asyncio
+    async def test_removes_the_archived_session_for_good(self):
+        s = await archived_session("purge")
+        other = await archived_session("kept")
+        await delete_archived(s)
+        assert not archived(s).exists() and [r["id"] for r in archived_rows()] == [other]
+        assert not Persist.exists(s) and not Path(session_dir(s)).exists()      # and nothing came back to the app
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("bad", ["", "..", "a/b", None, 7])
+    async def test_what_is_not_in_the_archive_is_refused(self, bad):
+        with pytest.raises(SessionError, match="not in the archive"):
+            await delete_archived(bad)
+
+    @pytest.mark.asyncio
+    async def test_a_folder_that_is_not_a_session_of_ours_is_left_alone(self):
+        stranger = Path(archive_path("stranger", "users"))
+        stranger.mkdir(parents=True)
+        with pytest.raises(SessionError, match="not in the archive"):
+            await delete_archived("stranger")
+        assert stranger.is_dir()
+
+    @pytest.mark.asyncio
+    async def test_files_that_cannot_be_removed_keep_the_session_in_the_archive(self, monkeypatch):
+        s = await archived_session("stubborn")
+
+        def boom(path):
+            raise PermissionError(13, "Permission denied")
+        monkeypatch.setattr(sessions_mod.shutil, "rmtree", boom)
+        with pytest.raises(SessionError, match="Permission denied"):
+            await delete_archived(s)
+        assert [r["id"] for r in archived_rows()] == [s]
 
 
 class TestOpenSession:

@@ -567,9 +567,10 @@ Activation: always on. `admin = 'password'` in config.py sets the password of th
 
 The panel lists the sessions of the app: when each was created, when it was last used, or `active` while a client is connected to it. It is a UNISI `Dialog` of ordinary units, built and shown by the server, and it has two doors: the page `/admin` of the bundled web client (it serves no session of its own, nothing of the app is loaded for it) and the **admin** button in the toolbar of any session.
 
-- A click on a session loads it into the connection of the administrator. A session somebody works in right now is joined as one more live view (as `share` does), any other is resumed from its saved state.
-- **New** creates a session and loads it, **Refresh** reads the list again, **Close** closes the window.
-- The basket of the table deletes the selected session after a confirmation: its saved state, its working folder (`user.dir`), and its clients, who are told and disconnected. The mode button of the table switches to the multiple selection, where a click only marks a session instead of loading it, so several sessions can be deleted at once.
+- A click on a session only selects it. **Go to** loads the selected session into the connection of the administrator: a session somebody works in right now is joined as one more live view (as `share` does), any other is resumed from its saved state.
+- **New** creates a session and goes to it, **Refresh** reads the list again (the selection stays), **Close** closes the window.
+- The basket of the table asks what to do with the selected session. **Delete** removes it for good: its saved state (`users/<id>.db`) and its working folder (`<upload_dir>/<id>`, i.e. `user.dir`; the question tells what is in the folder, if there is one). **Archive** moves the same files into `archive/<id>/` instead, so that the session can be brought back. **Cancel** leaves it as it is. Either way the clients of the session are told and disconnected. The mode button of the table switches to the multiple selection, where several sessions can be marked and dealt with at once.
+- The switch **Archive** above the table shows the archive instead of the sessions of the app (`Session | Last used | Archived`). **Restore** brings the selected archived sessions back: the saved state to `users/`, the folder to `<upload_dir>/<id>`, and they are listed again with the dates they had. A session of the same id that is in the app is never replaced: delete or archive it first. The basket of the archive removes the selected sessions from it for good, after a confirmation.
 
 ```python
 # config.py
@@ -577,6 +578,16 @@ admin = 'a long secret'     # asked once per connection
 ```
 
 The password is typed into a masked field and travels only as a message of the websocket, never in an address; a wrong one is answered after a short delay. Without `admin` the panel is open to anyone who can reach the server, and it can delete sessions: **set a password** in production and serve the app over HTTPS, so that it cannot be read on the wire.
+
+The archive is a folder `archive/` in the app directory, next to `users/`, with a folder per session:
+
+```
+archive/<session>/users/<session>.db   # the saved state, with its -wal / -shm / -journal files if it had them
+archive/<session>/upload_dir/          # what was in <upload_dir>/<session>, if the session had a folder
+archive/<session>/session.json         # {"session", "created", "used", "archived"}: written last
+```
+
+A folder of `archive/` without `session.json` is not an archived session: it is neither listed nor touched. If something fails while a session is moved, whatever was moved is moved back.
 
 The list is taken from `users/sessions.json` (a session is written there when its last client leaves, if it has a saved state or a working folder, or was made in the panel) and from the saved states already in `users/`, whose dates are those of the files. Where the system keeps no creation time of a file (Linux), the creation date of such an old session is unknown, and shown empty.
 
