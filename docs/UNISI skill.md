@@ -552,7 +552,7 @@ Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm
 | `Select(name, value?, changed?, options=[])` | `type` auto: `'radio'` if ≤3 options, else `'select'`; explicit `type='list'` renders a vertical list instead |
 | `Tree(name, value?, changed?, options={child: parent})` | root items map to `parent=None` |
 | `Image(path_or_url, value=False, handler?, label='', width=300, url?)` | click toggles a selection checkmark; a right click or a click on the `label` caption opens an enlarged view (client-side, no server message) |
-| `Video(name, value?, changed?, fragments=[])` | `value = {"position": float, "play": bool, "sound": bool}` |
+| `Video(name, value?, changed?, fragments=[])` | `value = {"position": float, "play": bool, "volume": 0-100}` (legacy `"sound": bool` accepted); the client reports that dict with `changed` (~every 0.1 s while playing) once the user touched the player or the server started playback (`"play": True`, also while still loading) — spec §11 |
 | `Sound(name, value?, handler?)` | `value = {"url", "play", "position", "volume"}` |
 | `Chart(name, option, changed?)` | raw ECharts `option` dict passed as the constructor's value, stored on `.option` (`.value` becomes the current selection, not the chart data) — see §18 below; full contract in the spec §13 |
 | `HTML(name, html_string, changed?, scale?, **kwargs)` | a raw HTML/JS content container (`type='html'`); the Python side does no special handling of any kwarg beyond the base `Unit` constructor — `scale` (e.g. `1`) is a frontend-only convention that renders a slider zooming the content from 0.5× to 3.0×; with `changed` it gets every DOM event (`{type, target: {tagName, attributes, ...}}` — mouseover too, filter by `type`); late non-click events after a screen switch are dropped, not reported as a missing element |
@@ -563,6 +563,12 @@ Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm
 | `Block(name, *children, **options)` | `closable=True` gives it a `.close` that removes it from `user.screen.blocks`; `scaler=True` auto-adds a `ContentScaler` (above); any other option becomes a plain attribute for the frontend to read |
 | `ParamBlock(name, *units, changed=None, row=3, strict='recurse', persist=False, **params)` | value-type → widget mapping and reassignable `.params` — full contract in the spec §7 |
 | `Dialog(question, callback, *content, commands=['Ok','Cancel'], icon=?)` | first `commands` entry renders as primary |
+
+**`linked` — marks for what a selection refers to.** `unit.linked = True` (any element or a
+`Block`) and `table.linked = [row indexes]` (or one index) mark what the current selection in
+*another* block points at; the client tints them and scrolls them into view. A mark only — no
+selection, no focus, nothing sent back; `[]`/`False` clears it. Unrelated to `link=` tables
+(those use `value`). Full contract: spec §11, "Cross-reference marks".
 
 ---
 

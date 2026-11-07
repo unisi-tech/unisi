@@ -131,6 +131,7 @@ Important options:
 - `scaler`
 - `icon`
 - `closable`
+- `linked` — `True` marks the block as what a selection in another block refers to (§11, "Cross-reference marks")
 
 Layout rules:
 - plain sequence in `blocks` -> default orientation layout
@@ -296,10 +297,38 @@ Every unit below also accepts a common `persist` kwarg (positional `True` or a k
 - `HTML(name, html_string, changed?, scale?, edit?)`
 - `Image(name_or_url, value=False, handler=None, label="", width=300, ...)` — a click toggles `value` (selection checkmark); a right click or a click on the `label` caption opens an enlarged view in the client
 - `Video(name, value = { "position": float, "play": bool, "volume": Number},
-     changed?, fragments=[{url: str, start: float, end: float}])
-- `Sound(name, value = {'url': str, "position": float, "play": bool, "volume": Number},
+     changed?, fragments=[{url: str, start: float, end: float}])` — the client reports
+  `{position, play, volume}` with `changed` (about every 0.1 s while playing, and on every
+  pause, seek or volume change) once the user has touched the player or playback has started
+  at the server's request: `value["play"] = True` on load or later, including while the video
+  is still loading (`"play": False` sent while loading cancels it). `position` is on the
+  timeline of the fragments: a fragment whose `end` lies beyond its media stops at the media
+  end, which counts as the fragment's `end` (the stream ends at the sum of the fragment lengths)
+- `Sound(name, value = {'url': str, "position": float, "play": bool, "volume": Number}, handler?)`
 - `Graph(name, value?, changed?, nodes=[], edges=[])`
 - `Net(name, ...)` (graph of screen/block/unit topology)
+
+**Cross-reference marks — `linked`.** `unit.linked = True` marks a unit (any element, or a
+`Block`) as what the current selection in *another* block refers to — say, the text field a
+selected log message points at. `table.linked = [row indexes]` (a single index is accepted
+too) does the same for rows of a `Table`. It is a mark only: the unit's `value`, a table's
+selection and the focus stay as they are, and the client sends nothing back. Like any other
+property it is set in a handler and reaches the client by the usual change tracking (§8):
+
+```python
+def message_selected(messages, value):
+    messages.accept(value)
+    refs = REFS[value] if value is not None else None   # what the message refers to
+    data_table.linked = refs.rows if refs else []       # [] clears the mark
+    remark.linked = bool(refs and refs.remark)
+```
+
+The bundled client (`uniqua`) tints a marked element, block or table row and scrolls it into
+view if it is out of sight: an element or a block when its mark turns on; a table whenever it
+is (re)sent with linked rows — instead of jumping back to the top, as a resent table otherwise
+does. Unlike `active` (§14.2) the mark means nothing to the server. Not to be confused with
+tables linked by `link=` (§12): those show the related rows through `value` (the selection)
+or by filtering.
 
 `Table` and `Chart` are not in the list above — each takes enough
 constructor options to warrant its own section: §12 (Table) and §13
@@ -323,6 +352,8 @@ Common table options:
 - `view="i-1,2"` for chart projection
 - `multimode=True` for multi-row select
 - `max_column_length=40` (default `40`) — display-only cap on a cell's text
+- `linked=[row indexes]` — rows that a selection in another block refers to, marked and
+  scrolled into view by the client without touching the selection (§11, "Cross-reference marks")
 - `toggles=True` — boolean cells are checkboxes clickable right in the row, without
   editing mode (other cells stay read-only); a click sends `modify` with
   `{value, delta, cell}` and does not select the row. For flag columns:

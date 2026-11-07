@@ -320,7 +320,8 @@ An embedded video player with an optional set of clickable fragments.
 ```
 Video(name, value?, changed_handler?, fragments = [])
 ```
-`value` is a dict describing playback state: `{"position": seconds, "play": bool, "sound": bool}`.
+`value` is a dict describing playback state: `{"position": seconds, "play": bool, "volume": 0-100}` (the legacy `"sound": bool` is accepted too).
+The player reports this dict back to `changed_handler` while it plays and on every pause, seek or volume change — once the user has touched the player, or once playback started at the server's request (`"play": True`).
 
 ### Sound
 An embedded audio player.
@@ -448,6 +449,9 @@ def dialog_callback(current_dialog, command_button_name):
 ```
 units can be filled with Unit elements for additional dialog functionality like a Block.
 
+
+### Marking what a selection refers to
+Any unit or block accepts `linked = True`, a table accepts `linked = [row indexes]`: the client highlights them and scrolls them into view, leaving their values and the table selection untouched. Set it from the `changed` handler of the block whose selection refers to them; `False` / `[]` removes the mark. See `docs/unisi-programming-spec.md` §11 ("Cross-reference marks").
 
 ### Popup windows
 They are intended for non-blocking displaying of error messages and informing about some events, for example, incorrect user input and the completion of a long process on the server.

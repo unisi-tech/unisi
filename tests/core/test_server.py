@@ -591,6 +591,48 @@ class TestWebsocketHandler:
             assert reply == "saved"
 
     @pytest.mark.asyncio
+    async def test_a_page_that_comes_to_a_shared_session_gets_its_open_progress_window(
+        self, app_client, monkeypatch, clean_state
+    ):
+        # the window was opened by messages the new page never got: it comes after the
+        # screen (the screen closes a progress window on the client), with its commands
+        clicked = []
+        monkeypatch.setattr(server_mod.config, "share", False)
+        async with app_client.ws_connect("/ws?session=progress-1") as ws1:
+            await ws1.receive_json()
+            root = Unishare.sessions["progress-1"]
+            await root.progress("Rendering", commands=["Cancel"], on_command=clicked.append)
+            assert (await ws1.receive_json())["type"] == "progress"
+
+            monkeypatch.setattr(server_mod.config, "share", True)
+            async with app_client.ws_connect("/ws?session=progress-1") as ws2:
+                assert (await ws2.receive_json())["type"] == "screen"
+                shown = await ws2.receive_json()
+                assert (shown["type"], shown["value"], shown["commands"]) == ("progress", "Rendering", ["Cancel"])
+
+                await ws2.send_json({"path": ["Cancel", "progress"], "event": "changed", "value": None})
+                await ws2.receive()
+                assert clicked == ["Cancel"]
+
+    @pytest.mark.asyncio
+    async def test_a_progress_window_closed_by_the_answer_is_not_shown_to_a_new_page(
+        self, app_client, monkeypatch, clean_state
+    ):
+        monkeypatch.setattr(server_mod.config, "share", False)
+        async with app_client.ws_connect("/ws?session=progress-2") as ws1:
+            await ws1.receive_json()
+            await Unishare.sessions["progress-2"].progress("Working")    # reports a request
+            await ws1.receive_json()
+            await ws1.send_str(toJson({"path": ["Save", "Root"], "event": "changed", "value": "x"}))
+            assert await ws1.receive_str() == "saved"     # the answer closes it
+
+            monkeypatch.setattr(server_mod.config, "share", True)
+            async with app_client.ws_connect("/ws?session=progress-2") as ws2:
+                assert (await ws2.receive_json())["type"] == "screen"
+                await ws2.send_str(toJson({"path": ["Save", "Root"], "event": "changed", "value": "y"}))
+                assert await ws2.receive_str() == "saved"   # no progress message before it
+
+    @pytest.mark.asyncio
     async def test_empty_batch_returns_a_warning(self, app_client):
         async with app_client.ws_connect("/ws") as ws:
             await ws.receive_json()

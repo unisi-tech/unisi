@@ -824,6 +824,87 @@ class TestProgress:
         assert clicked == [] and result.type == 'error'      # a stale click: no such element
 
     @pytest.mark.asyncio
+    async def test_a_new_view_of_the_session_gets_the_open_window_and_its_commands(self, make_user, wire_send):
+        # a page that comes to a shared session while the window is open never got the
+        # messages that opened it -- the window has to be in the user it is given
+        from unisi.users import User
+        parent = make_user("home")
+        wire_send(parent)
+        clicked = []
+        await parent.progress("Rendering", commands=('Cancel',), on_command=clicked.append)
+
+        child = User("child-of-" + parent.session, share=parent)
+        msg = child.progress_message()
+        assert (msg.type, msg.value, msg.commands) == ('progress', "Rendering", ['Cancel'])
+
+        await child.process(ReceivedMessage({"path": ["Cancel", "progress"], "event": "changed", "value": None}))
+        assert clicked == ['Cancel']
+
+    @pytest.mark.asyncio
+    async def test_the_window_is_the_same_in_all_the_views(self, make_user, wire_send):
+        from unisi.users import User
+        parent = make_user("home")
+        wire_send(parent)
+        child = User("child-of-" + parent.session, share=parent)
+        wire_send(child)
+        clicked = []
+
+        await child.progress("Rendering", commands=['Cancel'], on_command=clicked.append)
+        assert parent.progress_message().value == "Rendering"
+        await parent.process(ReceivedMessage({"path": ["Cancel", "progress"], "event": "changed", "value": None}))
+        assert clicked == ['Cancel']
+
+        await parent.progress(None)
+        assert child.progress_message() is None and child.progress_handler is None
+
+    @pytest.mark.asyncio
+    async def test_a_view_that_comes_after_the_first_one_is_gone_still_gets_the_window(self, make_user, wire_send):
+        from unisi.users import User
+        parent = make_user("home")
+        wire_send(parent)
+        child = User("child-of-" + parent.session, share=parent)
+        wire_send(child)
+        await parent.delete()
+
+        await child.progress("Rendering", commands=['Cancel'])
+        # Unishare.sessions keeps the first user: the next view is made of it
+        late = User("late-of-" + parent.session, share=parent)
+        assert late.progress_message().value == "Rendering"
+
+    @pytest.mark.asyncio
+    async def test_the_answer_to_a_request_closes_a_window_without_commands(self, make_user, wire_send):
+        user = make_user()
+        wire_send(user)
+        user.reflections = []
+
+        await user.progress("Working")
+        user.request_answered()
+        assert user.progress_message() is None
+
+        await user.progress("Rendering", commands=['Cancel'])
+        user.request_answered()
+        assert user.progress_message().value == "Rendering"
+
+    @pytest.mark.asyncio
+    async def test_a_view_on_another_screen_gets_the_window(self, make_user):
+        # the window is the session's, not a screen's: with no unit of that screen in it
+        # it is still shown (and updated, closed) in a view of another screen
+        import json
+        user = make_user("home")
+        other_screen = FakeReflectionUser(object())
+        user.reflections = [user, other_screen]
+        async def send(res, persist=True):
+            return user.prepare_result(res, persist=persist)
+        user.send = send
+
+        await user.progress("Rendering", commands=['Cancel'])
+        await user.progress(None)
+
+        shown, closed = (json.loads(m) for m in other_screen.sent)
+        assert (shown["type"], shown["value"], shown["commands"]) == ('progress', "Rendering", ['Cancel'])
+        assert (closed["type"], closed["value"]) == ('progress', None)
+
+    @pytest.mark.asyncio
     async def test_notifies_the_monitor_when_active(self, make_user, wire_send, monkeypatch):
         import unisi.users as users_module
         user = make_user()

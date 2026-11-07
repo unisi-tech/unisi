@@ -24,6 +24,7 @@ class User(ModulesMixin, UserPersistMixin):
         self._init_persist()
         self.active_dialog = None
         self.progress_handler = None    # on_command of the open progress window (progress(commands=...))
+        self.progress_state = None      # (text, commands) of the progress window open on the clients
         self.last_message = None
         self.changed_units = set()
         self.touched_units = set()
@@ -38,6 +39,11 @@ class User(ModulesMixin, UserPersistMixin):
                 self.screen_module = share.screens[0] if config.mirror else share.screen_module
 
             self.handlers = share.handlers
+            # one more view of the session shows its open progress window too (see progress_message);
+            # the window is the same in all the views, `share` may be one that is gone already
+            view = share.reflections[0] if share.reflections else share
+            self.progress_state = view.progress_state
+            self.progress_handler = view.progress_handler
 
             if share.reflections:
                 share.reflections.append(self)
@@ -126,11 +132,13 @@ class User(ModulesMixin, UserPersistMixin):
                 # own screen instead of reusing self's. fill_paths4 silently
                 # drops any unit not actually present there, so a genuinely
                 # unrelated screen still ends up with nothing sent, exactly as
-                # before.
+                # before. The progress window is not a part of a screen: it is
+                # the session's, so it is shown (updated, closed) on any screen.
                 retargeted = Message(*(u['data'] for u in prepared.updates), user=user, type=prepared.type)
-                if hasattr(prepared, 'value'):
-                    retargeted.value = prepared.value
-                if retargeted.updates:
+                for attr in ('value', 'commands'):
+                    if hasattr(prepared, attr):
+                        setattr(retargeted, attr, getattr(prepared, attr))
+                if retargeted.updates or retargeted.type == 'progress':
                     await user.send(toJson(retargeted))
 
         await asyncio.gather(*(deliver(user) for user in self.reflections))
@@ -155,17 +163,42 @@ class User(ModulesMixin, UserPersistMixin):
         Dialog's; a click calls on_command(name). A window with commands reports
         background work rather than the current request, so the client keeps it
         open until progress(None) (or a progress without commands)."""
-        self.progress_handler = on_command if commands and value is not None else None
+        commands = list(commands) if commands and value is not None else None
+        # the window is the session's: every view of it shows the window and its buttons
+        # work in each of them (a click comes to the user of that view)
+        for user in self.reflections or [self]:
+            user.progress_handler = on_command if commands else None
+            user.progress_state = None if value is None else (str(value), commands)
         if not self.testing:
             msg = TypeMessage('progress', None if value is None else str(value), *updates, user = self)
-            if commands and value is not None:
-                msg.commands = list(commands)
+            if commands:
+                msg.commands = commands
             # persist=False: this is a mid-request status push, not the request's
             # real response -- see prepare_result's docstring for why a genuine
             # persist pass has to wait for that instead.
             await asyncio.gather(self.send(msg, persist=False), self.reflect(None, msg, persist=False))
             if notify_monitor:
                 await notify_monitor('e', self.session, self.last_message)
+
+    def progress_message(self):
+        """The message that shows the progress window open on the clients of the session, or
+        None: for a client that comes to the session while it is open (one more view of a
+        shared session) -- the window is shown by messages that client never got."""
+        if self.progress_state:
+            value, commands = self.progress_state
+            msg = TypeMessage('progress', value, user = self)
+            if commands:
+                msg.commands = commands
+            return msg
+
+    def request_answered(self):
+        """The response to a client message is about to go out. A progress window without
+        commands reports the request, the clients close it on any other message (see the
+        client's closeProgress), so from now on it is not open -- a window with commands
+        stays until progress(None)."""
+        if self.progress_state and not self.progress_state[1]:
+            for user in self.reflections or [self]:
+                user.progress_state = None
 
     async def delete(self):
         if self.voice:

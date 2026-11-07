@@ -304,12 +304,21 @@ async def websocket_handler(request):
             old.send = detached
             await old.delete()
             await send(True)
+            await send_progress()
+
+        async def send_progress():
+            """after the screen (it closes a progress window): the progress window open in the
+            session -- the page comes to a shared session while the window is shown by its other views"""
+            if msg := user.progress_message():
+                await send(msg, persist=False)
 
         user.send = send         
         user.ws = ws    # the admin panel disconnects the users of a deleted session
         user.switch = switch
 
         await send(True if status else empty_app) 
+        if status:
+            await send_progress()
         if isinstance(user, AdminUser): # the page /admin shows the panel at once
             await send(await open_for(user))
         try:
@@ -360,6 +369,9 @@ async def websocket_handler(request):
                                 continue
                             private = is_admin_message(user, message)
                             result = await user.result4message(message)                    
+                        # the response (and its reflect() below) closes a progress window without
+                        # commands: a page that comes to the session from now on must not get it
+                        user.request_answered()
                         prepared = await send(result)
                         if message and not private:
                             if recorder.record_file:
