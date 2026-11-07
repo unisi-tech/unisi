@@ -103,3 +103,42 @@ def test_app_path_survives_a_borrowed_cwd(tmp_path, monkeypatch):
     utils.fix_app_root()
     monkeypatch.chdir(tmp_path)                      # the library's folder
     assert utils.app_path("users", "s.db") == str(app / "users" / "s.db")
+
+
+# ── hold_reload: files changed while hot reload is held wait, the last release replays them once ──────────────
+
+@pytest.fixture
+def holding(monkeypatch):
+    replayed = []
+    monkeypatch.setattr(reloader, "held", 0)
+    monkeypatch.setattr(reloader, "queued", [])
+    monkeypatch.setattr(reloader, "replay", replayed.append)
+    return replayed
+
+
+def wait_for(replayed, n):
+    import time
+    for _ in range(100):
+        if len(replayed) >= n:
+            return
+        time.sleep(0.01)
+
+
+def test_nothing_waits_without_a_hold(holding):
+    assert reloader.deferred("a.py") is False
+    assert reloader.hold_reload(False) == 0          # a release without a hold stays at 0
+    assert holding == []
+
+
+def test_the_last_release_replays_each_changed_file_once_in_order(holding):
+    assert reloader.hold_reload(True) == 1
+    assert reloader.hold_reload(True) == 2           # a job and an agent may hold at once
+    for path in ("a.py", "b.py", "a.py"):
+        assert reloader.deferred(path) is True
+    assert reloader.hold_reload(False) == 1
+    import time
+    time.sleep(0.05)
+    assert holding == []                             # still held by the other one
+    assert reloader.hold_reload(False) == 0
+    wait_for(holding, 2)
+    assert holding == ["a.py", "b.py"] and reloader.queued == []

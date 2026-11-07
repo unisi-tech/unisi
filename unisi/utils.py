@@ -90,7 +90,8 @@ set_defaults(config,  dict(
     debug = False,
     session = None,
     image = 'icons/favicon-32x32.png',
-    admin = None      # the password of the admin panel; None - the panel has no password, False - there is no panel
+    admin = None,     # the password of the admin panel; None - the panel has no password, False - there is no panel
+    mcp = False       # the agent API (mcp.py): POST /mcp?session=<id> for local agents
 ))
 
 Screen.defaults = dict(

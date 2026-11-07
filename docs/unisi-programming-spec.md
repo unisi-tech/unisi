@@ -39,7 +39,7 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `autotest` | bool/str/list | `False` | Autotest mode: `True`/`'*'` runs every recorded fixture, a list restricts to named files |
 | `logfile` | str/None | `None` | Optional log file |
 | `mirror` | bool | `False` | New anonymous connections reflect the most recent user's session |
-| `share` | bool | `False` | Session reattachment via `?session=` |
+| `share` | bool | `False` | Session reattachment via `?session=` (with `session` set, a page without it joins that session too): every view of a session gets what a request of any of them changes — the handler's side effects included, each view those of its own screen |
 | `admin` | str/None/False | `None` | Password of the admin panel (§22). `None` — no password, the panel is open; `False` — no panel |
 | `profile` | int/float | `0` | Log a warning if a handler runs longer than this many seconds |
 | `froze_time` | int/float/None | `None` | Log a warning if a session waits longer than this many seconds (monitoring) |
@@ -56,6 +56,7 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `lang` | str | `"en-US"` | UI language |
 | `public_dirs` | list[str] | `[]` | Extra static roots |
 | `web_client` | str/None | `None` | Root dir of a custom UNISI-protocol web client to serve at `/` instead of the bundled one (still reachable at `/default`) — see §18 |
+| `mcp` | bool | `False` | The agent API: `POST /mcp?session=<id>`, an MCP server for local AI agents (§23) |
 | `image` | str | `"icons/favicon-32x32.png"` | App icon |
 | `session` | str/None | None | optional session/user id for debugging |
 | `persist` | bool | `False` | Persist every unit on every screen, globally |
@@ -276,6 +277,9 @@ async def on_dialog(dialog, command):
         ...
 ```
 
+Units a handler changes before returning a `Dialog` (a player paused for the window) are sent ahead of it in a
+message of their own: the client shows a dialog without applying updates.
+
 One dialog is open at a time: a handler returning a `Dialog` while another is open (e.g. the button
 that opens it clicked twice) replaces it on the server (`user.active_dialog`) and in the client, which
 hides the previous one without reporting it.
@@ -290,6 +294,13 @@ Every unit below also accepts a common `persist` kwarg (positional `True` or a k
 - `Edit(name, value?, changed?, **kwargs)`
 - `Text(name, ...)` (read-only label style)
 - `TextArea(name, value?, changed?, **kwargs)`
+  - `mic=True` (also on a text `Edit`): a microphone button in the field — dictation by the browser's speech
+    recognition in the screen's `lang`. Each recognized phrase is appended to the value (after a space) and reaches
+    the server as an ordinary `changed`, exactly like typing; no voice commands (unlike Voice Mate in the header),
+    so it works inside a `Dialog` too. One field listens at a time; it stops on a second click, when another field
+    starts, when the field goes away (its dialog closed) and on a microphone error (reported). No button where the
+    browser has no speech recognition (Firefox) or the field is read-only (`edit=False`). Client only: `mic` is a
+    plain unit attribute.
 - `Range(name, value?, changed?, options=[min,max,step])`
 - `Switch(name, value=False, changed?)`
 - `Select(name, value?, options=[])`
@@ -937,3 +948,43 @@ The panel lists every session of the app and lets the administrator load, create
 - **What the panel does not touch.** Its messages are private to the administrator: not reflected to the other users of a shared session, not recorded by the autotest recorder, and a password typed into a `type='password'` field is kept out of `user.last_message`.
 
 Without a password the panel is open to anyone who can reach the server; set `admin` in production, and serve the app over HTTPS.
+
+## 23. Agent API (MCP)
+
+`config.mcp = True` adds `/mcp` (`unisi/mcp.py`): an MCP server for AI agents on the same machine (local
+connections only) — the Unified Remote API for agents. Transport: MCP Streamable HTTP, one JSON-RPC message per
+`POST` with a JSON answer (no SSE stream: `GET` answers 405); `initialize`, `ping`, `tools/list`, `tools/call`,
+notifications (202); any other method (e.g. `server/discover`, which Claude Code asks first) is "Method not found".
+
+```
+claude mcp add --transport http app 'http://localhost:8000/mcp?session=<id>'
+```
+
+- **Session.** `?session=<id>` (or `config.session`). An agent works in a live session as one more view of it: a
+  tool runs in the context of the session's (first) user; the units it changes reach every view of the session at
+  once (each view gets those of its current screen), and so does a handler's answer (a message, a dialog). What a
+  person changes, the agent reads at its next call. A saved session nobody is connected to is resumed for the agent
+  without a page; a page that later connects to that session takes that user over — no second user of the session.
+- **General tools** (the session's user is not a parameter the agent gives):
+
+  | Tool | What it does |
+  | --- | --- |
+  | `ui_screens()` | the screens: `name`, `current` (the one the person sees) |
+  | `ui_view(screen='')` | the units of a screen at a glance: blocks with their units (name, type, value; a text longer than 200 characters by its size, a table by its headers, row count and selection); a dialog open in the session first. It does not switch the person's screen |
+  | `ui_get(unit, screen='')` | a unit whole, as a page gets it |
+  | `ui_set(unit, value, screen='')` | a value entered as a person would: the unit's `changed` handler runs. Answer: `{answer, changed}` — what the handler answered and the names of the changed units |
+  | `ui_push(button, screen='')` | a button pressed as a person would (the toolbar's too); answer as `ui_set`. A dialog it opens is the session's |
+  | `ui_dialog(command=None)` | the open dialog answered (`None` — closed without a command, as by Esc); the person's views close it |
+  | `code_hold(on)` | the agent's hold of hot reload while it edits the app's files (below) |
+
+- **App tools.** `tools = [fn, ...]` in a screen module: functions of that user's module instance, like handlers
+  (`user` is theirs). The input schema comes from the parameter hints — the types of `Q` (§15); no hint — any JSON
+  value; a parameter with a default is optional. The description is the docstring. The result (any JSON-serializable
+  value) goes to the agent as compact JSON with the letters themselves; an exception is answered `isError` with its
+  type and text. A screen that declares `tools` is loaded (not shown, `prepare()` not run) when the agent lists or
+  calls them, so a tool must not rely on its screen's `prepare()`.
+- **Holding hot reload.** `unisi.hold_reload(on)` counts holds: while there is one, changed files wait; the last
+  release replays each of them once. An agent holds it (`code_hold`) while it edits several files in a row, a long
+  background job while it runs — a half-edited module must not reload what the job is using.
+
+Tests: `tests/mcp/test_mcp.py`, `tests/modules/test_reloader_deps.py` (holding).

@@ -11,6 +11,7 @@ from .dbunits import dbupdates
 from .db import db 
 from .admin import AdminUser, ADMIN_PAGE, admin_enabled, is_admin_message, open_for
 from .sessions import open_session, session_registry
+from .mcp import handler as mcp_handler
 import traceback, json, random, string, os
 from urllib.parse import parse_qs
 import config
@@ -65,6 +66,10 @@ def make_user(request):
         user_id = parsed_query.get('id', [User.count])[0]
         session = f'{generate_random_string()}-{user_id}'      
           
+    if (live := Unishare.sessions.get(session)) and getattr(live, 'agent_only', False):
+        # the session an agent works in without a page (mcp.py): the page takes its user over, not a second one
+        live.agent_only = False
+        return live, live.screens
     root = None
     if config.share and 'session' in parsed_query:
         root = Unishare.sessions.get(session, None)
@@ -75,6 +80,9 @@ def make_user(request):
             with logging_lock:
                 logging.error(error)
             return None, Error(error)
+    elif config.share and config.session:
+        # the app's fixed session: a page without ?session= joins it while it lives -- not a second user of it
+        root = Unishare.sessions.get(session, None)
     if root:
         # Don't overwrite Unishare.sessions[session] (register=False): it must keep pointing
         # at `root`, the stable session every future share='session' lookup
@@ -372,6 +380,7 @@ async def websocket_handler(request):
                         # the response (and its reflect() below) closes a progress window without
                         # commands: a page that comes to the session from now on must not get it
                         user.request_answered()
+                        units = user.session_changes()      # the handler's side effects, wherever they were registered
                         prepared = await send(result)
                         if message and not private:
                             if recorder.record_file:
@@ -390,7 +399,7 @@ async def websocket_handler(request):
                             # persist=False: same reason -- changed_units/touched_units are
                             # already drained by send(result), so a real persist pass here
                             # would just be recomputing keyed-persist keys against nothing.
-                            await user.reflect(message, result, persist=False)     
+                            await user.reflect(message, result, persist=False, units=units)
                         if dbupdates:
                             await user.sync_dbupdates()                       
                 elif msg.type == WSMsgType.ERROR:
@@ -467,7 +476,8 @@ def start(user_type = User, http_handlers = None):
     User.type = user_type        
     run_tests(User.init_user())
                         #http_handlers has to be the first argument
-    server_handlers = http_handlers + [web.get('/ws', websocket_handler), 
+    agent = [web.post('/mcp', mcp_handler), web.get('/mcp', mcp_handler)] if config.mcp else []
+    server_handlers = http_handlers + agent + [web.get('/ws', websocket_handler), 
             web.static(f'/{config.upload_dir}', config.upload_dir), 
         web.get('/{tail:.*}', static_serve), web.post('/', post_handler)] 
 

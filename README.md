@@ -20,6 +20,7 @@ UNISI technology provides a unified system interface and advanced program functi
  - LLM-RAG interactions
  - Voice interaction
  - Data persistence
+ - MCP host
 
 ### Installing
 ```
@@ -517,6 +518,11 @@ Proxy(host_port, timeout = 7, ssl = False, session = '', screen = None)
 
  ‘  after a variable means it’s optional.
 The UNISI Proxy creates a user session and operates in the same manner as a browsing user.
+
+For AI agents (Claude Code and other MCP clients) the same interface is served as MCP: `mcp = True` in config.py,
+then `claude mcp add --transport http app 'http://localhost:8000/mcp?session=<id>'`. The agent works in a live
+session like one more view of it, with general tools (screens, units, input as a person's, the open dialog) and the
+app's own (`tools = [fn, ...]` of a screen module) — see the programming spec §23.
 
 For example access to UNISI Vision  :
 ```

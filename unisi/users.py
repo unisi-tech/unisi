@@ -143,13 +143,32 @@ class User(ModulesMixin, UserPersistMixin):
 
         await asyncio.gather(*(deliver(user) for user in self.reflections))
 
-    async def reflect(self, message, result, persist=True):
+    def session_changes(self) -> list:
+        """The units changed so far in the session, gathered on this view, which answers now: a unit tells the view
+        that compiled its screen (the screens of a shared session are common), whichever view's request changed it."""
+        for view in self.reflections:
+            if view is not self and view.changed_units:
+                self.changed_units |= view.changed_units
+                view.changed_units.clear()
+        return list(self.changed_units)
+
+    async def share_units(self, units, persist = False):
+        """Units a request of this view changed -> the other views of the session, each those of its own screen."""
+        for view in self.reflections:
+            if view is not self and units and (message := Message(*units, user = view)).updates:
+                await view.send(message, persist = persist)
+
+    async def reflect(self, message, result, persist=True, units=()):
         # message is None for an out-of-band reflect not tied to an incoming
         # client message (progress()'s own call below) -- nothing to check
         # screen_type on then, so that's simply not a screen-navigation message.
+        # units: what the request changed (session_changes before the answer) -- the handler's side effects,
+        # which the other views would not get otherwise; those the result carries go with it.
         if self.reflections and not (message and message.screen_type):
             if result:
                 await self.broadcast(result, persist=persist)
+            carried = result.contains if isinstance(result, Message) else (lambda unit: False)
+            await self.share_units([u for u in units if not carried(u)], persist)
             if message and not self.is_stale(message):
                 # (a stale message's path means nothing on the current screen, so it
                 # cannot be resolved to the element it was addressed to -- see is_stale)
@@ -251,9 +270,16 @@ class User(ModulesMixin, UserPersistMixin):
                 self._restore_persist_screen(screen_module)
         self._screen_has_persist = self._screen_has_persist_targets(self.screen_module)
 
+    def handling(self, message):
+        """The message the session handles now -- on all its views: a unit tells the view that compiled its screen
+        (register_changed_unit), whose echo check must see the message of the view that acts, not its own last one
+        (or none: a page that has sent nothing yet registers no change at all)."""
+        for view in self.reflections or [self]:
+            view.last_message = message
+
     async def result4message(self, message):
         result = None
-        self.last_message = message
+        self.handling(message)
         if dialog := self.active_dialog:
             if len(message.path) == 1: #dialog command button is pressed
                 self.active_dialog = None
@@ -270,6 +296,11 @@ class User(ModulesMixin, UserPersistMixin):
             result = await self.process(message)
         if result and isinstance(result, Dialog):
             self.active_dialog = result
+            if (units := self.session_changes()) and (send := getattr(self, 'send', None)):
+                # the client shows a dialog without applying updates: what the handler changed before opening
+                # it (a player paused for a remark window) goes ahead of it in its own message
+                await send(None, persist = False)
+                await self.share_units(units)
         return result
 
     async def eval_handler(self, handler, *params):

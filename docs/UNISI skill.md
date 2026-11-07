@@ -132,6 +132,7 @@ several of these.
 | `lang` | `"en-US"` | UI language |
 | `public_dirs` | `[]` | Extra static-file roots |
 | `web_client` | `None` | Root dir of a custom UNISI-protocol web client to serve at `/` instead of the bundled one, which stays reachable at `/default` — see §15 |
+| `mcp` | `False` | The agent API: `POST /mcp?session=<id>`, an MCP server for local AI agents — spec §23 |
 | `debug` | `False` | (read by the runtime; no further behavior verified here) |
 | `session` | `None` | Force a fixed session id — mainly for debugging/scripted connections |
 | `image` | `"icons/favicon-32x32.png"` | App icon |
@@ -545,7 +546,7 @@ Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm
 | `UploadButton(name, handler=None, **kwargs)` | `Button` with `type='uploader'`; default `width=250` |
 | `Edit(name, value='', changed=None, **kwargs)` | type auto-detected: `'number'` if `value` is `int`/`float`, else `'string'` |
 | `Text(name, ...)` | read-only label; `value` forced to `name`, `edit=False` |
-| `TextArea(name, value?, changed?, **kwargs)` | multi-line |
+| `TextArea(name, value?, changed?, **kwargs)` | multi-line; `mic=True` (also on a text `Edit`) — a microphone button in the field: dictation in the screen's `lang`, each phrase appended and sent as an ordinary `changed`, no voice commands, works inside a `Dialog` (spec §11) |
 | `Range(name, value=1.0, changed?, options=[min,max,step])` | default options `[value-10, value+10, 1]` if omitted |
 | `ContentScaler(name='Scale content', value=1.0, **kwargs)` | a `Range` wired to rescale a set of elements' `width`/`height`; default zoom range is `0.25`–`3.0` in steps of `0.25`; auto-created when you pass `Block(..., scaler=True)` — you rarely construct it directly |
 | `Switch(name, value=False, changed?, type?)` | `type`: `'switch'` (default) or `'check'` |
@@ -607,7 +608,14 @@ connection.
   as an additional live "reflection." All reflections stay in sync in real
   time via `user.broadcast()`; each keeps whatever screen it happens to be on.
   Use this for a second tab/device mirroring one logical session, or for the
-  Remote API driving the same session a human is watching.
+  Remote API driving the same session a human is watching. With `config.session`
+  set, a page that comes without `?session=` joins that session as well.
+  What a request changes reaches every view, the handler's side effects included:
+  a unit tells the view that compiled its screen (the screens are common), so the
+  message being handled is set on all views (`user.handling`) for the echo check
+  of `register_changed_unit`, the answering view gathers the changes of all of
+  them (`user.session_changes`) and the others get those of their own screen
+  (`user.share_units`, from `reflect`).
 - **`mirror = True`** — every new anonymous connection starts as a reflection
   of the most recently connected user (`User.last_user`), but always on that
   user's *first* screen (`screens[0]`), not wherever that user currently is —
@@ -640,6 +648,13 @@ proxy.close()
 - Full method table (`command`, `command_upload`, `element`, `elements`,
   `interact`, `screen_menu`, `set_screen`, `set_value`, `close`) is in the
   README.
+- `Proxy` is synchronous: it reads one message per request. In a shared session
+  the server pushes a person's changes to every view, and the first such push is
+  taken for the answer to the next request — the pairs drift apart for good. For
+  an AI agent working in a live session use the agent API instead (`config.mcp`,
+  spec §23): MCP tools run in the session on the server, what they change reaches
+  every view at once, and an app adds its own tools as `tools = [fn, ...]` of a
+  screen module.
 
 ---
 

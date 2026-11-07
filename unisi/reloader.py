@@ -1,7 +1,35 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
 from .autotest import config
-import re, sys
+import re, sys, threading
 from .utils import app_dir, app_path, divpath
+
+held = 0            # holds of hot reload (hold_reload): while there are any, the changed files wait in `queued`
+queued = []         # their paths in order; the last release replays them, each once
+replay = None       # what takes a changed file: the watcher's on_modified (only with hot_reload)
+_lock = threading.Lock()
+
+
+def hold_reload(on: bool) -> int:
+    """Hold hot reload (on=True) while several files are edited in a row or a long job runs -- a half-edited module
+    must not reload what the job is using -- and release it (False). The last release replays the files changed
+    meanwhile, each once, in a thread of its own as the watcher's. Returns the holds left."""
+    global held
+    with _lock:
+        held = held + 1 if on else max(held - 1, 0)
+        paths = [] if held else list(dict.fromkeys(queued))
+        if not held:
+            queued.clear()
+    if paths and replay:
+        threading.Thread(target = lambda: [replay(p) for p in paths], daemon = True).start()
+    return held
+
+
+def deferred(path) -> bool:
+    """While hot reload is held a changed file waits: True -- it is queued, the watcher leaves it for now."""
+    with _lock:
+        if held:
+            queued.append(path)
+        return bool(held)
 
 
 def imports(path, names):
@@ -138,6 +166,8 @@ else:
     class ScreenEventHandler(PatternMatchingEventHandler):    
         def on_modified(self, event):
             if event.src_path.endswith('.py') and not event.is_directory and (user := User.last_user):                            
+                if deferred(event.src_path):
+                    return
                 short_path = event.src_path[len(cwd) + 1:]
                 arr = short_path.split(divpath) 
                 name = arr[-1]
@@ -237,6 +267,7 @@ else:
                 self.on_modified(FileModifiedEvent(event.dest_path))
 
     event_handler = ScreenEventHandler()
+    replay = lambda path: event_handler.on_modified(FileModifiedEvent(path))
     observer = Observer()
     path = os.getcwd()
     observer.schedule(event_handler, path, recursive = True)
