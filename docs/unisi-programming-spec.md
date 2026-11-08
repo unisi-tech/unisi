@@ -315,6 +315,13 @@ Every unit below also accepts a common `persist` kwarg (positional `True` or a k
   is still loading (`"play": False` sent while loading cancels it). `position` is on the
   timeline of the fragments: a fragment whose `end` lies beyond its media stops at the media
   end, which counts as the fragment's `end` (the stream ends at the sum of the fragment lengths)
+  `keys = {key: button name}` (optional, e.g. `{'Enter': 'Add remark', '-': '_Ignore'}`; key —
+  `KeyboardEvent.key`): on full screen the player shows these buttons of its block (their icon and
+  tooltip, with the key) and the key presses the button — the same `changed` message as its click, so
+  the button must be in the same block. Space plays and pauses; keys belong to an open dialog or a
+  text field. Server dialogs and notifications appear over the full-screen player (Quasar
+  AppFullscreen); Esc closes the dialog, not the full screen (Chrome Keyboard Lock; a long Esc exits).
+  Colors follow the theme tokens of the client
 - `Sound(name, value = {'url': str, "position": float, "play": bool, "volume": Number}, handler?)`
 - `Graph(name, value?, changed?, nodes=[], edges=[])`
 - `Net(name, ...)` (graph of screen/block/unit topology)
