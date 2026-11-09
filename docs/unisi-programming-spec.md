@@ -35,7 +35,7 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `port` | int | `8000` | HTTP/WebSocket server port |
 | `appname` | str | `"Unisi app"` | Default app header |
 | `upload_dir` | str | `"web"` | Upload/static exposed dir |
-| `hot_reload` | bool | `False` | Reload code changes: screens, blocks and any loaded app module — a changed module is unloaded together with everything importing it (transitively, incl. blocks and screens), then the current screen reloads. In-place and atomic (temp file renamed over) saves both count. Module-level state of those modules is reset; `config.py` needs a restart |
+| `hot_reload` | bool | `False` | Reload code changes: screens, blocks and any loaded app module — a changed module is unloaded together with everything importing it (transitively, incl. blocks and screens), then the current screen reloads. In-place and atomic (temp file renamed over) saves both count. It works for the last connected page; in a shared session every view showing that screen gets it, and a closed page gives way to the view left in its session, or to the latest session that has a page. Module-level state of those modules is reset; `config.py` needs a restart |
 | `autotest` | bool/str/list | `False` | Autotest mode: `True`/`'*'` runs every recorded fixture, a list restricts to named files |
 | `logfile` | str/None | `None` | Optional log file |
 | `mirror` | bool | `False` | New anonymous connections reflect the most recent user's session |
@@ -300,7 +300,9 @@ Every unit below also accepts a common `persist` kwarg (positional `True` or a k
     so it works inside a `Dialog` too. One field listens at a time; it stops on a second click, when another field
     starts, when the field goes away (its dialog closed) and on a microphone error (reported). No button where the
     browser has no speech recognition (Firefox) or the field is read-only (`edit=False`). Client only: `mic` is a
-    plain unit attribute.
+    plain unit attribute. `mic='on'` is the same button with the field already listening as soon as it appears —
+    for a dialog opened to dictate. A button pressed while a field listens (Enter in a dialog too) ends the dictation
+    and acts once the last phrase has reached the server (at most 2 s later): what was just said is not lost.
 - `Range(name, value?, changed?, options=[min,max,step])`
 - `Switch(name, value=False, changed?)`
 - `Select(name, value?, options=[])`

@@ -1,6 +1,7 @@
 # Copyright © 2024 UNISI Tech. All rights reserved.
 from .autotest import config
 import re, sys, threading
+from .common import Redesign, Unishare
 from .utils import app_dir, app_path, divpath
 
 held = 0            # holds of hot reload (hold_reload): while there are any, the changed files wait in `queued`
@@ -74,6 +75,26 @@ def drop_dependents(user, changed):
     return bool(current) and imports(current.__file__, stale)
 
 
+def live_view(last, sessions):
+    """The user hot reload works for. `last` -- the last connected one -- may be a page closed by now: then the first
+    view left in its shared session (its root while that lives) or, with no page of that session left, the latest
+    session that has one. Compiled by the root, the new units report to the view that lives longest."""
+    if last and not last.reflections and sessions.get(last.session) is not last:
+        last = next(reversed(sessions.values()), last)
+    return last.reflections[0] if last and last.reflections else last
+
+
+def show_reloaded(user, module):
+    """A shared session after `user` reloaded `module`: its screens are common, but each view has its own copy of the
+    blocks and its own current screen -- those showing that screen switch to the new one."""
+    for view in user.reflections:
+        if view is not user:
+            view.modules = dict(user.modules)
+            if view.screen_module and view.screen_module.__file__ == module.__file__ and hasattr(view, 'send'):
+                view.set_screen(module.screen.name)
+                view.sync_send(Redesign)
+
+
 if not config.hot_reload:
     active_reloader = False
 else:
@@ -102,7 +123,7 @@ else:
             busy = False
 
     def reload(sname, changed_dependency = False):
-        user = User.last_user
+        user = live_view(User.last_user, Unishare.sessions)
         if user:
             # absolute: WanGP-like libraries chdir the whole process while they work
             with open(app_path(screens_dir, sname), "r") as file:
@@ -150,6 +171,7 @@ else:
                 user.set_clean() 
                 if hasattr(user,'send'):
                     user.sync_send(Redesign)
+                show_reloaded(user, module)
             except:
                 # Mirrors the try/except around compilation above: reload()
                 # is meant to never crash the running app, only ever log and
@@ -165,7 +187,7 @@ else:
 
     class ScreenEventHandler(PatternMatchingEventHandler):    
         def on_modified(self, event):
-            if event.src_path.endswith('.py') and not event.is_directory and (user := User.last_user):                            
+            if event.src_path.endswith('.py') and not event.is_directory and (user := live_view(User.last_user, Unishare.sessions)):
                 if deferred(event.src_path):
                     return
                 short_path = event.src_path[len(cwd) + 1:]
@@ -219,7 +241,7 @@ else:
                                 reload(current.split(divpath)[-1], changed_dependency) 
                                                     
         def on_deleted(self, event):            
-            if not event.is_directory and (user := User.last_user):                
+            if not event.is_directory and (user := live_view(User.last_user, Unishare.sessions)):
                 arr = event.src_path.split(divpath) 
                 name = arr[-1]
                 dir = arr[-2]  

@@ -118,7 +118,7 @@ several of these.
 | `port` | `8000` | HTTP/WebSocket port |
 | `appname` | `"Unisi app"` | Default header / page title |
 | `upload_dir` | `"web"` | Where uploads land; also served statically |
-| `hot_reload` | `False` | Live-reload on save — not only `screens/`/`blocks/`: any loaded app module (e.g. `generators.py`) is unloaded with everything importing it, then the current screen reloads, so no restart is needed for code changes. Module-level state of reloaded modules is reset (a process or session object held there is created anew); `config.py` needs a restart |
+| `hot_reload` | `False` | Live-reload on save — not only `screens/`/`blocks/`: any loaded app module (e.g. `generators.py`) is unloaded with everything importing it, then the current screen reloads, so no restart is needed for code changes. In a shared session every view showing that screen gets it; a closed page gives way to a live one. Module-level state of reloaded modules is reset (a process or session object held there is created anew); `config.py` needs a restart |
 | `autotest` | `False` | `False` off · `True`/`'*'` run every fixture in `autotest/` · `[...]` a specific filename list — see §16 |
 | `logfile` | `None` | Log file path; `None` = console only |
 | `mirror` | `False` | New anonymous connections start as a reflection of the most recent user — see §12 |
@@ -546,7 +546,7 @@ Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm
 | `UploadButton(name, handler=None, **kwargs)` | `Button` with `type='uploader'`; default `width=250` |
 | `Edit(name, value='', changed=None, **kwargs)` | type auto-detected: `'number'` if `value` is `int`/`float`, else `'string'` |
 | `Text(name, ...)` | read-only label; `value` forced to `name`, `edit=False` |
-| `TextArea(name, value?, changed?, **kwargs)` | multi-line; `mic=True` (also on a text `Edit`) — a microphone button in the field: dictation in the screen's `lang`, each phrase appended and sent as an ordinary `changed`, no voice commands, works inside a `Dialog` (spec §11) |
+| `TextArea(name, value?, changed?, **kwargs)` | multi-line; `mic=True` (also on a text `Edit`) — a microphone button in the field: dictation in the screen's `lang`, each phrase appended and sent as an ordinary `changed`, no voice commands, works inside a `Dialog`; `mic='on'` — listens as soon as the field appears; a button pressed meanwhile acts after the last phrase (spec §11) |
 | `Range(name, value=1.0, changed?, options=[min,max,step])` | default options `[value-10, value+10, 1]` if omitted |
 | `ContentScaler(name='Scale content', value=1.0, **kwargs)` | a `Range` wired to rescale a set of elements' `width`/`height`; default zoom range is `0.25`–`3.0` in steps of `0.25`; auto-created when you pass `Block(..., scaler=True)` — you rarely construct it directly |
 | `Switch(name, value=False, changed?, type?)` | `type`: `'switch'` (default) or `'check'` |

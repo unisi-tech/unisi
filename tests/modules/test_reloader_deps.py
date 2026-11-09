@@ -142,3 +142,62 @@ def test_the_last_release_replays_each_changed_file_once_in_order(holding):
     assert reloader.hold_reload(False) == 0
     wait_for(holding, 2)
     assert holding == ["a.py", "b.py"] and reloader.queued == []
+
+
+# ── a shared session: hot reload works for a view that lives and reaches all those showing the screen ─────────
+
+class View:
+    send = True                                      # the page is connected
+
+    def __init__(self, session = "s", file = "screens/a.py"):
+        self.session, self.reflections, self.modules, self.sent, self.opened = session, [], {}, [], []
+        self.screen_module = types.SimpleNamespace(__file__ = file)
+
+    def set_screen(self, name):
+        self.opened.append(name)
+
+    def sync_send(self, what):
+        self.sent.append(what)
+
+
+def views(*them):
+    for v in them:
+        v.reflections = list(them) if v is them[0] else them[0].reflections
+    return them
+
+
+def test_a_lone_page_is_the_one_reloaded():
+    page = View()
+    assert reloader.live_view(page, {"s": page}) is page and reloader.live_view(None, {}) is None
+
+
+def test_a_closed_last_tab_gives_way_to_the_view_left_in_its_session():
+    root, tab = views(View(), View())
+    assert reloader.live_view(tab, {"s": root}) is root              # both live: the root, it lives longest
+    root.reflections.remove(tab)                                     # as User.delete
+    assert reloader.live_view(tab, {"s": root}) is root
+
+
+def test_the_tab_left_when_the_root_is_closed():
+    root, tab = views(View(), View())
+    root.reflections.remove(root)
+    assert reloader.live_view(tab, {"s": root}) is tab
+
+
+def test_a_session_with_no_page_left_gives_way_to_the_latest_one_that_has():
+    gone, early, late = View("gone"), View("a"), View("b")
+    sessions = {"a": early, "b": late}                               # User.delete took "gone" out
+    assert reloader.live_view(gone, sessions) is late
+    root, tab = views(View("b"), View("b"))
+    assert reloader.live_view(gone, {"a": early, "b": tab}) is root  # and of that one -- its first view
+    assert reloader.live_view(gone, {}) is gone                      # no page anywhere: as before
+
+
+def test_the_reloaded_screen_reaches_the_other_views_showing_it():
+    root, same, elsewhere = views(View(), View(), View(file = "screens/b.py"))
+    root.modules = {"blocks.x": "fresh"}
+    module = types.SimpleNamespace(__file__ = "screens/a.py", screen = types.SimpleNamespace(name = "A"))
+    reloader.show_reloaded(root, module)
+    assert same.opened == ["A"] and same.sent == [reloader.Redesign] and same.modules == root.modules
+    assert elsewhere.opened == [] and elsewhere.sent == [] and elsewhere.modules == root.modules
+    assert root.sent == [] and root.opened == []                     # reload() has told its own page itself
