@@ -556,11 +556,15 @@ def _rejected_param(exc: _BadRequestError) -> str | None:
     additionally confirm this is really an "unsupported" class error before
     the caller treats it as something it knows how to fix.
     """
-    param = getattr(exc, 'param', None)
-    if not param:
-        return None
     code = (getattr(exc, 'code', None) or '').lower()
     message = (getattr(exc, 'message', None) or str(exc)).lower()
+    # Some gateways (openai-api-server-via-codex) leave param empty and name it
+    # only in the message: "Unsupported parameter: temperature".
+    param = getattr(exc, 'param', None)
+    if not param and (m := re.search(r"unsupported parameter: '?([\w.]+)", message)):
+        param = m.group(1)
+    if not param:
+        return None
     if code in ('unsupported_value', 'unsupported_parameter') or 'support' in message:
         return param
     return None
@@ -754,7 +758,9 @@ def _resolve_llm(model: str | None = None, reasoning: Any = _REASONING_UNSET) ->
     extra = dict(getattr(Unishare, 'llm_extra_body', None) or {})
     extra.pop('reasoning', None)
     if eff_reasoning:
-        extra['reasoning'] = {'effort': eff_reasoning, 'enabled': True}
+        # No 'enabled': OpenRouter infers it from effort, and the Codex
+        # backend (Responses API) rejects it as an unknown parameter.
+        extra['reasoning'] = {'effort': eff_reasoning}
     return eff_model, eff_reasoning, (extra or None)
 
 
@@ -1153,7 +1159,7 @@ def setup_llmrag() -> None:
     # --- Reasoning parameters (e.g. for OpenAI o1/o3 models) ---
     extra_body: dict = {}
     if reasoning := getattr(config, 'reasoning', None):
-        extra_body['reasoning'] = {'effort': reasoning, 'enabled': True}
+        extra_body['reasoning'] = {'effort': reasoning}
 
     # --- Provider → AsyncOpenAI client ---
     _PROVIDER_BASE_URL: dict[str, str] = {

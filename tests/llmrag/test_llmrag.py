@@ -562,6 +562,11 @@ class TestRejectedParam:
                                       message='messages is a required property')
         assert llmrag._rejected_param(exc) is None
 
+    def test_param_named_only_in_message(self):
+        # openai-api-server-via-codex: param and code are null
+        exc = make_bad_request_error(param=None, code=None, message='Unsupported parameter: temperature')
+        assert llmrag._rejected_param(exc) == 'temperature'
+
     def test_no_param_returns_none(self):
         exc = make_bad_request_error(param=None, code='invalid_request_error', message='bad request')
         assert llmrag._rejected_param(exc) is None
@@ -840,9 +845,9 @@ class TestCallLLM:
 
     @run_async
     async def test_extra_body_forwarded_when_configured(self, fake_llm):
-        Unishare.llm_extra_body = {'reasoning': {'effort': 'high', 'enabled': True}}
+        Unishare.llm_extra_body = {'reasoning': {'effort': 'high'}}
         await llmrag._call_llm('hello', str)
-        assert fake_llm.calls[0]['extra_body'] == {'reasoning': {'effort': 'high', 'enabled': True}}
+        assert fake_llm.calls[0]['extra_body'] == {'reasoning': {'effort': 'high'}}
 
     @run_async
     async def test_extra_body_absent_when_not_configured(self, fake_llm):
@@ -1260,7 +1265,7 @@ class TestSetupLlmrag:
         fake_config.llm = ['openai', 'o3']
         fake_config.reasoning = 'high'
         llmrag.setup_llmrag()
-        assert Unishare.llm_extra_body == {'reasoning': {'effort': 'high', 'enabled': True}}
+        assert Unishare.llm_extra_body == {'reasoning': {'effort': 'high'}}
 
     def test_no_reasoning_config_leaves_extra_body_none(self, fake_config, monkeypatch):
         monkeypatch.setenv('OPENAI_API_KEY', 'sk-test')
@@ -1376,36 +1381,36 @@ class TestPerCallOverrides:
     @run_async
     async def test_defaults_come_from_config(self, fake_llm):
         Unishare.llm_reasoning = 'medium'
-        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium', 'enabled': True}}
+        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium'}}
         await llmrag.Q('hi')
         call = fake_llm.calls[0]
         assert call['model'] == 'test-model'
-        assert call['extra_body'] == {'reasoning': {'effort': 'medium', 'enabled': True}}
+        assert call['extra_body'] == {'reasoning': {'effort': 'medium'}}
 
     @run_async
     async def test_reasoning_override(self, fake_llm):
         Unishare.llm_reasoning = 'medium'
-        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium', 'enabled': True}}
+        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium'}}
         await llmrag.Q('hi', reasoning='low')
-        assert fake_llm.calls[0]['extra_body'] == {'reasoning': {'effort': 'low', 'enabled': True}}
+        assert fake_llm.calls[0]['extra_body'] == {'reasoning': {'effort': 'low'}}
         assert fake_llm.calls[0]['model'] == 'test-model'
 
     @run_async
     async def test_reasoning_override_without_config_reasoning(self, fake_llm):
         await llmrag.Q('hi', reasoning='high')
-        assert fake_llm.calls[0]['extra_body'] == {'reasoning': {'effort': 'high', 'enabled': True}}
+        assert fake_llm.calls[0]['extra_body'] == {'reasoning': {'effort': 'high'}}
 
     @run_async
     async def test_reasoning_false_drops_param_but_keeps_other_extra_body(self, fake_llm):
         Unishare.llm_reasoning = 'medium'
-        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium', 'enabled': True}, 'other': 1}
+        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium'}, 'other': 1}
         await llmrag.Q('hi', reasoning=False)
         assert fake_llm.calls[0]['extra_body'] == {'other': 1}
 
     @run_async
     async def test_reasoning_false_with_nothing_else_sends_no_extra_body(self, fake_llm):
         Unishare.llm_reasoning = 'medium'
-        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium', 'enabled': True}}
+        Unishare.llm_extra_body = {'reasoning': {'effort': 'medium'}}
         await llmrag.Q('hi', reasoning=False)
         assert 'extra_body' not in fake_llm.calls[0]
 
@@ -1419,7 +1424,7 @@ class TestPerCallOverrides:
         await llmrag.Qx('raw', model='other/model', reasoning='low')
         call = fake_llm.calls[0]
         assert call['model'] == 'other/model'
-        assert call['extra_body'] == {'reasoning': {'effort': 'low', 'enabled': True}}
+        assert call['extra_body'] == {'reasoning': {'effort': 'low'}}
         assert call['messages'][0]['content'] == 'raw'
 
     @run_async
@@ -1470,7 +1475,7 @@ class TestPerCallOverrides:
         fake_config.reasoning = 'medium'
         llmrag.setup_llmrag()
         assert Unishare.llm_reasoning == 'medium'
-        assert Unishare.llm_extra_body == {'reasoning': {'effort': 'medium', 'enabled': True}}
+        assert Unishare.llm_extra_body == {'reasoning': {'effort': 'medium'}}
 
     def test_setup_without_reasoning(self, fake_config):
         fake_config.llm = ['host', 'http://localhost:1234/v1', 'NO_SUCH_ENV', 'm']

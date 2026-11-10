@@ -457,6 +457,7 @@ Must be a list or tuple of 2–4 items matching one of the shapes above —
 | Provider string | Needs |
 |---|---|
 | `'host'` | An `address` (any OpenAI-compatible endpoint: LM Studio, Ollama, LlamaCpp, OpenRouter, ...); API key optional |
+| | ChatGPT/Codex subscription: `uvx openai-api-server-via-codex`, then `('host', 'http://127.0.0.1:18080/v1', '', 'gpt-6-luna')` — bare model ids (no `openai/`), see `/v1/models`; it rejects `temperature` with an empty `param` (learned from the message) |
 | `'openai'` | `OPENAI_API_KEY` |
 | `'groq'` | `GROQ_API_KEY` |
 | `'google'` / `'gemini'` | `GOOGLE_API_KEY` |

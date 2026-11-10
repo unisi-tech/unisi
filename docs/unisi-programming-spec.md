@@ -818,7 +818,7 @@ Not to be confused with the `Image` unit (§11), which displays a picture in the
 | `model` | `None` (default) | model from `config.llm` |
 | | `str` | this model id, sent to the **same** endpoint/client as `config.llm` — must be a model that endpoint serves |
 | `reasoning` | `None` (default) | `config.reasoning` (if set) |
-| | `str` (`'low'`, `'medium'`, `'high'`, `'none'`, ...) | sent as `extra_body.reasoning = {'effort': value, 'enabled': True}` |
+| | `str` (`'low'`, `'medium'`, `'high'`, `'none'`, ...) | sent as `extra_body.reasoning = {'effort': value}` (OpenRouter and OpenAI Responses-style gateways) |
 | | `False` or `''` | no reasoning parameter is sent, even if `config.reasoning` is set; other `extra_body` keys are kept |
 
 ```python
