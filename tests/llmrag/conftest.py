@@ -144,6 +144,15 @@ class FakeBadRequestError(llmrag._BadRequestError):
         self.status_code = 400
 
 
+class FakeRateLimitError(llmrag._RateLimitError):
+    """A 429 for _call_llm's `except _RateLimitError` — built like FakeBadRequestError, without HTTP objects."""
+    def __init__(self, code: str = 'usage_limit_reached'):
+        Exception.__init__(self, f'Error code: 429 - {code}')
+        self.message, self.code, self.param, self.type = str(self), code, None, code
+        self.body = {'message': self.message, 'code': code}
+        self.status_code = 429
+
+
 def make_bad_request_error(param=None, code='unsupported_value', message=None):
     """Convenience constructor: builds a FakeBadRequestError carrying just
     the fields _rejected_param() inspects."""

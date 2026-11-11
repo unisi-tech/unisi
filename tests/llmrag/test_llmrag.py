@@ -26,7 +26,7 @@ import pytest
 import unisi.llmrag as llmrag
 from unisi.common import Unishare
 
-from conftest import make_bad_request_error, run_async
+from conftest import FakeRateLimitError, make_bad_request_error, run_async
 
 
 # A real, minimal 1x1 transparent PNG — used wherever "real" image bytes
@@ -914,6 +914,43 @@ class TestCallLLM:
         assert len(fake_llm.calls) == 1  # no retry attempted
 
     @run_async
+    async def test_rate_limit_propagates_without_a_hook(self, fake_llm):
+        fake_llm.errors = {0: FakeRateLimitError()}
+        with pytest.raises(llmrag._RateLimitError):
+            await llmrag._call_llm('hello', str)
+        assert len(fake_llm.calls) == 1
+
+    @run_async
+    async def test_rate_limit_hook_retries_the_same_request(self, fake_llm):
+        fake_llm.responses = ['after reset']
+        fake_llm.errors = {0: FakeRateLimitError(), 1: FakeRateLimitError()}
+        seen = []
+
+        async def wait(exc, retry):            # the app's wait: probe until the limit is gone
+            seen.append(exc.code)
+            while True:
+                try:
+                    return await retry()
+                except llmrag._RateLimitError:
+                    seen.append('probe')
+
+        Unishare.llm_limit = wait
+        assert await llmrag._call_llm('hello', dict(name=str)) == 'after reset'
+        assert seen == ['usage_limit_reached', 'probe'] and len(fake_llm.calls) == 3
+        assert fake_llm.calls[0] == fake_llm.calls[1] == fake_llm.calls[2]
+
+    @run_async
+    async def test_rate_limit_hook_raise_is_the_call_error(self, fake_llm):
+        fake_llm.errors = {0: FakeRateLimitError('rate_limit_exceeded')}
+
+        async def give_up(exc, retry):
+            raise RuntimeError(f'not waiting: {exc.code}')
+
+        Unishare.llm_limit = give_up
+        with pytest.raises(RuntimeError, match='not waiting: rate_limit_exceeded'):
+            await llmrag._call_llm('hello', str)
+
+    @run_async
     async def test_non_bad_request_exception_propagates(self, fake_llm):
         class Boom(Exception):
             pass
@@ -995,6 +1032,14 @@ class TestQueryCache:
         cache.set('key1', 'value1')
         time.sleep(0.1)
         assert cache.get('key1') == 'value1'
+        cache.close()
+
+    def test_no_size_eviction(self, tmp_path):
+        cache = llmrag.QueryCache(str(tmp_path / 'cache'))
+        cache._cache.reset('size_limit', 1)   # far below the data written
+        for i in range(50):
+            cache.set(f'k{i}', 'x' * 1000)
+        assert cache.get('k0') == 'x' * 1000
         cache.close()
 
     def test_close_does_not_raise(self, tmp_path):

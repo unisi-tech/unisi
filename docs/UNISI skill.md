@@ -138,7 +138,7 @@ several of these.
 | `image` | `"icons/favicon-32x32.png"` | App icon |
 | `llm` | `None` | LLM provider config — see §8 |
 | `llm_cache` | unset | Directory path — enables a persistent disk cache for `Q()`/`Qx()` |
-| `llm_cache_ttl` | `None` | Cache entry lifetime in seconds; `None` = never expires |
+| `llm_cache_ttl` | `None` | Cache entry lifetime in seconds; `None` = never expires (no size limit: diskcache's default 1 GiB eviction is off) |
 | `temperature` | `0.0` | LLM sampling temperature |
 | `strict_schema` | `True` | Whether structured `Q()` calls request strict JSON-Schema enforcement (auto-falls back per-model if a provider rejects it) |
 | `reasoning` | unset | Default effort level (e.g. `'medium'`) forwarded as `extra_body.reasoning` for reasoning models; per-call override `Q(..., reasoning=...)` (§8) |
@@ -439,6 +439,13 @@ prompt, the effective **model** and **reasoning effort** (and the images, if
 any): switching the model or `reasoning` — per call or in `config.py` — is a
 cache miss, never a replay of another configuration's answer. Entries from
 unisi < 0.7.13 (key without model/reasoning) are no longer hit.
+
+### Rate / usage limits
+
+A 429 propagates as `openai.RateLimitError` — unless the app sets
+`Unishare.llm_limit = async (exc, retry) -> response` (in a regular module, not
+a per-user block): `retry()` resends the same request, so the hook can wait out
+a usage window with `retry()` as its probe and return the response, or raise.
 
 ### Provider configuration (`config.llm`)
 

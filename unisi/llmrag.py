@@ -7,7 +7,7 @@ import base64, hashlib, json, mimetypes, os, re, types
 from typing import Any, Literal, Union, get_args, get_origin
 
 import diskcache
-from openai import AsyncOpenAI as _AsyncOpenAI, BadRequestError as _BadRequestError
+from openai import AsyncOpenAI as _AsyncOpenAI, BadRequestError as _BadRequestError, RateLimitError as _RateLimitError
 
 from .common import Unishare
 
@@ -59,7 +59,9 @@ class QueryCache:
             directory: path to the cache directory (created automatically).
             ttl: entry lifetime in seconds; None means no expiry.
         """         
-        self._cache = diskcache.Cache(directory)
+        # No size-based eviction: diskcache's default 1 GiB limit silently
+        # drops the oldest answers, which callers rely on to reproduce runs.
+        self._cache = diskcache.Cache(directory, eviction_policy='none')
         self._ttl = ttl
 
     def get(self, key: str) -> str | None:
@@ -793,8 +795,15 @@ async def _call_llm(
     fragile), a rejection is caught, the offending value is dropped, the
     model is remembered for next time, and the call is retried — up to
     twice (temperature, then strict), since a model could in principle
-    reject both. Any other error — auth, rate limits, a genuinely malformed
-    request — is never caught here and propagates normally.
+    reject both. Any other error — auth, a genuinely malformed request — is
+    never caught here and propagates normally.
+
+    A 429 (rate or usage limit) goes to the app's hook, if it set one:
+    `Unishare.llm_limit = async (exc, retry) -> response`, where retry()
+    resends this same request. The hook may wait the limit out (e.g. a
+    subscription's usage window), calling retry() as its probe; what it
+    returns is the response, what it raises is this call's error. No hook —
+    the 429 propagates as before.
 
     model / extra_body: per-call overrides, normally resolved by Q() via
     _resolve_llm. Omitted -> the config-level Unishare.llm_model /
@@ -851,6 +860,10 @@ async def _call_llm(
         try:
             response = await _acompletion(**kwargs)
             return response.choices[0].message.content
+        except _RateLimitError as exc:
+            if (hook := getattr(Unishare, 'llm_limit', None)) is None:
+                raise
+            return (await hook(exc, lambda: _acompletion(**kwargs))).choices[0].message.content
         except _BadRequestError as exc:
             param = _rejected_param(exc)
             fix_key = None

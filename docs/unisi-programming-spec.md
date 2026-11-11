@@ -48,7 +48,7 @@ Supported keys (from defaults in `unisi/utils.py`):
 | `debug` | bool | `False` | Debug flag read by the runtime |
 | `llm` | tuple/list/None | `None` | LLM provider config |
 | `llm_cache` | str (optional) | unset | Directory enabling a persistent disk cache for `Q()`/`Qx()` results; keyed by prompt, expected type, effective model and reasoning effort (§15.2) |
-| `llm_cache_ttl` | int/None | `None` | Cache entry lifetime in seconds; `None` = never expires |
+| `llm_cache_ttl` | int/None | `None` | Cache entry lifetime in seconds; `None` = never expires (no size limit: entries are never evicted) |
 | `temperature` | float | `0.0` | LLM sampling temperature |
 | `strict_schema` | bool | `True` | Whether structured `Q()` calls request strict JSON-Schema enforcement |
 | `reasoning` | str (optional) | unset | Default effort level (e.g. `'medium'`) forwarded as `extra_body.reasoning` for reasoning models; overridable per call via `Q(..., reasoning=...)` (§15.2) |
@@ -829,6 +829,8 @@ facts = await Q(prompt, dict(name=str), model='openai/gpt-6-luna-mini', reasonin
 `model` and `reasoning` are parameters, so they are not available as `{model}` / `{reasoning}` prompt placeholders. Per-model incompatibility learning (a model rejecting `temperature` or strict JSON-Schema mode is remembered and retried without it) applies to the overridden model just as to the configured one.
 
 **Cache key.** With `config.llm_cache` set, an entry is keyed by the expected type, the final prompt, the *effective* model and the *effective* reasoning effort (plus the images, when passed). A different model or effort — whether from a per-call override or from editing `config.py` — is therefore a cache miss and never replays another configuration's answer. Entries written by unisi < 0.7.13 (whose key had no model/reasoning) are not hit any more: a one-time re-query.
+
+**Rate / usage limits.** A 429 from the endpoint propagates as `openai.RateLimitError` unless the app sets a hook: `Unishare.llm_limit = async (exc, retry) -> response`. `retry()` resends the same request; the hook may wait the limit out (e.g. a subscription's 5-hour window: sleep, then `retry()` as the probe) and return its response, or raise — that becomes the call's error. Nothing extra goes to the cache: the answer is cached by `Q` as usual.
 
 LLM provider is configured through `config.llm`.
 
