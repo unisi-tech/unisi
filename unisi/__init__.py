@@ -1,5 +1,5 @@
 from .utils import *
-from .llmrag import Q, Qx
+from .llmrag import Q, Qx, llm_unavailable
 from .units import *
 from .users import User
 from .server import start, handle, test, context_user, context_screen

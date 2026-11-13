@@ -153,6 +153,13 @@ class FakeRateLimitError(llmrag._RateLimitError):
         self.status_code = 429
 
 
+class FakeConnectionError(llmrag._APIConnectionError):
+    """Endpoint unreachable (proxy down) for _call_llm's `except _APIConnectionError` — without an httpx.Request."""
+    def __init__(self):
+        Exception.__init__(self, 'Connection error.')
+        self.message, self.request = str(self), None
+
+
 def make_bad_request_error(param=None, code='unsupported_value', message=None):
     """Convenience constructor: builds a FakeBadRequestError carrying just
     the fields _rejected_param() inspects."""

@@ -830,7 +830,9 @@ facts = await Q(prompt, dict(name=str), model='openai/gpt-6-luna-mini', reasonin
 
 **Cache key.** With `config.llm_cache` set, an entry is keyed by the expected type, the final prompt, the *effective* model and the *effective* reasoning effort (plus the images, when passed). A different model or effort — whether from a per-call override or from editing `config.py` — is therefore a cache miss and never replays another configuration's answer. Entries written by unisi < 0.7.13 (whose key had no model/reasoning) are not hit any more: a one-time re-query.
 
-**Rate / usage limits.** A 429 from the endpoint propagates as `openai.RateLimitError` unless the app sets a hook: `Unishare.llm_limit = async (exc, retry) -> response`. `retry()` resends the same request; the hook may wait the limit out (e.g. a subscription's 5-hour window: sleep, then `retry()` as the probe) and return its response, or raise — that becomes the call's error. Nothing extra goes to the cache: the answer is cached by `Q` as usual.
+**Endpoint check.** `await llm_unavailable(timeout=10) -> str | None` (exported by `unisi`): None when the endpoint of `config.llm` answers `GET <base_url>/models` on the same client `Q` uses — one request, no retries; otherwise the reason for a user message (refused connection, timeout, HTTP error such as a wrong key, `'LLM is not configured (config.llm)'` before `setup_llmrag`). Opt-in: UNISI never calls it; an app calls it before a long job.
+
+**Rate / usage limits, unreachable endpoint.** A 429 from the endpoint propagates as `openai.RateLimitError`, a refused/broken connection as `openai.APIConnectionError` (timeouts: its subclass `APITimeoutError`; both after the openai client's own retries) unless the app sets a hook: `Unishare.llm_limit = async (exc, retry) -> response` — it gets both. `retry()` resends the same request; the hook may wait the limit out (e.g. a subscription's 5-hour window: sleep, then `retry()` as the probe) and return its response, or raise — that becomes the call's error. Nothing extra goes to the cache: the answer is cached by `Q` as usual.
 
 LLM provider is configured through `config.llm`.
 

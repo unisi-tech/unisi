@@ -442,10 +442,19 @@ unisi < 0.7.13 (key without model/reasoning) are no longer hit.
 
 ### Rate / usage limits
 
-A 429 propagates as `openai.RateLimitError` — unless the app sets
+A 429 propagates as `openai.RateLimitError`, an unreachable endpoint as
+`openai.APIConnectionError` (`APITimeoutError` is its subclass) — unless the app sets
 `Unishare.llm_limit = async (exc, retry) -> response` (in a regular module, not
-a per-user block): `retry()` resends the same request, so the hook can wait out
-a usage window with `retry()` as its probe and return the response, or raise.
+a per-user block): both go to it. `retry()` resends the same request, so the hook can wait out
+a usage window or a proxy restart with `retry()` as its probe and return the response, or raise.
+
+### Endpoint reachable? (`llm_unavailable`)
+
+`await llm_unavailable(timeout=10)` (exported by `unisi`) — None when the endpoint of
+`config.llm` answers `GET <base_url>/models` on the same client as `Q` (one request, no
+retries), otherwise the reason as a message string (refused connection, timeout, HTTP
+error, LLM not configured). Opt-in: nothing in UNISI calls it; an app calls it before a
+long job to report a stopped local proxy at once.
 
 ### Provider configuration (`config.llm`)
 

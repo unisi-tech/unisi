@@ -15,6 +15,7 @@ Run with:
     pip install pytest
     pytest tests/unit/test_llmrag.py -v
 """
+import asyncio
 import base64
 import json
 import os
@@ -26,7 +27,7 @@ import pytest
 import unisi.llmrag as llmrag
 from unisi.common import Unishare
 
-from conftest import FakeRateLimitError, make_bad_request_error, run_async
+from conftest import FakeConnectionError, FakeRateLimitError, make_bad_request_error, run_async
 
 
 # A real, minimal 1x1 transparent PNG — used wherever "real" image bytes
@@ -940,6 +941,23 @@ class TestCallLLM:
         assert fake_llm.calls[0] == fake_llm.calls[1] == fake_llm.calls[2]
 
     @run_async
+    async def test_unreachable_endpoint_goes_to_the_hook(self, fake_llm):
+        fake_llm.errors = {0: FakeConnectionError()}
+        with pytest.raises(llmrag._APIConnectionError):           # no hook — propagates as before
+            await llmrag._call_llm('hello', str)
+        fake_llm.responses = ['back up']
+        fake_llm.errors = {1: FakeConnectionError()}
+        seen = []
+
+        async def wait(exc, retry):
+            seen.append(type(exc).__name__)
+            return await retry()
+
+        Unishare.llm_limit = wait
+        assert await llmrag._call_llm('hello', str) == 'back up'
+        assert seen == ['FakeConnectionError'] and len(fake_llm.calls) == 3
+
+    @run_async
     async def test_rate_limit_hook_raise_is_the_call_error(self, fake_llm):
         fake_llm.errors = {0: FakeRateLimitError('rate_limit_exceeded')}
 
@@ -1527,3 +1545,33 @@ class TestPerCallOverrides:
         llmrag.setup_llmrag()
         assert Unishare.llm_reasoning is None
         assert Unishare.llm_extra_body is None
+
+
+class TestLlmUnavailable:
+    """llm_unavailable: GET <base_url>/models on the client Q uses — None when it answers, else the reason.
+    Only localhost: a free port nobody listens on, a tiny server that lists models."""
+
+    def test_reports_why_and_none_when_up(self, monkeypatch):
+        import socket
+        monkeypatch.setattr(llmrag, '_client', None)
+        assert asyncio.run(llmrag.llm_unavailable()) == 'LLM is not configured (config.llm)'
+        with socket.socket() as s:
+            s.bind(('127.0.0.1', 0))
+            port = s.getsockname()[1]
+        monkeypatch.setattr(llmrag, '_client', llmrag._AsyncOpenAI(api_key='k', base_url=f'http://127.0.0.1:{port}/v1'))
+        why = asyncio.run(llmrag.llm_unavailable())
+        assert why.startswith(f'LLM service http://127.0.0.1:{port}/v1/ is unavailable') and 'APIConnectionError' in why
+
+        async def up():
+            async def answer(reader, writer):
+                await reader.readuntil(b'\r\n\r\n')
+                body = b'{"object": "list", "data": []}'
+                writer.write(b'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: %d\r\n\r\n%s'
+                             % (len(body), body))
+                await writer.drain()
+                writer.close()
+            async with await asyncio.start_server(answer, '127.0.0.1', 0) as server:
+                url = f'http://127.0.0.1:{server.sockets[0].getsockname()[1]}/v1'
+                monkeypatch.setattr(llmrag, '_client', llmrag._AsyncOpenAI(api_key='k', base_url=url))
+                return await llmrag.llm_unavailable()
+        assert asyncio.run(up()) is None

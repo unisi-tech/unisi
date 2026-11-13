@@ -7,12 +7,14 @@ import base64, hashlib, json, mimetypes, os, re, types
 from typing import Any, Literal, Union, get_args, get_origin
 
 import diskcache
-from openai import AsyncOpenAI as _AsyncOpenAI, BadRequestError as _BadRequestError, RateLimitError as _RateLimitError
+from openai import (AsyncOpenAI as _AsyncOpenAI, BadRequestError as _BadRequestError, RateLimitError as _RateLimitError,
+                    APIConnectionError as _APIConnectionError)
 
 from .common import Unishare
 
 # Populated by setup_llmrag(). None until initialised.
 _acompletion = None
+_client = None          # AsyncOpenAI of config.llm (setup_llmrag): llm_unavailable probes the same endpoint
 
 
 def _log(message: str, type: str = 'error') -> None:
@@ -798,12 +800,13 @@ async def _call_llm(
     reject both. Any other error — auth, a genuinely malformed request — is
     never caught here and propagates normally.
 
-    A 429 (rate or usage limit) goes to the app's hook, if it set one:
-    `Unishare.llm_limit = async (exc, retry) -> response`, where retry()
-    resends this same request. The hook may wait the limit out (e.g. a
-    subscription's usage window), calling retry() as its probe; what it
-    returns is the response, what it raises is this call's error. No hook —
-    the 429 propagates as before.
+    A 429 (rate or usage limit) or an unreachable endpoint (APIConnectionError,
+    timeouts included — after the openai client's own retries) goes to the app's
+    hook, if it set one: `Unishare.llm_limit = async (exc, retry) -> response`,
+    where retry() resends this same request. The hook may wait it out (e.g. a
+    subscription's usage window, a local proxy being restarted), calling retry()
+    as its probe; what it returns is the response, what it raises is this call's
+    error. No hook — the error propagates as before.
 
     model / extra_body: per-call overrides, normally resolved by Q() via
     _resolve_llm. Omitted -> the config-level Unishare.llm_model /
@@ -860,7 +863,7 @@ async def _call_llm(
         try:
             response = await _acompletion(**kwargs)
             return response.choices[0].message.content
-        except _RateLimitError as exc:
+        except (_RateLimitError, _APIConnectionError) as exc:
             if (hook := getattr(Unishare, 'llm_limit', None)) is None:
                 raise
             return (await hook(exc, lambda: _acompletion(**kwargs))).choices[0].message.content
@@ -1112,6 +1115,28 @@ _GEMINI_SAFETY_SETTINGS = [
 ]
 
 
+async def llm_unavailable(timeout: float = 10) -> str | None:
+    """
+    Why the configured LLM endpoint (config.llm) can't be used right now, for
+    a message to the user — or None when it answers. Meant for an app to call
+    before a long job (optional: nothing in UNISI calls it), so a stopped
+    local proxy is reported up front instead of surfacing as every Q() failing.
+
+    The probe is GET <base_url>/models on the same client Q() uses (same
+    address, key, provider): one request, no retries, `timeout` seconds. Any
+    failure — refused connection, timeout, an HTTP error such as a wrong key
+    — is the reason. No LLM configured (setup_llmrag not run or config.llm
+    absent) — that is the reason too.
+    """
+    if _client is None:
+        return 'LLM is not configured (config.llm)'
+    try:
+        await _client.with_options(max_retries=0, timeout=timeout).models.list()
+    except Exception as e:
+        return f'LLM service {_client.base_url} is unavailable: {e!r}'
+    return None
+
+
 def setup_llmrag() -> None:
     """
     Initialises the LLM provider from config.llm.
@@ -1201,7 +1226,7 @@ def setup_llmrag() -> None:
         _log(f'Unknown LLM provider: {provider}')
         return
 
-    global _acompletion
+    global _acompletion, _client
     _client = _AsyncOpenAI(api_key=api_key, base_url=base_url)
     _acompletion = _client.chat.completions.create
 
