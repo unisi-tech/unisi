@@ -85,13 +85,17 @@ def live_view(last, sessions):
 
 
 def show_reloaded(user, module):
-    """A shared session after `user` reloaded `module`: its screens are common, but each view has its own copy of the
-    blocks and its own current screen -- those showing that screen switch to the new one."""
+    """A shared session after `user` reloaded `module`: each view has its own copy of the blocks, its own list of the
+    screens compiled with them and its own current screen. The others get the new blocks and the new screens together: with
+    the blocks alone a view kept the old screen, whose blocks looked their units up among the new blocks and found
+    nothing (persist_location -> None; the agent's tools of vidcreator failed so). Those showing the reloaded screen, or one
+    the reload dropped as stale, open it anew."""
     for view in user.reflections:
         if view is not user:
-            view.modules = dict(user.modules)
-            if view.screen_module and view.screen_module.__file__ == module.__file__ and hasattr(view, 'send'):
-                view.set_screen(module.screen.name)
+            view.modules, view.screens = dict(user.modules), list(user.screens)
+            current = view.screen_module
+            if current and hasattr(view, 'send') and (current.__file__ == module.__file__ or current not in view.screens):
+                view.set_screen(current.screen.name)
                 view.sync_send(Redesign)
 
 

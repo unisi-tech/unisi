@@ -118,7 +118,7 @@ several of these.
 | `port` | `8000` | HTTP/WebSocket port |
 | `appname` | `"Unisi app"` | Default header / page title |
 | `upload_dir` | `"web"` | Where uploads land; also served statically |
-| `hot_reload` | `False` | Live-reload on save — not only `screens/`/`blocks/`: any loaded app module (e.g. `generators.py`) is unloaded with everything importing it, then the current screen reloads, so no restart is needed for code changes. In a shared session every view showing that screen gets it; a closed page gives way to a live one. Module-level state of reloaded modules is reset (a process or session object held there is created anew); `config.py` needs a restart |
+| `hot_reload` | `False` | Live-reload on save — not only `screens/`/`blocks/`: any loaded app module (e.g. `generators.py`) is unloaded with everything importing it, then the current screen reloads, so no restart is needed for code changes. In a shared session every view gets the new blocks together with the new screens (with the blocks alone it kept the old screen, and `persist_location` of its units returned None), and every view showing that screen, or one dropped as stale, opens it anew; a closed page gives way to a live one. Module-level state of reloaded modules is reset (a process or session object held there is created anew); `config.py` needs a restart |
 | `autotest` | `False` | `False` off · `True`/`'*'` run every fixture in `autotest/` · `[...]` a specific filename list — see §16 |
 | `logfile` | `None` | Log file path; `None` = console only |
 | `mirror` | `False` | New anonymous connections start as a reflection of the most recent user — see §12 |

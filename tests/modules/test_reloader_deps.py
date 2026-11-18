@@ -151,7 +151,8 @@ class View:
 
     def __init__(self, session = "s", file = "screens/a.py"):
         self.session, self.reflections, self.modules, self.sent, self.opened = session, [], {}, [], []
-        self.screen_module = types.SimpleNamespace(__file__ = file)
+        self.screen_module = types.SimpleNamespace(__file__ = file, screen = types.SimpleNamespace(name = file[8:-3].upper()))
+        self.screens = [self.screen_module]
 
     def set_screen(self, name):
         self.opened.append(name)
@@ -195,9 +196,22 @@ def test_a_session_with_no_page_left_gives_way_to_the_latest_one_that_has():
 
 def test_the_reloaded_screen_reaches_the_other_views_showing_it():
     root, same, elsewhere = views(View(), View(), View(file = "screens/b.py"))
-    root.modules = {"blocks.x": "fresh"}
     module = types.SimpleNamespace(__file__ = "screens/a.py", screen = types.SimpleNamespace(name = "A"))
+    root.modules, root.screens = {"blocks.x": "fresh"}, [module, elsewhere.screen_module]
     reloader.show_reloaded(root, module)
     assert same.opened == ["A"] and same.sent == [reloader.Redesign] and same.modules == root.modules
     assert elsewhere.opened == [] and elsewhere.sent == [] and elsewhere.modules == root.modules
     assert root.sent == [] and root.opened == []                     # reload() has told its own page itself
+
+
+def test_the_other_views_get_the_new_screens_with_the_new_blocks():
+    """With the blocks alone a view kept its old screen, whose blocks found their units nowhere among the new blocks
+    (persist_location -> None: vidcreator's agent tools failed after a reload). It gets the new screens too; one whose
+    current screen the reload dropped as stale opens it anew."""
+    root, same, dropped = views(View(), View(), View(file = "screens/b.py"))
+    module = types.SimpleNamespace(__file__ = "screens/a.py", screen = types.SimpleNamespace(name = "A"))
+    root.modules, root.screens = {"blocks.x": "fresh"}, [module]          # b.py imported a stale block: dropped
+    old = same.screen_module
+    reloader.show_reloaded(root, module)
+    assert same.screens == [module] and same.screens[0] is module is not old and same.modules == root.modules
+    assert dropped.screens == [module] and dropped.opened == ["B"] and dropped.sent == [reloader.Redesign]
