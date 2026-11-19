@@ -187,6 +187,28 @@ blocks = [b1,b2], [b3, [b4, b5]]
 #[b1,b2] - the first vertical area, [b3, [b4, b5]] - the second one.
 ![image](https://github.com/user-attachments/assets/16ab9909-08b3-429e-9205-9b388b10aba7)
 
+#### Collapsing blocks
+The web client lets the user put a block away: the button in the block header folds it (with an animation), a click on what is left of it opens it again. This is the client's own business: nothing is sent to the server, and the choice is remembered in the browser for each screen, also after a page reload.
+- a collapsed block with an open block beside it (in the same row) becomes a vertical **strip**; with no open neighbour in its row it becomes a **bar**; blocks stacked in a column, and every block in a narrow window (under 600px), become bars as wide as the column.
+- a strip or a bar shows the block icon, its name and its state: `check_circle` when some field of the block (`Edit`, `Select`, `Switch`, ...) has a value, `radio_button_unchecked` when it has fields and all of them are empty, nothing when it has no field to fill (a table, a chart, buttons). The icon is the block's `icon`; without it a block that holds blocks gets `space_dashboard`, any other block gets `square`. A name that begins with `_` is not written on the strip or the bar.
+- the pointer resting on a strip or a bar shows the block itself in a pop-up beside it, without opening it; a click opens it.
+- every block can be put away this way, and there is nothing to switch on. A `Dialog` is the exception: the server shows it and closes it, so it is never collapsed.
+
+#### Accordion
+A block that holds blocks can keep one of them open and fold the others, as the panels of an accordion do. It is asked for with the `select` option of the block that holds them:
+```
+docs = Block('Docs', [],        # [] : nothing in the header
+    [Block('Overview', [], [title, owner], summary, icon = 'info'),   # a list inside: a row of blocks
+     Block('Details', [], [region, year], notes, icon = 'list_alt'),
+     Block('History', [], changes, icon = 'history')],
+    select = True)
+```
+- `select = True` - the block that the user opened last is open (the web client remembers that for each screen); while the user has opened none, the first block is open.
+- `select = 'Details'` - the block with this name is open (the first one, if no block has such a name).
+- a click on a strip or a bar opens that block and folds the open one, with the same animation. The web client does **not** tell the server which block is open.
+- the server opens a block by changing the option: `docs.select = 'History'`. The block is sent again, and when `select` has changed to the name of one of its blocks the client opens that block, whatever the user has opened before. `True`, a name that no block of it has and the same name again leave things as they are. To open the block of the same name once more after the user has opened another one, set another value first (`True`, for one).
+- only the blocks that stand in the rows of the block (or in its header) count; blocks deeper inside are not looked into. A block of an accordion that holds blocks can have an accordion of its own.
+
 ### ParamBlock
 ParamBlock(name, *units, changed = None, row = 3, strict = 'recurse', persist = False, **parameters)
 

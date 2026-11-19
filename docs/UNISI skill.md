@@ -578,7 +578,7 @@ Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm
 | `Net(name, value?, topology=None, **kwargs)` | a `Graph` auto-built from a topology of *Units* (screen/block/unit map) instead of manual nodes/edges |
 | `Table(name, value?, changed?, **kwargs)` | see §6; `view=` chart projection → §18; DB-backed mode → `persistent_tables.md` |
 | `Table(name, panda=df, **kwargs)` | pandas-backed (`PandaTable`) — same append/delete/modify hooks, operating on the DataFrame |
-| `Block(name, *children, **options)` | `closable=True` gives it a `.close` that removes it from `user.screen.blocks`; `scaler=True` auto-adds a `ContentScaler` (above); any other option becomes a plain attribute for the frontend to read |
+| `Block(name, *children, **options)` | `closable=True` gives it a `.close` that removes it from `user.screen.blocks`; `scaler=True` auto-adds a `ContentScaler` (above); `select=True` / `select='Name'` makes the blocks in it an accordion (below); any other option becomes a plain attribute for the frontend to read |
 | `ParamBlock(name, *units, changed=None, row=3, strict='recurse', persist=False, **params)` | value-type → widget mapping and reassignable `.params` — full contract in the spec §7 |
 | `Dialog(question, callback, *content, commands=['Ok','Cancel'], icon=?)` | first `commands` entry renders as primary |
 
@@ -587,6 +587,17 @@ Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm
 *another* block points at; the client tints them and scrolls them into view. A mark only — no
 selection, no focus, nothing sent back; `[]`/`False` clears it. Unrelated to `link=` tables
 (those use `value`). Full contract: spec §11, "Cross-reference marks".
+
+**Collapsing and the accordion — `select`.** The web client lets the user fold every block into a
+strip or a bar and open it again with a click (the pointer resting on one shows the block in a pop-up); there is
+nothing to switch on (dialogs are never folded). `select` on a block that holds blocks makes it
+an accordion: `select=True` — one nested block is open, the one the user opened last (kept in the browser per screen),
+the first until then, and the others are folded; `select='Details'` — that block is open. Both are browser-only: the
+server gets no message and never learns what is collapsed or open. The server opens a block with
+`docs.select = 'History'`, which counts when the value *changes* to a nested block's name — `True`, an unknown name or
+the same name again leave things as they are (set another value first to bring the same name back). The blocks of an
+accordion are those in the rows (or the header) of the block, so a row of them is a list:
+`Block('Docs', [], [b1, b2, b3], select=True)` (the first child is the header, `[]` for none). Full contract: spec §6.1.
 
 ---
 

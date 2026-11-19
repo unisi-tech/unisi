@@ -133,6 +133,8 @@ Important options:
 - `icon`
 - `closable`
 - `linked` — `True` marks the block as what a selection in another block refers to (§11, "Cross-reference marks")
+- `select` — `True` or the name of a nested block: the block keeps one of the blocks in it open and collapses the
+  others, as an accordion does (§6.1)
 
 Layout rules:
 - plain sequence in `blocks` -> default orientation layout
@@ -147,6 +149,74 @@ Example from tests:
 ```python
 blocks = [[block_a, block_b], config_area]
 ```
+
+### 6.1 Collapsing blocks and the accordion (`select`)
+
+Both belong to the bundled client (`uniqua`). Collapsing needs nothing from the server, and the accordion is asked for
+by the block option `select` (above); what is collapsed, and which block of an accordion is open, lives in the
+browser, and **no message about it is ever sent to the server** (a custom client, §18, may leave both out).
+
+**Collapsing.** Every block has a collapse button (`unfold_less`) in its header, and there is nothing to switch on. It folds the block, with an
+animation, into one of three forms, chosen by what stands around it:
+
+- a vertical **strip**, as high as its row, when a block in the same row (in the screen area, or in the block that
+  holds it) is open;
+- a **bar**, as wide as its icon, name and state need, when it has no open neighbour: it is alone, or all the blocks
+  of its row are collapsed (the bars of a row go one after another, in the order of the blocks);
+- a bar **as wide as the column** for blocks stacked one under another, and for every block in a window narrower
+  than 600px.
+
+A strip or a bar shows the icon of the block (`icon`; by default `space_dashboard` for a block that holds blocks and
+`square` for any other), its name (not when the name begins with `_`) and its state: `check_circle` when some field
+of the block has a value, `radio_button_unchecked` when it has fields and all of them are empty, nothing when it has
+no field to fill (a table, a chart, buttons, shown text). A click on a strip or a bar, or Enter/Space on it, opens
+the block. The pointer resting on one for a moment shows the block itself in a pop-up beside (or under) it, without
+opening it (what is typed in its fields is kept); a click in the pop-up on the name or the icon of the block opens it
+for good.
+
+What is collapsed is stored in the browser for each screen (key `collapse:<screen name>`) and put back when the
+screen is shown again, a page reload included. A `Dialog` is the one thing that is never collapsed: the server shows
+it and closes it.
+
+**Accordion.** A `Block` that holds blocks in its rows (or in its header) becomes an accordion with the `select`
+option:
+
+| `select` | the open block |
+|---|---|
+| `True` | the one that the user opened last (kept in the browser, for each screen); the first block while the user has opened none |
+| a block name, `'Details'` | that block; the first block if no nested block has this name |
+| missing, `False`, `''`, `0` | no accordion: every block can be collapsed on its own |
+
+The blocks of the accordion are those of the rows (and of the header) of the block. Blocks deeper inside are not
+looked into; a nested block that holds blocks may have a `select` of its own. All the blocks but the open one are
+collapsed and drawn by the rules above: strips beside the open block when they stand in one row with it (the row
+goes in a line then, and the open block takes the room that the strips leave), bars where no block of their row is
+open, bars of the width of the column in a column and in a narrow window. The open block has no collapse button, as
+one block is always open. A click on a strip or a bar (or on the name or the button of the block in its pop-up) opens
+that block and collapses the open one, in one animation.
+
+The choice is the browser's. For `select = True` it is stored with the collapsed state of the screen (the entry
+gets `"a": {"<path of the block that holds the blocks>": "<name of the open block>"}`); for `select = 'Name'` it is
+not stored: the server's name is what is drawn each time the block is drawn, a page reload included.
+
+The server opens a block by changing the option in a handler, as it changes any attribute (§8):
+
+```python
+def show_history(*_):
+    docs.select = 'History'     # History opens (animated), whatever the user has opened before
+
+docs = Block('Docs', [Button('Show history', show_history)],      # the header
+    [Block('Overview', [], [title, owner], summary, icon = 'info'),   # a list inside: a row of blocks
+     Block('Details', [], [region, year], notes, icon = 'list_alt'),
+     Block('History', [], changes, icon = 'history')],
+    select = True)
+```
+
+The block is sent again as usual, and the client opens the block that the new `select` names when `select` is another
+value than it was and the name is that of a nested block. `True`, a name that no nested block has, and the same name
+again leave the open block as it is, so, to bring a name back after the user has opened another block, give another
+value first (`True`, for one). `docs.select` on the server is what the server last set, not what the user has opened:
+the server is not told.
 
 ## 7. ParamBlock Specification
 

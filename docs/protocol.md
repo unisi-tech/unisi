@@ -72,6 +72,12 @@ or a handler returning `True`/`Redesign`).
 - Every field a handler is set for (`changed`, `delete`, `append`, ...)
   serializes as the boolean `true`, never the function itself — the client
   only needs to know *that* an event is handled, not by what.
+- A `Block`'s extra constructor options arrive as plain fields of the block object (`"scroll": true`,
+  `"icon": "api"`, `"select": "Details"` ...); the protocol gives them no meaning,
+  what a client does with them is the client's business. The bundled client folds a block into a strip or a bar
+  on a click and keeps one nested block of a block with `select` open, as an accordion does (spec §6.1). Which blocks are
+  collapsed, and which one is open, never leaves the browser: no message of 4 carries it. To open a block of an
+  accordion the server changes `select` (a new `update` of the block, 3.2).
 - `admin` is `true` when the server has the admin panel (always, unless
   `admin = False` in `config.py`): a client then shows an **admin** button
   that sends `["admin"]` (4.3).
@@ -335,3 +341,9 @@ exactly this protocol against `/ws` to actually work as a UNISI client.
 `/default` always keeps serving the bundled reference client regardless, so
 it stays available to compare wire traffic against a known-correct
 implementation.
+
+Block fields such as `scroll`, `width`, `linked` and `select` ask nothing of a
+custom client: the protocol does not say what to do with them, and a client that leaves
+them out (or reads them its own way) stays a correct client. The reference client's
+collapsing of blocks and its accordion (`select`, spec §6.1) are such a behavior: they are
+kept in the browser and nothing about them is sent to the server.
