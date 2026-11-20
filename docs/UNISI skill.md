@@ -554,11 +554,11 @@ Notes:
 
 ## 10. Widget Quick Reference
 
-Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm=` (§8).
+Every constructor below also accepts `persist=` (§9), `tooltip=` (a hint; see below) and, except `Button`, `llm=` (§8).
 
 | Constructor | Notes |
 |---|---|
-| `Button(name, handler=None, **kwargs)` | `type='command'`; name starting with `_` hides the label (icon-only) |
+| `Button(name, handler=None, **kwargs)` | `type='command'`; name starting with `_` hides the label (icon-only, so give it a `tooltip=`: a button shows it at once) |
 | `CameraButton(name, handler=None, **kwargs)` | `Button` with `type='camera'` |
 | `UploadButton(name, handler=None, **kwargs)` | `Button` with `type='uploader'`; default `width=250` |
 | `Edit(name, value='', changed=None, **kwargs)` | type auto-detected: `'number'` if `value` is `int`/`float`, else `'string'` |
@@ -578,7 +578,7 @@ Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm
 | `Net(name, value?, topology=None, **kwargs)` | a `Graph` auto-built from a topology of *Units* (screen/block/unit map) instead of manual nodes/edges |
 | `Table(name, value?, changed?, **kwargs)` | see §6; `view=` chart projection → §18; DB-backed mode → `persistent_tables.md` |
 | `Table(name, panda=df, **kwargs)` | pandas-backed (`PandaTable`) — same append/delete/modify hooks, operating on the DataFrame |
-| `Block(name, *children, **options)` | `closable=True` gives it a `.close` that removes it from `user.screen.blocks`; `scaler=True` auto-adds a `ContentScaler` (above); `select=True` / `select='Name'` makes the blocks in it an accordion (below); any other option becomes a plain attribute for the frontend to read |
+| `Block(name, *children, **options)` | `closable=True` gives it a `.close` that removes it from `user.screen.blocks`; `scaler=True` auto-adds a `ContentScaler` (above); `select=True` / `select='Name'` makes the blocks in it an accordion (below); `tooltip='text'` is a hint shown when the pointer rests on the block's name; any other option becomes a plain attribute for the frontend to read |
 | `ParamBlock(name, *units, changed=None, row=3, strict='recurse', persist=False, **params)` | value-type → widget mapping and reassignable `.params` — full contract in the spec §7 |
 | `Dialog(question, callback, *content, commands=['Ok','Cancel'], icon=?)` | first `commands` entry renders as primary |
 
@@ -587,6 +587,16 @@ Every constructor below also accepts `persist=` (§9) and, except `Button`, `llm
 *another* block points at; the client tints them and scrolls them into view. A mark only — no
 selection, no focus, nothing sent back; `[]`/`False` clears it. Unrelated to `link=` tables
 (those use `value`). Full contract: spec §11, "Cross-reference marks".
+
+**`tooltip` — hints.** `Unit(..., tooltip='text')` on any unit (a `Button` too) or `Block`; set or changed in a
+handler like any attribute (`unit.tooltip = '...'`; `''` or `None` removes it) and it reaches the client by the usual
+change tracking. The bundled client shows it once the pointer has rested on the unit for 0.5 s: for a `Block`, `Table`,
+`Tree`, `Select(type='list')` or `TextArea` on the **name**, above it; for any other element on the **element**, below it
+(above it where there is no room) — so it does not lie over the data. A `Button`'s hint comes at once. A name that begins
+with `_` is not shown, so a tree, list, text area or table with one shows the hint for the element as a whole (a block
+shows it on its icon). Not shown while the element is pressed, typed in or focused, nor over a part with a hint of its own (the badge of a `Range`, the controls of a
+`Video`, a microphone button), nor on a touch screen. Browser-only: the server is not told; a custom client may do as it
+likes. Full contract: spec §11, "Tooltips".
 
 **Collapsing and the accordion — `select`.** The web client lets the user fold every block into a
 strip or a bar and open it again with a click (the pointer resting on one shows the block in a pop-up); there is

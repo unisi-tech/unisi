@@ -152,7 +152,7 @@ def reject_based(unit, value):
 It composes with any handler the unit already has — both run, in registration order — rather than replacing it.
 
 ### Block details
-The width and height of blocks is calculated automatically depending on their children. It is possible to set the block width, or make it scrollable , for example for images list. Possible to add MD icon to the header, if required. width, scroll, height, icon are optional.
+The width and height of blocks is calculated automatically depending on their children. It is possible to set the block width, or make it scrollable , for example for images list. Possible to add MD icon to the header, if required. A `tooltip = 'text'` gives the block a hint, shown when the pointer rests on its name (see [Tooltips](#tooltips)). width, scroll, height, icon, tooltip are optional.
 ```
 #Block(name, *children, **options)
 block = Block(‘Pictures’,add_button, images)
@@ -233,6 +233,7 @@ means the current value of 'device' is 'cpu' and options are ['cpu', 'gpu'] .
 Normally they have type property which says UNISI what data it contains and optionally how to operate and draw the element. 
 #### If the element name starts from _ , unisi will hide its name on the screen.
 if we need to paint an icon in an element, add 'icon': 'any MD icon name' to the element constructor.
+To give an element a hint for the user, add `tooltip = 'text'` to the constructor (see [Tooltips](#tooltips)).
 
 #### Most constructor parameters are optional for Unit elements except the first one which is the element name.
 
@@ -261,6 +262,10 @@ Button('Name', changed_handler)
 Icon button, the name has to be started from _ for hiding 
 ```
 Button('_Check', changed_handler, icon = 'check') #any icon name from Material Design Icons(Google)
+```
+An icon button has no label, so it is best given a hint. A button shows its `tooltip` as soon as the pointer is on it (more in [Tooltips](#tooltips)).
+```
+Button('_Check', changed_handler, icon = 'check', tooltip = 'Check the data')
 ```
 
 ### Load to server Button
@@ -472,6 +477,28 @@ def dialog_callback(current_dialog, command_button_name):
 ```
 units can be filled with Unit elements for additional dialog functionality like a Block.
 
+
+### Tooltips
+Any unit, `Button` and `Block` accepts `tooltip = 'text'`: a short hint for the user. It is a plain attribute. Give it in the constructor, or set it in a handler (`unit.tooltip = 'Letters only'`; `''` or `None` takes the hint away): the client gets the change as it gets any other change of a unit.
+```
+Edit('Name', 'Alice', tooltip = 'Your full name')
+Block('Settings', host, port, tooltip = 'Connection settings')
+Button('_Check', check, icon = 'check', tooltip = 'Check the data')
+
+def check_name(unit, value):
+    unit.accept(value)
+    unit.tooltip = 'Your full name' if value.isalpha() else 'Letters only'
+```
+The bundled client shows a hint when the pointer rests on the unit:
+
+| Unit | The pointer rests on | The hint comes | And it is |
+|---|---|---|---|
+| `Button` | the button | at once | by the button |
+| `Block` | the name, or the icon, of the block | after 0.5 s | above the name |
+| `Table`, `Tree`, `Select(type = 'list')`, `TextArea` | the name | after 0.5 s | above the name |
+| any other element (`Edit`, `Text`, `Select`, `Switch`, `Range`, `Image`, `Video`, `Chart`, `HTML`, ...) | the element | after 0.5 s | below the element, above it where there is no room below |
+
+A hint of an element never lies over the data of the element: it is above the name, where the element has a name over its data, and outside the box of the element otherwise. Where the name is not shown (a name that begins with `_`), a tree, a list, a text area and a table show the hint for the element as a whole, below it, and a block shows it on its icon. The hint of an element as a whole is not shown while the user presses the element, types in it or has it focused (it comes again when the pointer has left and come back), nor over a part of the element that has a hint of its own (the badge of a `Range`, the buttons of a `Video`, the microphone), nor on a touch screen. All of it is done in the browser: the server is not told. A custom client may show hints its own way (or not at all). Full contract: `docs/unisi-programming-spec.md` §11 ("Tooltips").
 
 ### Marking what a selection refers to
 Any unit or block accepts `linked = True`, a table accepts `linked = [row indexes]`: the client highlights them and scrolls them into view, leaving their values and the table selection untouched. Set it from the `changed` handler of the block whose selection refers to them; `False` / `[]` removes the mark. See `docs/unisi-programming-spec.md` §11 ("Cross-reference marks").
