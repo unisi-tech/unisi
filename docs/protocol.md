@@ -78,6 +78,10 @@ or a handler returning `True`/`Redesign`).
   on a click and keeps one nested block of a block with `select` open, as an accordion does (spec §6.1). Which blocks are
   collapsed, and which one is open, never leaves the browser: no message of 4 carries it. To open a block of an
   accordion the server changes `select` (a new `update` of the block, 3.2).
+- A `tooltip` set on any unit or block (`"tooltip": "Your full name"`) arrives as a plain field too, and
+  the protocol gives it no meaning either. The bundled client shows it as a hint when the pointer rests on the unit
+  (spec §11, "Tooltips"). A handler that sets, changes or removes it (`''` or `null`) gets it to the client as any
+  change of a unit goes (3.2).
 - `admin` is `true` when the server has the admin panel (always, unless
   `admin = False` in `config.py`): a client then shows an **admin** button
   that sends `["admin"]` (4.3).
@@ -342,8 +346,10 @@ exactly this protocol against `/ws` to actually work as a UNISI client.
 it stays available to compare wire traffic against a known-correct
 implementation.
 
-Block fields such as `scroll`, `width`, `linked` and `select` ask nothing of a
+Block fields such as `scroll`, `width`, `linked` and `select`, and the `tooltip` of a
+block or of any unit, ask nothing of a
 custom client: the protocol does not say what to do with them, and a client that leaves
 them out (or reads them its own way) stays a correct client. The reference client's
 collapsing of blocks and its accordion (`select`, spec §6.1) are such a behavior: they are
-kept in the browser and nothing about them is sent to the server.
+kept in the browser and nothing about them is sent to the server. So are its hints (`tooltip`,
+spec §11): when and where one is shown is the client's business.

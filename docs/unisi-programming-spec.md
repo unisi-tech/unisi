@@ -131,6 +131,7 @@ Important options:
 - `scroll`
 - `scaler`
 - `icon`
+- `tooltip` — a hint, shown when the pointer rests on the name of the block (§11, "Tooltips")
 - `closable`
 - `linked` — `True` marks the block as what a selection in another block refers to (§11, "Cross-reference marks")
 - `select` — `True` or the name of a nested block: the block keeps one of the blocks in it open and collapses the
@@ -360,6 +361,8 @@ From `unisi/units.py`:
 
 Every unit below also accepts a common `persist` kwarg (positional `True` or a key-function) to opt into state persistence — see §14.
 
+Every unit below, and every `Block`, also accepts a `tooltip` kwarg — a hint for the user, shown by the client when the pointer rests on the unit; see "Tooltips" below.
+
 - `Button(name, handler=None, **kwargs)`
 - `Edit(name, value?, changed?, **kwargs)`
 - `Text(name, ...)` (read-only label style)
@@ -420,12 +423,54 @@ does. Unlike `active` (§14.2) the mark means nothing to the server. Not to be c
 tables linked by `link=` (§12): those show the related rows through `value` (the selection)
 or by filtering.
 
+**Tooltips — `tooltip`.** Any unit (a `Button` too) and any `Block` accepts `tooltip = 'text'`: a short hint for the
+user, shown by the client when the pointer rests on the unit. It is a plain attribute, so it is given in the
+constructor or set in a handler like any other (§8), and it reaches the client by the usual change tracking; `''` or
+`None` takes the hint away:
+
+```python
+Edit('Name', 'Alice', tooltip = 'Your full name')
+Block('Settings', host, port, tooltip = 'Connection settings')
+
+def check_name(unit, value):
+    unit.accept(value)
+    unit.tooltip = 'Your full name' if value.isalpha() else 'Letters only'
+```
+
+The text is shown as it is: a number is shown as text, blanks at its ends are dropped, any other kind of value gives no
+hint. The server does nothing with the attribute and is never told about the hint. The bundled client (`uniqua`)
+shows it so:
+
+| Unit | The pointer rests on | The hint comes | And it is |
+|---|---|---|---|
+| `Button` | the button | at once | by the button |
+| `Block` | its name, or its icon | after 0.5 s | above the name |
+| `Table`, `Tree`, `Select(type='list')`, `TextArea` | the name | after 0.5 s | above the name |
+| `Edit`, `Text`, `Select` (a drop-down, radio buttons), `Switch`, `Range`, `Image`, `Video`, `Sound`, `Chart`, `Graph`, `HTML`, `UploadButton`, `CameraButton` | the element | after 0.5 s | below the element, above it where there is no room below |
+
+A collapsed block (§6.1) has no name to rest on, only a strip or a bar: its `tooltip` is the first line of the "Expand"
+hint of the strip or the bar, which comes after 0.4 s, as it always did.
+
+A hint of an element never lies over what the element holds: where a unit has a name over its data (a table, a tree,
+a list, a text area) the hint is for the name and above it, and any other element has it outside its box. (The name of
+a block stands beside the first row of what the block holds, so there the hint, above the name, can lie over a corner of
+what stands next to the name while the pointer rests on the name.) Where the name is not shown (it begins with `_`; for
+a table: it is `'_'`) a tree, a list, a text area and a table show the hint for the element as a whole, below it; a
+block whose name is not shown has the hint on its icon, if it has one.
+
+The hint of an element as a whole is not shown while the user presses the element, types in it or has it focused (it
+comes again when the pointer has left the element and come back), nor while the pointer is on a part that has a hint
+of its own (the badge of a `Range`, which tells its limits and step; the controls of a `Video`; a microphone button),
+nor on a touch screen. A `Button` keeps the hint that it always had: Quasar's own, shown at once.
+
+It is all done in the browser. A custom client (§18) may show hints its own way, or leave them out.
+
 `Table` and `Chart` are not in the list above — each takes enough
 constructor options to warrant its own section: §12 (Table) and §13
 (Chart).
 
 Name convention:
-- prefix `_` in unit name hides visible label in UI.
+- prefix `_` in unit name hides visible label in UI (the `tooltip` of such a unit, if any, is then shown for the unit as a whole).
 
 ## 12. Table Specification
 
