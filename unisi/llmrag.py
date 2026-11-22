@@ -1019,7 +1019,10 @@ async def Q(
         served another one's cached answer. Entries written before this was
         added (key without model/reasoning) are therefore not hit any more —
         a one-time re-query, deliberately: they cannot be attributed to a
-        model. `images` are folded in only when actually passed.
+        model. The model is keyed WITHOUT its provider prefix ('openai/gpt-x'
+        through OpenRouter and 'gpt-x' through a direct endpoint are the same
+        model): switching the endpoint in config.py keeps the cache.
+        `images` are folded in only when actually passed.
     """
     identity = format_vars.pop('identity', _DEFAULT_IDENTITY)
 
@@ -1036,7 +1039,7 @@ async def Q(
     eff_model, eff_reasoning, eff_extra = _resolve_llm(model, reasoning)
 
     cache: QueryCache | None = Unishare.llm_cache
-    cache_key = f'{_type_key(type_value)}:{final_prompt}:llm:{eff_model}:{eff_reasoning or "-"}'
+    cache_key = f'{_type_key(type_value)}:{final_prompt}:llm:{eff_model.rsplit("/", 1)[-1]}:{eff_reasoning or "-"}'
     if images:
         # Appended rather than always-present, so a call with no images
         # keeps the exact cache key it always had — see the Note above.

@@ -437,7 +437,9 @@ malformed/invalid response is never written to the cache, so a bad answer
 can't get "stuck" there forever. The key includes the expected type, the final
 prompt, the effective **model** and **reasoning effort** (and the images, if
 any): switching the model or `reasoning` — per call or in `config.py` — is a
-cache miss, never a replay of another configuration's answer. Entries from
+cache miss, never a replay of another configuration's answer. The model is
+keyed without its provider prefix (`openai/gpt-x` ≡ `gpt-x`): switching the
+endpoint (OpenRouter ↔ direct) keeps the cache. Entries from
 unisi < 0.7.13 (key without model/reasoning) are no longer hit.
 
 ### Rate / usage limits

@@ -1523,6 +1523,17 @@ class TestPerCallOverrides:
         assert len(fake_llm.calls) == 2
 
     @run_async
+    async def test_cache_is_shared_across_providers_of_a_model(self, fake_llm, tmp_path):
+        """The same model through OpenRouter ('openai/gpt-x') and a direct endpoint ('gpt-x') is one cache entry:
+        switching the endpoint in config.py must not re-ask everything (and get new answers)."""
+        Unishare.llm_cache = llmrag.QueryCache(str(tmp_path / 'cache'))
+        fake_llm.responses = ['a', 'b']
+        assert await llmrag.Q('p', model='gpt-x') == 'a'
+        assert await llmrag.Q('p', model='openai/gpt-x') == 'a'
+        assert await llmrag.Q('p', model='gpt-y') == 'b'
+        assert len(fake_llm.calls) == 2
+
+    @run_async
     async def test_cache_config_change_is_a_miss(self, fake_llm, tmp_path):
         """Changing config.reasoning between runs must not replay old answers."""
         Unishare.llm_cache = llmrag.QueryCache(str(tmp_path / 'cache'))
