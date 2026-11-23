@@ -601,8 +601,10 @@ shows it on its icon). Not shown while the element is pressed, typed in or focus
 likes. Full contract: spec §11, "Tooltips".
 
 **Collapsing and the accordion — `select`.** The web client lets the user fold every block into a
-strip or a bar and open it again with a click (the pointer resting on one shows the block in a pop-up); there is
-nothing to switch on (dialogs are never folded). `select` on a block that holds blocks makes it
+strip or a bar and open it again with a click (the pointer resting on one shows the block in a pop-up): a vertical
+strip when something stays open beside it in its row — a block, or an element such as a table or a field — and a
+horizontal bar when it has nothing open beside it. There is nothing to switch on (dialogs are never folded).
+`select` on a block that holds blocks makes it
 an accordion: `select=True` — one nested block is open, the one the user opened last (kept in the browser per screen),
 the first until then, and the others are folded; `select='Details'` — that block is open. Both are browser-only: the
 server gets no message and never learns what is collapsed or open. The server opens a block with

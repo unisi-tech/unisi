@@ -160,10 +160,11 @@ browser, and **no message about it is ever sent to the server** (a custom client
 **Collapsing.** Every block has a collapse button (`unfold_less`) in its header, and there is nothing to switch on. It folds the block, with an
 animation, into one of three forms, chosen by what stands around it:
 
-- a vertical **strip**, as high as its row, when a block in the same row (in the screen area, or in the block that
-  holds it) is open;
-- a **bar**, as wide as its icon, name and state need, when it has no open neighbour: it is alone, or all the blocks
-  of its row are collapsed (the bars of a row go one after another, in the order of the blocks);
+- a vertical **strip**, as high as its row, when something else in the same row is open: a block (in the screen area,
+  or in the block that holds it), or an element of the row of a block (a table, a field, a button, a chart ...), which
+  is seen all the time and so counts as open;
+- a **bar**, as wide as its icon, name and state need, when nothing is open beside it: it is alone in its row, or all
+  the others of its row are collapsed blocks (the bars of a row go one after another, in the order of the blocks);
 - a bar **as wide as the column** for blocks stacked one under another, and for every block in a window narrower
   than 600px.
 
@@ -190,9 +191,9 @@ option:
 
 The blocks of the accordion are those of the rows (and of the header) of the block. Blocks deeper inside are not
 looked into; a nested block that holds blocks may have a `select` of its own. All the blocks but the open one are
-collapsed and drawn by the rules above: strips beside the open block when they stand in one row with it (the row
-goes in a line then, and the open block takes the room that the strips leave), bars where no block of their row is
-open, bars of the width of the column in a column and in a narrow window. The open block has no collapse button, as
+collapsed and drawn by the rules above: strips beside the open block (or beside an element) when they stand in one row
+with it (the row goes in a line then, and the open block, or the element, takes the room that the strips leave), bars
+where nothing of their row is open, bars of the width of the column in a column and in a narrow window. The open block has no collapse button, as
 one block is always open. A click on a strip or a bar (or on the name or the button of the block in its pop-up) opens
 that block and collapses the open one, in one animation.
 
